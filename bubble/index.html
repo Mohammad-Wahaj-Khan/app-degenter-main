@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZubbleMaps - ZIGChain Visualization</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+    <!-- Ticker Tape -->
+    <div class="ticker-tape">
+        <div class="ticker-content">
+            <span class="ticker-item"><span class="ticker-rank">#1</span> <img
+                    src="https://img.icons8.com/color/48/bitcoin.png" alt=""> BTC <span
+                    class="price-up">+2.4%</span></span>
+            <span class="ticker-item"><span class="ticker-rank">#2</span> <img
+                    src="https://img.icons8.com/color/48/ethereum.png" alt=""> ETH <span
+                    class="price-down">-1.2%</span></span>
+            <span class="ticker-item"><span class="ticker-rank">#3</span> <img
+                    src="https://img.icons8.com/color/48/solana.png" alt=""> SOL <span
+                    class="price-up">+5.8%</span></span>
+            <span class="ticker-item"><span class="ticker-rank">#4</span> <img
+                    src="https://img.icons8.com/color/48/dogecoin.png" alt=""> DOGE <span
+                    class="price-up">+12.4%</span></span>
+            <span class="ticker-item"><span class="ticker-rank">#5</span> <img
+                    src="https://img.icons8.com/color/48/cardano.png" alt=""> ADA <span
+                    class="price-down">-0.5%</span></span>
+            <span class="ticker-item"><span class="ticker-rank">#6</span> <img
+                    src="https://img.icons8.com/color/48/polkadot.png" alt=""> DOT <span
+                    class="price-up">+1.2%</span></span>
+            <!-- Duplicate for seamless scroll -->
+            <span class="ticker-item"><span class="ticker-rank">#1</span> <img
+                    src="https://img.icons8.com/color/48/bitcoin.png" alt=""> BTC <span
+                    class="price-up">+2.4%</span></span>
+            <span class="ticker-item"><span class="ticker-rank">#2</span> <img
+                    src="https://img.icons8.com/color/48/ethereum.png" alt=""> ETH <span
+                    class="price-down">-1.2%</span></span>
+            <span class="ticker-item"><span class="ticker-rank">#3</span> <img
+                    src="https://img.icons8.com/color/48/solana.png" alt=""> SOL <span
+                    class="price-up">+5.8%</span></span>
+            <span class="ticker-item"><span class="ticker-rank">#4</span> <img
+                    src="https://img.icons8.com/color/48/dogecoin.png" alt=""> DOGE <span
+                    class="price-up">+12.4%</span></span>
+        </div>
+    </div>
+
+    <div id="app">
+        <div class="glow-bg"></div>
+        <div class="grid-bg"></div>
+
+        <!-- ========== HERO VIEW ========== -->
+        <div id="hero-view">
+            <header class="v2-header">
+                <div class="header-left">
+                    <div class="logo">
+                        <img src="zubblemaps_logo.png" alt="ZubbleMaps Logo" class="logo-img">
+                        <span class="logo-text">ZubbleMaps</span>
+                    </div>
+                </div>
+                <div class="header-right">
+                </div>
+            </header>
+
+            <section class="hero-section">
+                <div class="hero-title">
+                    <h1>Visualize <span class="neon-text">Token Ownership</span> on ZIGChain</h1>
+                    <p>Real-time bubble maps for every token on ZIGChain · <span id="tokenCountBadge"
+                            class="live-badge">Loading…</span></p>
+                </div>
+                <div class="search-container">
+                    <div class="search-glow"></div>
+                    <div class="search-wrapper">
+                        <i data-lucide="search" class="search-icon"></i>
+                        <input type="text" placeholder="Paste contract address or token ticker…" id="hero-search">
+                    </div>
+                </div>
+
+                <!-- Category Tabs -->
+                <div class="home-toolbar">
+                    <div class="home-tabs">
+                        <button class="htab active" data-cat="all">📦 All Tokens</button>
+                        <button class="htab" data-cat="trending">📈 Trending</button>
+                        <button class="htab" data-cat="new">🆕 New Listings</button>
+                        <button class="htab" data-cat="topVolume">💰 Top Volume</button>
+                        <button class="htab" data-cat="topGainers">🚀 Top Gainers</button>
+                        <button class="htab" data-cat="mostActive">⚡ Most Active</button>
+
+                        <!-- Sort Dropdown in the upper row with Tabs -->
+                        <div class="sort-dropdown" id="homeSortDropdown">
+                            <div class="sort-trigger" id="sortTrigger">
+                                <i data-lucide="arrow-up-down"></i>
+                                <span id="sortCurrentLabel">Default Rank</span>
+                                <i data-lucide="chevron-down" class="chevron"></i>
+                            </div>
+                            <div class="sort-options" id="sortOptions">
+                                <div class="sort-option active" data-value="default">Default Rank</div>
+                                <div class="sort-option" data-value="mcapDesc">Market Cap (High-Low)</div>
+                                <div class="sort-option" data-value="volDesc">Volume 24h (High-Low)</div>
+                                <div class="sort-option" data-value="priceDesc">Price (High-Low)</div>
+                                <div class="sort-option" data-value="holdersDesc">Holders (High-Low)</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="home-actions">
+                        <div class="home-refresh-wrap">
+                            <span id="homeUpdatedAt" class="home-ts"></span>
+                            <button id="homeRefreshBtn" class="home-refresh-btn" title="Refresh">↻</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Token Grid (dynamically rendered) -->
+                <div id="home-grid-wrap">
+                    <div id="home-loading" class="home-loading">
+                        <div class="home-spinner"></div>
+                        <span id="home-loading-msg">Connecting to ZIGChain…</span>
+                    </div>
+                    <div id="home-grid" class="home-grid hidden"></div>
+                </div>
+            </section>
+        </div>
+
+        <!-- ========== TOKEN DETAIL VIEW ========== -->
+        <div id="token-view" class="hidden">
+            <!-- Token Sub-Header -->
+            <header class="app-header">
+                <div class="header-left">
+                    <button class="back-btn" id="backBtn">
+                        <i data-lucide="arrow-left"></i>
+                    </button>
+                    <div class="logo">
+                        <img src="zubblemaps_logo.png" alt="ZubbleMaps Logo" class="logo-img">
+                        <span class="logo-text">ZubbleMaps</span>
+                    </div>
+                </div>
+                <div class="th-logo">
+                    <div class="th-icon" id="thIcon">
+                        <!-- image will go here -->
+                    </div>
+                </div>
+                <div class="th-meta">
+                    <span class="th-name" id="thName">...</span>
+                    <span class="th-ticker" id="thTicker">...</span>
+                </div>
+                <div class="th-divider"></div>
+                <span class="th-tag"><i data-lucide="users"></i> <span id="thHolders">Holders</span></span>
+                <div class="th-center">
+                    <div class="th-filters">
+                        <button class="tf-btn active">All Tokens</button>
+                        <button class="tf-btn">All Amounts</button>
+                    </div>
+                    <div class="th-date" id="thDate">Feb 27, 2026</div>
+                </div>
+                <div class="th-right">
+                    <button id="refreshBtn" class="refresh-btn" title="Refresh data"><i
+                            data-lucide="refresh-cw"></i></button>
+                </div>
+            </header>
+
+            <!-- Map + Address List + Info -->
+            <div class="token-layout">
+                <div id="info-panel" class="info-panel"></div>
+                <div class="map-container">
+                    <div id="bubble-map"></div>
+                    <div id="tooltip" class="map-tooltip hidden"></div>
+                    <div class="map-controls">
+                        <button id="zoomIn"><i data-lucide="zoom-in"></i></button>
+                        <button id="zoomOut"><i data-lucide="zoom-out"></i></button>
+                        <button id="resetView"><i data-lucide="maximize"></i></button>
+                    </div>
+                </div>
+
+                <!-- Address List Panel -->
+                <div class="address-panel">
+                    <div class="ap-header">
+                        <span class="ap-title">Address List</span>
+                        <button class="ap-export"><i data-lucide="external-link"></i></button>
+                    </div>
+                    <div class="ap-search">
+                        <i data-lucide="search"></i>
+                        <input type="text" placeholder="Search" id="apSearch">
+                    </div>
+
+                    <div class="ap-cols">
+                        <span>Address</span>
+                        <span id="apShareLabel">Share of supply</span>
+                    </div>
+                    <div id="address-list" class="ap-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+    <script>lucide.createIcons();</script>
+</body>
+
+</html>

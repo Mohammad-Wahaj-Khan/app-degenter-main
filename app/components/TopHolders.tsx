@@ -1,0 +1,272 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import RecentTrades from "./RecentTrades";
+import AuditPanel from "./audit-panel";
+import { FileCode, Wallet } from "lucide-react";
+import { API_BASE_URL, API_HEADERS } from "@/lib/api";
+
+const API_BASE = API_BASE_URL;
+
+const MAX_HOLDERS = 200;
+
+interface Holder {
+  address: string;
+  balance: number;
+  pctOfMax: number;
+  pctOfTotal: number;
+  label?: string;
+}
+
+interface TokenDetails {
+  exponent: number;
+  // Add other token details properties as needed
+}
+
+interface TopHoldersProps {
+  tokenId?: string;
+  exponent?: number;
+}
+
+type TabType =
+  | "Trade History"
+  | "Top Holders"
+  | "Top Traders"
+  | "Security"
+  | "My Swaps";
+
+const TopHolders: React.FC<TopHoldersProps> = ({ tokenId }) => {
+  // console.log('[TopHolders] tokenId:', tokenId);
+  const [holders, setHolders] = useState<Holder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<TabType>("Top Holders");
+  const [currentPage, setCurrentPage] = useState(1);
+  const holdersPerPage = 20;
+  const [tokenDetails, setTokenDetails] = useState<TokenDetails | null>(null);
+
+  // Fetch token details including exponent
+  useEffect(() => {
+    const fetchTokenDetails = async () => {
+      if (!tokenId) return;
+      try {
+        const response = await fetch(
+          `${API_BASE}/tokens/${encodeURIComponent(tokenId)}`,
+          { headers: API_HEADERS }
+        );
+        if (!response.ok) throw new Error("Failed to fetch token details");
+        const data = await response.json();
+        setTokenDetails(data?.data || null);
+      } catch (error) {
+        console.error("Error fetching token details:", error);
+        setTokenDetails(null);
+      }
+    };
+
+    fetchTokenDetails();
+  }, [tokenId]);
+
+  const fetchContractLabel = async (contractAddress: string) => {
+    try {
+      const response = await fetch(
+        `https://zigchain-lcd.degenter.io/cosmwasm/wasm/v1/contract/${contractAddress}`
+      );
+      if (!response.ok) return null;
+      const data = await response.json();
+      return data?.contract_info?.label || null;
+    } catch (error) {
+      console.error("Error fetching contract label:", error);
+      return null;
+    }
+  };
+
+  const fetchTopHolders = async () => {
+    if (!tokenId) return;
+    try {
+      setLoading(true);
+      const res = await fetch(
+        `${API_BASE}/tokens/${encodeURIComponent(tokenId)}/holders`,
+        {
+          cache: "no-store",
+          headers: API_HEADERS,
+        }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (json?.success && Array.isArray(json.data)) {
+        // Fetch labels for contract addresses
+        const holdersWithLabels = await Promise.all(
+          json.data.map(async (holder: Holder) => {
+            if (holder.address.length > 60) {
+              const label = await fetchContractLabel(holder.address);
+              return { ...holder, label };
+            }
+            return holder;
+          })
+        );
+        setHolders(holdersWithLabels);
+      } else {
+        setHolders([]);
+      }
+    } catch (err) {
+      console.error("Failed to fetch top holders:", err);
+      setHolders([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTopHolders();
+  }, [tokenId]);
+
+  // Pagination logic
+  const indexOfLastHolder = currentPage * holdersPerPage;
+  const indexOfFirstHolder = indexOfLastHolder - holdersPerPage;
+  const currentHolders = holders.slice(indexOfFirstHolder, indexOfLastHolder);
+  const totalPages = Math.ceil(holders.length / holdersPerPage);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
+
+  const tabs: TabType[] = [
+    "Trade History",
+    "Top Holders",
+    "Top Traders",
+    "Security",
+    "My Swaps",
+  ];
+
+  return (
+    <div
+      className="border-b border-x border-[#808080]/20 rounded-b-md overflow-hidden shadow-md w-full"
+      style={{
+        backgroundImage: `linear-gradient(120deg,#000000 65%,#14624F 100%)`,
+        backgroundSize: "cover",
+        backgroundRepeat: "no-repeat",
+      }}
+    >
+      {/* Tabs Header */}
+      {/* <div className="relative flex items-center justify-between px-4 py-3 bg-black/40">
+        <div className="absolute bottom-0 left-4 right-4 h-[1px] bg-gradient-to-r from-[#39C8A6] from-37% to-[#FA4E30] to-67%"></div>
+        <div className="flex items-center gap-4 text-sm sm:text-base overflow-x-auto">
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`${
+                tab === activeTab
+                  ? "flex items-center justify-center text-white bg-[#1C1C1C] p-2 rounded"
+                  : "text-gray-400 hover:text-white"
+              } font-medium transition-all whitespace-nowrap flex items-center justify-center h-full`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      </div> */}
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm sm:text-[0.95rem] text-white">
+          <thead className="bg-black/60 text-white uppercase text-xs tracking-wider">
+            <tr>
+              <td className="px-4 py-2 text-left text-gray-400">Rank</td>
+              <td className="px-4 py-2 text-left text-gray-400">Address</td>
+              <td className="px-4 py-2 text-left text-gray-400">Balance</td>
+              <td className="px-4 py-2 text-left text-gray-400">% of Max</td>
+              <td className="px-4 py-2 text-left text-gray-400">% of Total</td>
+            </tr>
+          </thead>
+
+          <tbody className="bg-black/30">
+            {loading ? (
+              [...Array(10)].map((_, i) => (
+                <tr key={i} className="border-b border-gray-800 animate-pulse">
+                  <td className="px-3 sm:px-4 py-3">
+                    <div className="h-4 bg-gray-700 rounded w-16" />
+                  </td>
+                  <td className="px-3 sm:px-4 py-3">
+                    <div className="h-4 bg-gray-700 rounded w-16" />
+                  </td>
+                  <td className="px-3 sm:px-4 py-3">
+                    <div className="h-4 bg-gray-700 rounded w-16" />
+                  </td>
+                  <td className="px-3 sm:px-4 py-3">
+                    <div className="h-4 bg-gray-700 rounded w-16" />
+                  </td>
+                  <td className="px-3 sm:px-4 py-3">
+                    <div className="h-4 bg-gray-700 rounded w-16" />
+                  </td>
+                  <td className="px-3 sm:px-4 py-3">
+                    <div className="h-4 bg-gray-700 rounded w-16" />
+                  </td>
+                </tr>
+              ))
+            ) : activeTab === "Top Holders" && currentHolders.length > 0 ? (
+              currentHolders.map((h, i) => (
+                <tr
+                  key={i}
+                  className="hover:bg-white/5 transition border-b border-white/15"
+                >
+                  <td className="px-4 py-2">{indexOfFirstHolder + i + 1}</td>
+                  <td className="px-4 py-2">
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={
+                            h.address.length > 60
+                              ? `https://zigscan.org/smart-contracts/contract/${h.address}`
+                              : `https://zigscan.org/address/${h.address}`
+                          }
+                          target="_blank"
+                          className="text-[#00FFA0] hover:underline flex items-center gap-1"
+                        >
+                          {/* {h.address.length > 60 ? (
+                            <FileCode className="w-4 h-4" />
+                          ) : (
+                            <Wallet className="w-4 h-4" />
+                          )} */}
+                          {h.address.slice(0, 8)}...{h.address.slice(-6)}
+                        </Link>
+                      </div>
+                      {h.label && (
+                        <span className="text-xs text-gray-400">
+                          {h.label} • {h.pctOfMax.toFixed(3)}% of Max
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-2 text-green-400">
+                    {(tokenDetails?.exponent === 0
+                      ? h.balance * 1000000
+                      : h.balance
+                    ).toLocaleString(undefined, {
+                      maximumFractionDigits: 2,
+                    })}
+                  </td>
+                  <td className="px-4 py-2 text-yellow-400">
+                    {h.pctOfMax.toFixed(3)}%
+                  </td>
+                  <td className="px-4 py-2 text-blue-400">
+                    {h.pctOfTotal.toFixed(3)}%
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={5} className="text-center text-gray-500 py-6">
+                  No holder data found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  );
+};
+
+export default TopHolders;

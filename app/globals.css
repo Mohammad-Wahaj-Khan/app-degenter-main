@@ -1,0 +1,389 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Slim transparent black scrollbar for all elements */
+*,
+*::-webkit-scrollbar,
+*::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-track {
+  scrollbar-width: thin; /* for Firefox */
+  scrollbar-color: rgba(0, 0, 0, 0.4) transparent; /* thumb + track for Firefox */
+}
+
+*::-webkit-scrollbar {
+  width: 6px; /* slim width for vertical */
+  height: 6px; /* slim height for horizontal */
+  background: transparent; /* track background */
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent; /* track transparent */
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.4); /* black-ish semi-transparent thumb */
+  border-radius: 6px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.6); /* darker on hover */
+}
+
+:root {
+  --primary: #00c9b1;
+  --primary-glow: rgba(0, 201, 177, 0.35);
+  --secondary: #4a8fd4;
+  --secondary-glow: rgba(74, 143, 212, 0.3);
+  --bg-dark: #060e1e;
+  --bg-card: rgba(6, 14, 30, 0.9);
+  --text-main: #ffffff;
+  --text-dim: #7a8fa8;
+  --border: rgba(100, 180, 220, 0.08);
+  --color-whale: #00c9b1;
+  --color-lp: #34d399;
+  --color-trader: #9b7fe8;
+  --color-holder: #4a8fd4;
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  font-family: "Inter", sans-serif;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+.drop-from-top {
+  opacity: 0;
+  transform: translateY(-40px);
+  will-change: opacity, transform;
+}
+
+.drop-from-top-active {
+  animation: drop-from-top 0.75s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes drop-from-top {
+  0% {
+    opacity: 0;
+    transform: translateY(-40px);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* Tablet layout (≤1024px): make panels stack neatly */
+@media (max-width: 1024px) {
+  .pair-container {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .pair-container > .left-panel,
+  .pair-container > .main-panel {
+    width: 100% !important;
+  }
+
+  .audit-panel {
+    width: 100% !important;
+    margin-left: 0 !important;
+  }
+}
+
+/* Mobile layout (≤768px): tighter paddings, stack vertically */
+@media (max-width: 768px) {
+  .pair-container {
+    flex-direction: column;
+    padding: 0.5rem 0.75rem !important;
+  }
+
+  .left-panel {
+    width: 100% !important;
+    margin-bottom: 1rem;
+  }
+
+  .main-panel {
+    width: 100% !important;
+  }
+
+  .audit-panel {
+    width: 100% !important;
+    opacity: 1 !important;
+    margin-left: 0 !important;
+  }
+
+  /* Chart responsive */
+  .trading-chart-container {
+    height: 300px !important;
+  }
+
+  /* Tabs scroll horizontally if overflow */
+  .tabs-scroll {
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tabs-scroll button {
+    flex-shrink: 0;
+    margin-right: 1rem;
+  }
+
+  /* Reduce large paddings and gaps */
+  .pair-wrapper {
+    padding: 0.5rem !important;
+  }
+
+  .pair-container > div {
+    margin: 0 auto;
+  }
+
+  /* Text and chart adjustments */
+  .token-header,
+  .chart-header {
+    text-align: center;
+  }
+}
+@keyframes flameFireGlow {
+  0% {
+    box-shadow: 0 0 0px rgba(255, 0, 0, 0);
+    border-color: rgba(255, 0, 0, 0);
+  }
+  10% {
+    box-shadow: 0 0 15px #ff0000;
+    border-color: #ff0000;
+  }
+  25% {
+    box-shadow: 0 0 25px #ff5a00;
+    border-color: #ff5a00;
+  }
+  50% {
+    box-shadow: 0 0 35px #ff9a00;
+    border-color: #ff9a00;
+  }
+  /* 75% {
+    box-shadow: 0 0 25px #ffce00;
+    border-color: #ffce00;
+  }
+  100% {
+    box-shadow: 0 0 15px #ffe808;
+    border-color: #ffe808;
+  } */
+}
+
+/* 1. The Main Background "River" */
+.water-container {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(120deg, #000000 60%, #0a2f26 100%);
+}
+
+/* The animated liquid layer */
+.water-container::before {
+  content: "";
+  position: absolute;
+  top: -20%; left: -20%; width: 140%; height: 140%;
+  background: 
+    radial-gradient(circle at 50% 50%, rgba(30, 167, 109, 0.05) 0%, transparent 50%),
+    url('https://www.transparenttextures.com/patterns/carbon-fibre.png'); /* Subtle texture */
+  filter: url(#water-filter); /* Applies the real water distortion */
+  opacity: 0.4;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* 2. Waterfall Entrance Animation */
+@keyframes waterfall-in {
+  0% { transform: translateY(-30px) scale(0.98); opacity: 0; filter: blur(8px); }
+  100% { transform: translateY(0) scale(1); opacity: 1; filter: blur(0); }
+}
+
+.coin360-progress {
+  position: relative;
+}
+
+.coin360-progress .progress-float-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.45) 50%, rgba(255, 255, 255, 0) 100%);
+  opacity: 0.35;
+  mix-blend-mode: screen;
+  pointer-events: none;
+  animation: coin360-progress-float 3.5s ease-in-out infinite;
+  transform: translateX(-150%);
+}
+
+@keyframes coin360-progress-float {
+  0% {
+    transform: translateX(-150%) scaleX(1.15);
+    opacity: 0.05;
+  }
+  40% {
+    transform: translateX(-15%) scaleX(1.15);
+    opacity: 0.5;
+  }
+  100% {
+    transform: translateX(150%) scaleX(1.15);
+    opacity: 0.05;
+  }
+}
+
+.new-token-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* subtle pulsating pop effect on the "new" badge */
+.new-token-badge-flare {
+  animation: badge-popin-popout 2.4s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.leaderboard-badge {
+  animation: badge-popin-popout 3s ease-in-out infinite;
+  transform-origin: center;
+  filter: drop-shadow(0 15px 35px rgba(0, 0, 0, 0.45));
+}
+
+@keyframes badge-popin-popout {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.8;
+  }
+  25% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  55% {
+    transform: scale(0.97);
+    opacity: 0.95;
+  }
+  70% {
+    transform: scale(1.02);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.chart-bar {
+  transform-origin: bottom;
+  transform: scaleY(0);
+  opacity: 0;
+  animation: chartBarGrow 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.pie-path {
+  stroke-dasharray: 200;
+  stroke-dashoffset: 200;
+  opacity: 0;
+  animation: drawPie 1s cubic-bezier(0.24, 1, 0.32, 1) forwards;
+}
+
+@keyframes chartBarGrow {
+  0% {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes leaderboard-wobble {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  40% {
+    transform: translateY(-6px) scale(1.02);
+  }
+  80% {
+    transform: translateY(-3px) scale(0.99);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes drawPie {
+  0% {
+    stroke-dashoffset: 200;
+    opacity: 0;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+/* 3. Mature Shark Glow */
+/* @keyframes shark-pulse {
+  0% { background: rgba(30, 167, 109, 0.02); box-shadow: inset 0 0 0px rgba(30, 167, 109, 0); }
+  50% { background: rgba(30, 167, 109, 0.08); box-shadow: inset 0 0 20px rgba(30, 167, 109, 0.2); }
+  100% { background: rgba(30, 167, 109, 0.02); box-shadow: inset 0 0 0px rgba(30, 167, 109, 0); }
+} */
+
+.row-waterfall {
+  animation: waterfall-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  position: relative;
+  z-index: 1;
+}
+
+.shark-row {
+  /* animation:  */
+    /* waterfall-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards, */
+    /* shark-pulse 3s ease-in-out infinite */
+    /* ; */
+  /* border-left: 3px solid #1EA76D; */
+}
+
+/* Flame effect for high-value text */
+.flame-fire-glow {
+  /* text-shadow: 0 0 8px rgba(30, 167, 109, 0.6); */
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.ranking-card {
+  position: relative;
+  filter: blur(3px);
+  opacity: 0.78;
+  transform: scale(0.96);
+  transition:
+    transform 0.45s ease,
+    filter 0.45s ease,
+    opacity 0.35s ease,
+    box-shadow 0.35s ease;
+  will-change: transform, filter, opacity;
+}
+
+.ranking-card-active {
+  position: sticky;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin-top: 0;
+  filter: blur(0);
+  opacity: 1;
+  transform: scale(1.05);
+  box-shadow: 0 25px 70px rgba(239, 68, 68, 0.35);
+}
