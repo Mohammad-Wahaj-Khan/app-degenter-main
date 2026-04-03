@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 
 export interface ProfileData {
   user_id: number;
@@ -23,14 +23,10 @@ export interface ProfileData {
 
 export async function fetchProfileByWallet(walletAddress: string): Promise<ProfileData | null> {
   try {
-    const apiKey = process.env.NEXT_PUBLIC_API_KEY || process.env.NEXT_PUBLIC_X_API_KEY;
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...API_HEADERS,
     };
-
-    if (apiKey) {
-      headers['x-api-key'] = apiKey;
-    }
 
     const response = await fetch(
       `${API_BASE_URL}/profiles/by-wallet/${walletAddress}`,

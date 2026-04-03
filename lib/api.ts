@@ -8,9 +8,18 @@ const normalizeBaseUrl = (value?: string) => {
 };
 const BASE_URL = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
 export const API_BASE_URL = BASE_URL;
-const API_KEY =
-  process.env.NEXT_PUBLIC_X_API_KEY || process.env.NEXT_PUBLIC_API_KEY;
-export const API_HEADERS: HeadersInit = API_KEY ? { "x-api-key": API_KEY } : {};
+const resolveApiKey = () =>
+  process.env.X_API_KEY ||
+  process.env.NEXT_PUBLIC_X_API_KEY ||
+  process.env.NEXT_PUBLIC_API_KEY ||
+  process.env.NEXT_PUBLIC_DEGENTER_API_KEY ||
+  process.env.DEGENTER_API_KEY ||
+  process.env.API_KEY ||
+  undefined;
+export const API_KEY = resolveApiKey();
+export const API_HEADERS: Record<string, string> = API_KEY
+  ? { "x-api-key": API_KEY }
+  : {};
 
 /* ===== Types ===== */
 export type Bucket = "30m" | "1h" | "4h" | "24h";

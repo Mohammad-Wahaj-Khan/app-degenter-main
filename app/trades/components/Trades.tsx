@@ -4,16 +4,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Image from "next/image";
 import { Copy, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
+import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 const ZIGCHAIN_ICON = "/zigicon.png";
 const Degenter_ICON = "/degen.png";
 const ZIGCHAIN_LABEL = "Oroswap";
 const Degenter_Label = "Degenter";
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "${process.env.NEXT_PUBLIC_API_BASE_URL}";
-const API_KEY =
-  process.env.NEXT_PUBLIC_X_API_KEY || process.env.NEXT_PUBLIC_API_KEY;
-const API_HEADERS: HeadersInit = API_KEY ? { "x-api-key": API_KEY } : {};
+const API_BASE = API_BASE_URL;
 const TRADES_WS_URL = process.env.NEXT_PUBLIC_TRADES_WS_URL || "";
 const MAX_TRADES = 500;
 const HIGHLIGHT_DURATION_MS = 2000;

@@ -3,6 +3,7 @@ import React, { useEffect, useState, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Clock, ExternalLink } from "lucide-react";
+import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 
 // Utility function to format time ago
 const timeAgo = (dateString: string): string => {
@@ -46,9 +47,7 @@ interface Trade {
   class: "whale" | "shark" | "shrimp";
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
-const API_KEY = process.env.NEXT_PUBLIC_X_API_KEY || process.env.NEXT_PUBLIC_API_KEY;
-const API_HEADERS: HeadersInit = API_KEY ? { "x-api-key": API_KEY } : {};
+const API_BASE = API_BASE_URL;
 const LARGE_TRADES_TIMEFRAME = "60m";
 const LARGE_TRADES_UNIT = "usd";
 const itemsPerPage = 8;

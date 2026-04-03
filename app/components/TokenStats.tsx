@@ -2,12 +2,9 @@
 
 import { useEffect, useState, useRef } from "react";
 import { ChevronDown } from "lucide-react";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 
 const API_BASE = API_BASE_URL;
-const API_KEY =
-  process.env.NEXT_PUBLIC_X_API_KEY || process.env.NEXT_PUBLIC_API_KEY;
-const API_HEADERS: HeadersInit = API_KEY ? { "x-api-key": API_KEY } : {};
 
 interface TokenData {
   token?: {

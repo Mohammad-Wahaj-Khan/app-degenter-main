@@ -16,7 +16,7 @@ import {
 import { Copy, Expand, RefreshCw, Share2 } from "lucide-react";
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import type { SignerFilterSummary } from "@/app/components/RecentTrades";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 
 declare global {
   interface Window {
@@ -27,9 +27,6 @@ declare global {
 
 /* ---------- CONFIG ---------- */
 const API_BASE = API_BASE_URL;
-const API_KEY =
-  process.env.NEXT_PUBLIC_X_API_KEY || process.env.NEXT_PUBLIC_API_KEY;
-const API_HEADERS: HeadersInit = API_KEY ? { "x-api-key": API_KEY } : {};
 const WS_URL =
   process.env.NEXT_PUBLIC_TRADES_WS_URL || "ws://159.223.28.88:3000/ws";
 const NATIVE_DENOM = "uzig";
