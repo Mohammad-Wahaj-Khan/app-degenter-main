@@ -1,10 +1,7 @@
+import { API_BASE_URL, API_HEADERS } from "@/lib/api";
+
 // API Configuration
-const BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  process.env.API_BASE_URL ||
-  "";
-const API_KEY =
-  process.env.NEXT_PUBLIC_X_API_KEY || process.env.NEXT_PUBLIC_API_KEY;
+const BASE_URL = API_BASE_URL;
 
 // TypeScript Interfaces
 export interface Token {
@@ -114,7 +111,7 @@ export class TokenAPI {
 
   private async fetchData<T>(endpoint: string): Promise<T> {
     try {
-      const headers: HeadersInit = API_KEY ? { "x-api-key": API_KEY } : {};
+      const headers = API_HEADERS;
       const response = await fetch(`${this.baseUrl}${endpoint}`, { headers });
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);

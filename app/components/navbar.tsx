@@ -30,7 +30,7 @@ const SearchBar = dynamic(() => import("./search-bar"), { ssr: false });
 // ---- CosmosKit (wallet) ----
 import { useChain } from "@cosmos-kit/react";
 import { CHAIN_NAME } from "../config/chain";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, API_KEY } from "@/lib/api";
 
 const API_BASE = API_BASE_URL;
 const PROFILE_FOCUS_SEEN_KEY = "degenterProfileFocusSeen";
@@ -313,11 +313,7 @@ export default function Navbar() {
     }
   };
 
-  const apiKey =
-    process.env.NEXT_PUBLIC_X_API_KEY ||
-    process.env.NEXT_PUBLIC_API_KEY ||
-    process.env.NEXT_PUBLIC_DEGENTER_API_KEY ||
-    "";
+  const apiKey = API_KEY || "";
 
   // Handle profile click with wallet check
   const handleProfileClick = (e: React.MouseEvent) => {

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { TrendingUp, TrendingDown, Activity, Zap, Crown, Flame, Clock, ChevronUp, ChevronDown, BarChart3, Sparkles } from 'lucide-react';
 import { createChart, ColorType, UTCTimestamp } from 'lightweight-charts';
 import Link from 'next/link';
+import { API_BASE_URL, API_HEADERS } from '@/lib/api';
 
 interface Token {
   rank: number;
@@ -19,7 +20,7 @@ interface Token {
   tokenId?: string;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL|| process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || '';
+const API_URL = API_BASE_URL;
 
 const formatPercent = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
 const formatPrice = (value: number) => {
@@ -326,14 +327,14 @@ const FindGemsMain = () => {
   const [changePctBySymbol, setChangePctBySymbol] = useState<Record<string, ChangePct>>({});
   const [selectedTimeframe, setSelectedTimeframe] = useState<'30m' | '4h' | '24h'>('24h');
   
-  const apiKey = process.env.NEXT_PUBLIC_API_KEY || process.env.NEXT_PUBLIC_X_API_KEY || '';
-
   useEffect(() => {
     const fetchTokens = async () => {
       try {
         setLoading(true);
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (apiKey) headers['x-api-key'] = apiKey;
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          ...(typeof API_HEADERS === 'object' && API_HEADERS !== null ? Object.fromEntries(Object.entries(API_HEADERS).map(([k, v]) => [k, String(v)])) : {}),
+        };
 
         const [gainersResponse, losersResponse] = await Promise.all([
           fetch(`${API_URL}/tokens/gainers`, { headers }),
@@ -408,7 +409,7 @@ const FindGemsMain = () => {
       }
     };
     fetchTokens();
-  }, [apiKey]);
+  }, []);
 
   const topGainers = useMemo(() => gainers.slice(0, 10), [gainers]);
   const topLosers = useMemo(() => losers.slice(0, 10), [losers]);
@@ -448,8 +449,10 @@ const FindGemsMain = () => {
     if (!tokenIds.length) return;
 
     const controller = new AbortController();
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (apiKey) headers['x-api-key'] = apiKey;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...API_HEADERS,
+    };
 
     const fetchAll = async () => {
       const results = await Promise.all(
@@ -481,7 +484,7 @@ const FindGemsMain = () => {
 
     fetchAll();
     return () => controller.abort();
-  }, [heatmapTokens, apiKey, ohlcvByToken]);
+  }, [heatmapTokens, ohlcvByToken]);
 
   useEffect(() => {
     const symbols = Array.from(
@@ -494,8 +497,10 @@ const FindGemsMain = () => {
     if (!symbols.length) return;
 
     const controller = new AbortController();
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (apiKey) headers['x-api-key'] = apiKey;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...API_HEADERS,
+    };
 
     const fetchAll = async () => {
       const results = await Promise.all(
@@ -528,7 +533,7 @@ const FindGemsMain = () => {
 
     fetchAll();
     return () => controller.abort();
-  }, [visibleTokens, apiKey, changePctBySymbol]);
+  }, [visibleTokens, changePctBySymbol]);
 
   const getIntensityColor = (change: number) => {
     const absChange = Math.abs(change);

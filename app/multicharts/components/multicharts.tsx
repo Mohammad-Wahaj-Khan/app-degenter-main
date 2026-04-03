@@ -22,7 +22,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import TradingChart from "@/app/components/tradingchart";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 
 type WidgetType = "charts" | "recent-trades" | "token-stats";
@@ -126,9 +126,6 @@ const MAX_SLOTS = 15;
 const MAX_RECENT_TRADES = 50;
 const HIGHLIGHT_DURATION_MS = 4000;
 const API_BASE = API_BASE_URL;
-const API_KEY =
-  process.env.NEXT_PUBLIC_X_API_KEY || process.env.NEXT_PUBLIC_API_KEY;
-const API_HEADERS: HeadersInit = API_KEY ? { "x-api-key": API_KEY } : {};
 const TRADES_WS_URL = process.env.NEXT_PUBLIC_TRADES_WS_URL || "";
 const MULTICHARTS_SLOTS_CACHE_KEY = "multicharts_slots_v4_canvas";
 

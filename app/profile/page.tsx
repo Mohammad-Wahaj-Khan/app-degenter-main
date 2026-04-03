@@ -30,6 +30,7 @@ import Navbar from "../components/navbar";
 import TopMarketToken from "../components/TopMarketToken";
 import { useChain } from "@cosmos-kit/react";
 import { CHAIN_NAME } from "../config/chain";
+import { API_KEY } from "@/lib/api";
 
 const GUEST_WALLET_KEY = "degenterGuestWalletId";
 const USER_ID_KEY = "degenterUserId";
@@ -57,7 +58,7 @@ export default function ProfilePage() {
     () => searchParams.get("handle")?.trim() || "",
     [searchParams]
   );
-  const apiKey = process.env.NEXT_PUBLIC_X_API_KEY;
+  const apiKey = API_KEY;
   const { address, openView, isWalletConnected } = useChain(
     (CHAIN_NAME as string) || "zigchain-1"
   );

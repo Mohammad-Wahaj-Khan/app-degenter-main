@@ -14,13 +14,10 @@ import {
   X,
 } from "lucide-react";
 import explorer from "../../public/explorer.png";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 const API_BASE = API_BASE_URL;
-const API_KEY =
-  process.env.NEXT_PUBLIC_X_API_KEY || process.env.NEXT_PUBLIC_API_KEY;
-const API_HEADERS: HeadersInit = API_KEY ? { "x-api-key": API_KEY } : {};
 const TRADES_WS_URL = process.env.NEXT_PUBLIC_TRADES_WS_URL || "";
 const MAX_TRADES = 500;
 const TRADE_LOOKBACK_DAYS = 7;

@@ -17,6 +17,7 @@ import {
   ChevronRight,
   X
 } from "lucide-react";
+import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 
 interface MarketsProps {
   denom?: string;
@@ -53,8 +54,7 @@ interface PoolsResponse {
   meta: { bucket: string; includeCaps: number; dominant: string };
 }
 
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
-const API_KEY = process.env.NEXT_PUBLIC_X_API_KEY;
+const API_BASE = API_BASE_URL.replace(/\/+$/, "");
 
 // Sophisticated number formatting
 const formatCurrency = (val: number, compact = true) => {
@@ -92,10 +92,12 @@ export default function Markets({ denom }: MarketsProps) {
     const fetchPools = async () => {
       try {
         setLoading(true);
-        const headers: Record<string, string> = { "Content-Type": "application/json" };
-        if (API_KEY) headers["x-api-key"] = API_KEY;
+        const headers = {
+          "Content-Type": "application/json",
+          ...API_HEADERS,
+        };
         const response = await fetch(
-          `${API_BASE_URL}/tokens/${encodeURIComponent(denom)}/pools`,
+          `${API_BASE}/tokens/${encodeURIComponent(denom)}/pools`,
           { headers, signal: controller.signal }
         );
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
