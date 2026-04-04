@@ -1329,7 +1329,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
             )}
             {trade.signer && (
               <>
-                <button
+                {/* <button
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
@@ -1339,7 +1339,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
                   aria-label="Search wallet"
                 >
                   <Search className="w-3 h-3 text-gray-200" />
-                </button>
+                </button> */}
                 <button
                   type="button"
                   onClick={(event) => {

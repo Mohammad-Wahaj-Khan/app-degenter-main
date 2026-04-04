@@ -1106,9 +1106,9 @@ export default function LaunchToken() {
                 className="w-full rounded-xl border border-zinc-700 bg-zinc-900/60 px-4 py-4 text-sm placeholder:text-zinc-500 focus:border-emerald-400/60 focus:outline-none backdrop-blur-sm transition-all resize-none"
                 maxLength={DESCRIPTION_MAX_LENGTH}
               />
-              <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+              {/* <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
                 <Sparkles className="h-5 w-5 text-emerald-400/50" />
-              </div>
+              </div> */}
             </div>
 
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between p-4 rounded-xl bg-zinc-900/30 border border-zinc-800">

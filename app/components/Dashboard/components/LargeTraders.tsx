@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Clock, ExternalLink } from "lucide-react";
@@ -51,6 +51,8 @@ const API_BASE = API_BASE_URL;
 const LARGE_TRADES_TIMEFRAME = "60m";
 const LARGE_TRADES_UNIT = "usd";
 const itemsPerPage = 8;
+const POLLING_BASE_INTERVAL_MS = 15000;
+const POLLING_MAX_INTERVAL_MS = 120000;
 
 const LargeTradersTable: React.FC = () => {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -64,17 +66,19 @@ const LargeTradersTable: React.FC = () => {
   const [tokenImageMap, setTokenImageMap] = useState<Record<string, string>>({});
   const [showNoTradesMessage, setShowNoTradesMessage] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const pollingRef = useRef<number | null>(null);
+  const isFilterLoadingRef = useRef(false);
+  const initialLoadRef = useRef(true);
+  const nextIntervalRef = useRef(POLLING_BASE_INTERVAL_MS);
+  const mountedRef = useRef(true);
 
-  const fetchTrades = async () => {
+  const fetchTrades = useCallback(async () => {
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    if (isFilterLoading) {
-      setLoading(false);
-    } else {
-      setLoading(true);
-    }
+    const shouldShowLoading = isFilterLoadingRef.current || initialLoadRef.current;
+    setLoading(shouldShowLoading);
 
     try {
       const url = `${API_BASE}/trades?tf=${LARGE_TRADES_TIMEFRAME}&unit=${LARGE_TRADES_UNIT}`;
@@ -120,20 +124,39 @@ const LargeTradersTable: React.FC = () => {
       setTrades(limitedTrades);
       setTotalItems(filteredTrades.length);
       setError(null);
+      nextIntervalRef.current = POLLING_BASE_INTERVAL_MS;
     } catch (err: any) {
       if (err?.name === "AbortError") return;
+      nextIntervalRef.current = Math.min(
+        POLLING_MAX_INTERVAL_MS,
+        nextIntervalRef.current * 2
+      );
       console.error("Error fetching trades:", err);
       setError("Failed to load trades. Please try again later.");
     } finally {
       setLoading(false);
       setIsFilterLoading(false);
+      isFilterLoadingRef.current = false;
+      if (initialLoadRef.current) {
+        initialLoadRef.current = false;
+      }
+      if (!mountedRef.current) return;
+      if (pollingRef.current) {
+        window.clearTimeout(pollingRef.current);
+      }
+      pollingRef.current = window.setTimeout(() => {
+        if (mountedRef.current) {
+          fetchTrades();
+        }
+      }, nextIntervalRef.current);
     }
-  };
+  }, [selectedClass]);
 
   const handleFilterChange = (filter: "all" | "whale" | "shark" | "shrimp") => {
     setSelectedClass(filter);
     setCurrentPage(1);
     setIsFilterLoading(true);
+    isFilterLoadingRef.current = true;
   };
 
   useEffect(() => {
@@ -198,11 +221,18 @@ const LargeTradersTable: React.FC = () => {
   };
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchTrades();
+
     return () => {
+      mountedRef.current = false;
+      if (pollingRef.current) {
+        window.clearTimeout(pollingRef.current);
+        pollingRef.current = null;
+      }
       if (abortRef.current) abortRef.current.abort();
     };
-  }, [selectedClass, currentPage]);
+  }, [fetchTrades]);
 
   useEffect(() => {
     if (trades.length > 0) {
