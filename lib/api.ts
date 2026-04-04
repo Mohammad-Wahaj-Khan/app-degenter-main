@@ -231,7 +231,7 @@ export class TokenAPI {
     init: RequestInit = {}
   ): Promise<Trade[]> {
     return this.fetchData<Trade[]>(
-      `/trades/?tf=${bucket}&unit=${unit}&limit=5000`,
+      `/trades/?tf=${bucket}&unit=${unit}&limit=50`,
       init
     );
   }

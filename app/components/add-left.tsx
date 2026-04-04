@@ -497,7 +497,7 @@ export default function AddLeft() {
           }}
         >
           <div className="flex gap-2 justify-center mb-2">
-            <div className="flex-col items-center justify-center">
+            <div className="flex-col items-center justify-center uppercase">
               <h3 className="text-white font-medium text-[1.5rem] text-center">
                 {token?.name}
               </h3>

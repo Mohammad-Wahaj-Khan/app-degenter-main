@@ -48,6 +48,16 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
   const prevTokensRef = useRef<Token[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const pollingRef = useRef<number | null>(null);
+  const volumeChangesRef = useRef(volumeChanges);
+  const currentPageRef = useRef(currentPage);
+
+  useEffect(() => {
+    volumeChangesRef.current = volumeChanges;
+  }, [volumeChanges]);
+
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
 
   const fetchTokens = useCallback(
     async (isPolling = false) => {
@@ -68,7 +78,7 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
           "best",
           "volume",
           ITEMS_PER_PAGE,
-          (currentPage - 1) * ITEMS_PER_PAGE,
+          (currentPageRef.current - 1) * ITEMS_PER_PAGE,
           { signal: controller.signal }
         );
 
@@ -107,7 +117,7 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
         });
 
         // Compute volume changes
-        const newVolumeChanges = { ...volumeChanges };
+        const newVolumeChanges = { ...volumeChangesRef.current };
         tokensData.forEach((token) => {
           const prevToken = prevTokensRef.current.find(
             (t) => t.id === token.id
@@ -138,8 +148,8 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
           // setLoading(false);
         }
       }
-    },
-    [currentPage]
+  },
+    []
   );
 
   // Set up polling
@@ -198,6 +208,34 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
       return 0;
     });
   }, [tokens, sortConfig]);
+
+  const priceChangeBySymbol = useMemo(() => {
+    const map = new Map<string, number>();
+    tokens.forEach((token) => {
+      const symbol = token.symbol?.toLowerCase?.();
+      if (!symbol) return;
+      const changeValue = token.price_change_percentage_24h;
+      if (token.denom?.startsWith("ibc/")) {
+        if (!map.has(symbol)) {
+          map.set(symbol, changeValue);
+        }
+      } else {
+        map.set(symbol, changeValue);
+      }
+    });
+    return map;
+  }, [tokens]);
+
+  const getPriceChangeValue = (token: Token) => {
+    const symbolKey = token.symbol?.toLowerCase?.();
+    if (token.denom?.startsWith("ibc/") && symbolKey) {
+      const symbolChange = priceChangeBySymbol.get(symbolKey);
+      if (typeof symbolChange === "number" && !Number.isNaN(symbolChange)) {
+        return symbolChange;
+      }
+    }
+    return token.price_change_percentage_24h;
+  };
 
   const formatTokenPrice = (token: Token) => {
     const priceValue = Number(token.current_price ?? 0);
@@ -424,19 +462,24 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
                       </span>
                     </td>
                     <td className="py-2 border-b border-[#AEB9E1]/20 text-right">
-                      {token.denom?.startsWith("ibc/") ? (
-                        <span className="text-gray-500">-</span>
-                      ) : (
-                        <span
-                          className={`${
-                            (token.price_change_percentage_24h || 0) >= 0
-                              ? "text-green-600 dark:text-green-400"
-                              : "text-red-600 dark:text-red-400"
-                          }`}
-                        >
-                          {(token.price_change_percentage_24h || 0).toFixed(2)}%
-                        </span>
-                      )}
+                      {(() => {
+                        const changeValue = getPriceChangeValue(token);
+                        if (changeValue === undefined || Number.isNaN(changeValue)) {
+                          return <span className="text-gray-500">-</span>;
+                        }
+                        const positive = changeValue >= 0;
+                        return (
+                          <span
+                            className={`${
+                              positive
+                                ? "text-green-600 dark:text-green-400"
+                                : "text-red-600 dark:text-red-400"
+                            }`}
+                          >
+                            {changeValue.toFixed(2)}%
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="py-2 border-b border-[#AEB9E1]/20 ">
                       <div className="flex flex-col items-end font-normal">

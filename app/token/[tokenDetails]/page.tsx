@@ -292,7 +292,7 @@ export default function PairDetails() {
                     </button>
                   ))}
                   </div>
-                  <button
+                  {/* <button
                     type="button"
                     aria-label="Open holder bubble map"
                     onClick={() => setShowHolderModal(true)}
@@ -309,7 +309,7 @@ export default function PairDetails() {
                       <circle cx="10.8" cy="6.5" r="2.4" fill="#FA4E30" />
                       <circle cx="11" cy="11" r="1.8" fill="#5EFFC8" />
                     </svg>
-                  </button>
+                  </button> */}
                 </div>
               </div>
 

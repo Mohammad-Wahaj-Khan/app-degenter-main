@@ -96,6 +96,15 @@ const Dashboard: React.FC = () => {
   const skipLoadingRef = useRef(false);
   const pollingRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const currentPageRef = useRef(currentPage);
+
+  useEffect(() => {
+    volumeChangesRef.current = volumeChanges;
+  }, [volumeChanges]);
+
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
 
   const TOP_TOKENS_FETCH_LIMIT = 500;
   const newListingsLimit = 100; // show all new listings (up to API limit)
@@ -355,7 +364,7 @@ const Dashboard: React.FC = () => {
           trades: filteredTrades,
           totalItems: possibleTotal,
           volumeChanges: updatedVolumeChanges,
-          page: currentPage,
+          page: currentPageRef.current,
           newListings: newListingsData,
         });
       } catch (err: any) {
@@ -382,7 +391,7 @@ const Dashboard: React.FC = () => {
         setLoading(false);
       }
     },
-    [currentPage]
+    []
   );
 
   // set up polling only once (when component mounts) and when currentPage changes we trigger immediate fetch
