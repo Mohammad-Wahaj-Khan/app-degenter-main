@@ -132,7 +132,7 @@ export default function PairDetails() {
     { key: "topTrades", label: "Top Trades" },
     { key: "security", label: "Security" },
     { key: "mySwaps", label: "My Swaps" },
-    { key: "markets", label: "Markets" },
+    // { key: "markets", label: "Markets" },
   ];
   const toggleAuditPanel = () => {
     setIsAuditPanelVisible((v) => !v);
@@ -331,8 +331,8 @@ export default function PairDetails() {
                   <TopTrades tokenId={token?.pair_contract} />
                 ) : activeTab === "mySwaps" ? (
                   <MySwaps tokenId={token?.pair_contract} />
-                ) : activeTab === "markets" ? (
-                  <Markets denom={token?.denom || token?.pair_contract} />
+                // ) : activeTab === "markets" ? (
+                //   <Markets denom={token?.denom || token?.pair_contract} />
                 ) : (
                   <AuditPanel tokenKey={auditTokenKey} />
                 )}
