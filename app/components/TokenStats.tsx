@@ -117,13 +117,22 @@ export default function TokenStats({
     .trim()
     .toLowerCase();
   const isStzig = resolvedMaskKey.includes("stzig");
-  const maskText = (value: string, fallback = "—") =>
-    isStzig ? fallback : value;
+  const maskText = (
+    value?: string,
+    options: { hideForStzig?: boolean; fallback?: string } = {}
+  ) => {
+    const { hideForStzig = true, fallback = "—" } = options;
+    const formatted = value ?? fallback;
+    if (isStzig && hideForStzig) return fallback;
+    return formatted === "" ? fallback : formatted;
+  };
   const maskNumber = (
     value?: number,
-    format: (n: number) => string = (n) => n.toString()
+    format: (n: number) => string = (n) => n.toString(),
+    hideForStzig = true
   ) => {
-    if (isStzig || value == null) return "—";
+    if (value == null || !Number.isFinite(value)) return "—";
+    if (isStzig && hideForStzig) return "—";
     return format(value);
   };
 
@@ -227,14 +236,18 @@ export default function TokenStats({
     typeof data.supply === "number" ? data.supply : supplyObj?.max
   );
   const maskedMarketCap = maskText(marketCap);
-  const maskedLiquidity = maskText(toShort(data.liquidity, "$"));
+  const maskedLiquidity = maskText(toShort(data.liquidity, "$"), {
+    hideForStzig: false,
+  });
   const masked24hTrades = maskNumber(
     data.txBuckets?.["24h"],
-    (n) => n.toString()
+    (n) => n.toString(),
+    false
   );
   const maskedChange24hValue = maskText(change24hValue);
   const maskedFDV = maskText(fdvValue);
-  const maskedVolume24h = isStzig ? "—" : `$${toShort(volume24h)}`;
+  const volume24hText = volume24h ? `$${toShort(volume24h)}` : "—";
+  const maskedVolume24h = maskText(volume24hText, { hideForStzig: false });
   const maskedTotalSupply = maskText(totalSupply);
   const maskedCirculatingSupply = maskText(circulatingSupply);
   const change24hClass = isStzig
@@ -255,8 +268,8 @@ export default function TokenStats({
   const formatIntervalVolume = (value?: number) =>
     isStzig ? "—" : value ? `$${toShort(value)}` : "0";
 
-  const maskedBuys = maskNumber(data.buy);
-  const maskedSells = maskNumber(data.sell);
+  const maskedBuys = maskNumber(data.buy, (n) => n.toString(), false);
+  const maskedSells = maskNumber(data.sell, (n) => n.toString(), false);
 
   return (
     <div className="text-white w-full">

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+// @ts-ignore: Ignore missing type declarations for side-effect CSS import
 import "./globals.css";
+// @ts-ignore: Ignore missing type declarations for side-effect CSS import
 import "reactflow/dist/style.css";
 
 // import { WalletProvider } from "./providers/walletconnect-provider";
@@ -109,7 +111,7 @@ export const metadata: Metadata = {
   title: "Degenter.io | Decentralized Intelligence for the Degens",
   description: "Degenter.io brings you on-chain alpha, memecoin analytics, and community-driven insights — powered by real-time blockchain intelligence.",
   icons: {
-    icon: "/logoimg.svg", // or "/path/to/custom-icon.png"
+    icon: "/degen.svg", // or "/path/to/custom-icon.png"
   },
    keywords: [
     "Degenter",

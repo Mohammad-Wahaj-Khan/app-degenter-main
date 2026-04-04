@@ -32,9 +32,28 @@ export interface Token {
 }
 
 const ITEMS_PER_PAGE = 10;
-const POLL_INTERVAL = 1200000; // 1 minute
+const POLL_INTERVAL = 15000; // 15 seconds for near real-time
 const STAKED_ZIG_DENOM =
   "coin.zig109f7g2rzl2aqee7z6gffn8kfe9cpqx0mjkk7ethmx8m2hq4xpe9snmaam2.stzig";
+
+type FilterId = "topVolume" | "topGainers" | "findMore";
+const FIND_GEMS_FILTERS: {
+  id: FilterId;
+  label: string;
+  color: string;
+}[] = [
+  { id: "topVolume", label: "Top Volume", color: "#FA4E30" },
+  { id: "topGainers", label: "Top Gainers", color: "#FA4E30" },
+  // { id: "findMore", label: "Find More", color: "#4285F4" },
+];
+const FIND_GEMS_SORT_MAP: Record<
+  FilterId,
+  { key: keyof Token; direction: "asc" | "desc" }
+> = {
+  topVolume: { key: "total_volume", direction: "desc" },
+  topGainers: { key: "price_change_percentage_24h", direction: "desc" },
+  findMore: { key: "creationTime", direction: "desc" },
+};
 
 const FindGems: React.FC = () => {
   const [tokens, setTokens] = useState<Token[]>([]);
@@ -46,6 +65,7 @@ const FindGems: React.FC = () => {
     key: keyof Token | null;
     direction: "asc" | "desc";
   }>({ key: "total_volume", direction: "desc" });
+  const [activeFilter, setActiveFilter] = useState<FilterId>("topVolume");
 
   const abortRef = useRef<AbortController | null>(null);
   const pollingRef = useRef<number | null>(null);
@@ -156,6 +176,18 @@ const FindGems: React.FC = () => {
     }));
   };
 
+  const handleFilterSelect = (filterId: FilterId) => {
+    const sort = FIND_GEMS_SORT_MAP[filterId];
+    setActiveFilter(filterId);
+    setSortConfig(sort);
+  };
+
+  // const handleFilterSelect = (filterId: FilterId) => {
+  //   const sort = FIND_GEMS_SORT_MAP[filterId];
+  //   setActiveFilter(filterId);
+  //   setSortConfig(sort);
+  // };
+
   const shouldHideMcap = useCallback((token: Token) => {
     const denom = token.denom?.toLowerCase?.();
     const symbol = token.symbol?.toLowerCase?.();
@@ -244,7 +276,7 @@ const FindGems: React.FC = () => {
       <div className="w-[800px] h-[400px] absolute z-[-10] bottom-[-20px] right-[-450px] rounded-xl bg-[radial-gradient(circle,_rgba(250,78,48,0.2)_0%,_rgba(250,78,48,0.3)_10%,_transparent_70%)] blur-2xl shadow-[0_0_40px_rgba(250,78,48,0.5)]"></div>
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <Image
             src="/fire.png"
@@ -255,52 +287,100 @@ const FindGems: React.FC = () => {
           />
           <h2 className="text-[#EDEDED] text-[24px] font-medium">Find Gems</h2>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {FIND_GEMS_FILTERS.map((filter) => {
+            const isActive = activeFilter === filter.id;
+            return (
+              <button
+                key={filter.id}
+                onClick={() => handleFilterSelect(filter.id)}
+                className={`transition duration-200 ${
+                  isActive ? "opacity-100" : "opacity-60 hover:opacity-100"
+                }`}
+              >
+                <div
+                  className="flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 backdrop-blur-sm bg-black/60"
+                  style={{
+                    boxShadow: isActive
+                      ? `0 0 12px ${filter.color}80`
+                      : undefined,
+                  }}
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full border`}
+                    style={{
+                      backgroundColor: isActive ? filter.color : "transparent",
+                      borderColor: filter.color,
+                    }}
+                  />
+                  <span className="text-[13px] text-white/80 font-semibold">
+                    {filter.label}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full mt-4 table-fixed text-base">
-          <thead>
-            <tr className="text-left text-white/60 text-base border-b border-white/10">
-              <th
-                className="pb-4 font-normal text-right cursor-pointer hover:text-white transition-colors w-[40%]"
-                onClick={() => handleSort("symbol")}
-              >
-                <div className="flex items-center justify-start text-[#919191]">
-                  Token
-                </div>
-              </th>
-              <th
-                className="pb-4 font-normal text-right cursor-pointer hover:text-white transition-colors w-[25%]"
-                onClick={() => handleSort("current_price")}
-              >
-                <div className="flex items-center justify-end text-[#919191]">
-                  Price (USD)
-                  {sortConfig.key === "current_price" && (
-                    <span className="ml-1">
-                      {sortConfig.direction === "asc" ? "↑" : "↓"}
-                    </span>
-                  )}
-                </div>
-              </th>
-              <th
-                className="pb-4 font-normal text-right cursor-pointer hover:text-white transition-colors w-[20%]"
-                onClick={() => handleSort("total_volume")}
-              >
-                <div className="flex items-center justify-end text-[#919191]">
-                  24h Vol
-                  {sortConfig.key === "total_volume" && (
-                    <span className="ml-1">
-                      {sortConfig.direction === "asc" ? "↑" : "↓"}
-                    </span>
-                  )}
-                </div>
-              </th>
-              <th className="pb-4 font-normal text-right text-[#919191] w-[15%]">
-                MCap
-              </th>
-            </tr>
-          </thead>
+      <div className="overflow-x-auto px-1">
+          <table className="w-full mt-4 table-fixed text-base min-w-[600px]">
+            <thead>
+              <tr className="text-left text-white/60 text-base border-b border-white/10">
+                <th
+                  className="pb-4 font-normal text-right cursor-pointer hover:text-white transition-colors w-[40%]"
+                  onClick={() => handleSort("symbol")}
+                >
+                  <div className="flex items-center justify-start text-[#919191]">
+                    Token
+                  </div>
+                </th>
+                <th
+                  className="pb-4 font-normal text-right cursor-pointer hover:text-white transition-colors w-[25%]"
+                  onClick={() => handleSort("current_price")}
+                >
+                  <div className="flex items-center justify-end text-[#919191]">
+                    Price (USD)
+                    {sortConfig.key === "current_price" && (
+                      <span className="ml-1">
+                        {sortConfig.direction === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </div>
+                </th>
+                <th
+                  className="pb-4 font-normal text-right cursor-pointer hover:text-white transition-colors w-[15%]"
+                  onClick={() => handleSort("price_change_percentage_24h")}
+                >
+                  <div className="flex items-center justify-end text-[#919191]">
+                    24h Ch.
+                    {sortConfig.key === "price_change_percentage_24h" && (
+                      <span className="ml-1">
+                        {sortConfig.direction === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </div>
+                </th>
+                <th
+                  className="pb-4 font-normal text-right cursor-pointer hover:text-white transition-colors w-[20%]"
+                  onClick={() => handleSort("total_volume")}
+                >
+                  <div className="flex items-center justify-end text-[#919191]">
+                    24h Vol
+                    {sortConfig.key === "total_volume" && (
+                      <span className="ml-1">
+                        {sortConfig.direction === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </div>
+                </th>
+                <th className="pb-4 font-normal text-right text-[#919191] w-[15%]">
+                  {/* placeholder to balance spacing */}
+                  &nbsp;
+                </th>
+              </tr>
+            </thead>
           <tbody className="divide-y divide-white/5">
             {sortedTokens.map((token, index) => (
               <tr key={`${token.id}-${index}`} className="transition-colors">
@@ -364,6 +444,18 @@ const FindGems: React.FC = () => {
                   </div>
                 </td>
 
+                <td className="py-2 text-right text-[15px] font-normal border-b border-[#AEB9E1]/20 w-[15%]">
+                  <div
+                    className={`${
+                      (token.price_change_percentage_24h ?? 0) >= 0
+                        ? "text-green-400"
+                        : "text-red-500"
+                    }`}
+                  >
+                    {(token.price_change_percentage_24h ?? 0).toFixed(2)}%
+                  </div>
+                </td>
+
                 <td className="py-2 border-b border-[#AEB9E1]/20 text-[15px] w-[20%]">
                   <div className="flex flex-col items-end font-normal">
                     <div className="text-white truncate">
@@ -385,26 +477,7 @@ const FindGems: React.FC = () => {
                 </td>
 
                 <td className="py-2 text-right text-[15px] font-normal border-b border-[#AEB9E1]/20 w-[15%]">
-                  <div className="text-white truncate">
-                    {shouldHideMcap(token)
-                      ? "--"
-                      : token.market_cap
-                      ? (() => {
-                          const cap = token.market_cap;
-                          if (cap >= 1_000_000_000)
-                            return `${(cap / 1_000_000_000).toFixed(1)}B`;
-                          if (cap >= 1_000_000)
-                            return `${(cap / 1_000_000).toFixed(
-                              cap >= 10_000_000 ? 0 : 1
-                            )}M`;
-                          if (cap >= 1_000)
-                            return `${(cap / 1_000).toFixed(
-                              cap >= 10_000 ? 0 : 1
-                            )}K`;
-                          return cap.toFixed(0);
-                        })()
-                      : "--"}
-                  </div>
+                  &nbsp;
                 </td>
               </tr>
             ))}
