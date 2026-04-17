@@ -91,15 +91,15 @@ const PriceDisplay: React.FC<PriceDisplayProps> = ({
 
         setRate(out);
 
-        console.log({
-          fromSymbol: activePay.symbol,
-          toSymbol: activeReceive.symbol,
-          baseAmount,
-          outputAmount: out,
-          rate: out,
-          formatted: formatNumber(out),
-          timestamp: new Date().toISOString(),
-        });
+        // console.log({
+        //   fromSymbol: activePay.symbol,
+        //   toSymbol: activeReceive.symbol,
+        //   baseAmount,
+        //   outputAmount: out,
+        //   rate: out,
+        //   formatted: formatNumber(out),
+        //   timestamp: new Date().toISOString(),
+        // });
       } catch (error) {
         console.error("Price calculation error:", error);
         setRate(0);

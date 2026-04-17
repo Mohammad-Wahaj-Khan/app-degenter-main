@@ -13,7 +13,7 @@ import {
   Time,
   UTCTimestamp,
 } from "lightweight-charts";
-import { Copy, Expand, RefreshCw, Share2 } from "lucide-react";
+import { ArrowLeftRight, Copy, Expand, RefreshCw, Share2 } from "lucide-react";
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import type { SignerFilterSummary } from "@/app/components/RecentTrades";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
@@ -1088,6 +1088,7 @@ interface TokenData {
   volume24h: number;
   symbol: string;
   name: string;
+  imageUri?: string;
   circulatingSupply?: number;
 }
 
@@ -1277,6 +1278,12 @@ export default function TradingChart({
     isZigAsset(selectedBaseDenom) ||
     isZigAsset(selectedQuoteDenom);
   const shouldUsePoolPricing = isPoolSelected && !isZigPairSelected;
+  const canSwapSelectedPair = Boolean(
+    shouldUsePoolPricing &&
+      onSwapSelectedPair &&
+      selectedBaseDenom &&
+      selectedQuoteDenom
+  );
   const pairBaseLabel = selectedPair?.baseSymbol || tokenData?.symbol || token || "BASE";
   const pairQuoteLabel = selectedPair?.quoteSymbol || quoteSymbol || "ZIG";
   const nativeLabel = pairQuoteLabel;
@@ -1342,10 +1349,15 @@ export default function TradingChart({
       ? extractTokenRef(selectedBaseDenom)
       : pairContract ?? token;
   const displaySymbol =
-    meta.symbol ||
-    tokenData?.symbol ||
-    token;
-  const displayName = meta.name || tokenData?.name || "Token";
+    shouldUsePoolPricing
+      ? tokenData?.symbol || meta.symbol || chartTokenKey || token
+      : meta.symbol || tokenData?.symbol || token;
+  const displayName = shouldUsePoolPricing
+    ? tokenData?.name || meta.name || "Token"
+    : meta.name || tokenData?.name || "Token";
+  const displayLogo = shouldUsePoolPricing
+    ? tokenData?.imageUri || meta.logo
+    : meta.logo || tokenData?.imageUri;
 
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
 
@@ -1383,6 +1395,12 @@ export default function TradingChart({
     } catch {}
     return 1;
   }, []);
+
+  useEffect(() => {
+    setTokenData(null);
+    setMeta({});
+    setLoading(true);
+  }, [chartTokenKey]);
 
   const clearTvShapes = useCallback((chart: any) => {
     if (!tvShapeIdsRef.current.length) return;
@@ -3224,9 +3242,9 @@ const applyTvWalletShapes = useCallback(async () => {
             compact ? "" : "md:w-auto md:items-center"
           }`}
         >
-          {meta.logo ? (
+          {displayLogo ? (
             <img
-              src={meta.logo}
+              src={displayLogo}
               alt={displaySymbol}
               className="w-8 h-8 md:w-10 md:h-10 rounded-full object-cover"
             />
@@ -3354,6 +3372,17 @@ const applyTvWalletShapes = useCallback(async () => {
                   </button>
                 );
               })}
+              {canSwapSelectedPair && (
+                <button
+                  type="button"
+                  onClick={onSwapSelectedPair}
+                  title="Swap selected token side"
+                  aria-label="Swap selected token side"
+                  className="ml-1 inline-flex h-6 w-6 items-center justify-center rounded border border-white/10 text-white/80 transition hover:border-yellow-300 hover:text-yellow-200"
+                >
+                  <ArrowLeftRight size={13} />
+                </button>
+              )}
             </div>
           </div>
         </div>

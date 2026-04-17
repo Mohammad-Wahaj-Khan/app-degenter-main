@@ -334,7 +334,7 @@ export default function TokenStats({
     const fetchTarget = resolveTokenId();
     
     if (!fetchTarget) {
-      console.log("No token ID resolved, skipping fetch");
+      // console.log("No token ID resolved, skipping fetch");
       setLoading(false);
       return;
     }
@@ -356,14 +356,14 @@ export default function TokenStats({
       // Build the URL with proper parameters
       const tokenUrl = buildTokenDetailsUrl(fetchTarget, poolId);
       
-      console.log("========== TOKEN STATS FETCH ==========");
-      console.log("Fetching token stats from:", tokenUrl);
-      console.log("Using active pool ID:", poolId);
-      console.log("Resolved token target:", fetchTarget);
-      console.log("Should use pool pricing:", shouldUsePoolPricing);
-      console.log("Selected pair has direct ZIG side:", selectedPairWithZig);
-      console.log("Selected pair:", selectedPair);
-      console.log("======================================");
+      // console.log("========== TOKEN STATS FETCH ==========");
+      // console.log("Fetching token stats from:", tokenUrl);
+      // console.log("Using active pool ID:", poolId);
+      // console.log("Resolved token target:", fetchTarget);
+      // console.log("Should use pool pricing:", shouldUsePoolPricing);
+      // console.log("Selected pair has direct ZIG side:", selectedPairWithZig);
+      // console.log("Selected pair:", selectedPair);
+      // console.log("======================================");
       
       // Fetch token details with pool pricing if pool is selected
       const statsResponse = await fetch(tokenUrl, { headers: API_HEADERS });
@@ -379,15 +379,15 @@ export default function TokenStats({
           lastGoodDataRef.current = tokenData;
           setData(tokenData);
           
-          console.log("Token data fetched:", {
-            symbol: tokenData.symbol,
-            name: tokenData.name,
-            priceInUsd: tokenData.priceInUsd,
-            priceInNative: tokenData.priceInNative,
-            responsePoolId: tokenData.poolId,
-            selectedPoolId: poolId,
-            priceSource: tokenData.priceSource,
-          });
+          // console.log("Token data fetched:", {
+          //   symbol: tokenData.symbol,
+          //   name: tokenData.name,
+          //   priceInUsd: tokenData.priceInUsd,
+          //   priceInNative: tokenData.priceInNative,
+          //   responsePoolId: tokenData.poolId,
+          //   selectedPoolId: poolId,
+          //   priceSource: tokenData.priceSource,
+          // });
         } else {
           console.error("API returned success=false:", json);
           // Fallback to cached data if available

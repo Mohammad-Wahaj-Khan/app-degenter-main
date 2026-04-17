@@ -21,7 +21,7 @@ export const analyzerTabs = [
   { id: "trading", label: "Trading PNL" },
   { id: "portfolio", label: "Portfolio" },
   { id: "activities", label: "Activities" },
-  { id: "defi", label: "DeFi" },
+  // { id: "defi", label: "DeFi" },
 ] as const;
 
 export type AnalyzerTabId = (typeof analyzerTabs)[number]["id"];
@@ -183,20 +183,20 @@ export default function WalletAnalyzer({
     error: string | null;
   }>({ points: [], loading: false, error: null });
 
-  React.useEffect(() => {
-    if (activeTab !== "defi" && isDefiDrawerOpen) {
-      setIsDefiDrawerOpen(false);
-    }
-  }, [activeTab, isDefiDrawerOpen]);
+  // React.useEffect(() => {
+  //   if (activeTab !== "defi" && isDefiDrawerOpen) {
+  //     setIsDefiDrawerOpen(false);
+  //   }
+  // }, [activeTab, isDefiDrawerOpen]);
 
-  React.useEffect(() => {
-    if (activeTab === "defi") {
-      setIsDefiDrawerOpen(true);
-      setActiveDefiOption("validators");
-    } else {
-      setIsDefiDrawerOpen(false);
-    }
-  }, [activeTab]);
+  // React.useEffect(() => {
+  //   if (activeTab === "defi") {
+  //     setIsDefiDrawerOpen(true);
+  //     setActiveDefiOption("validators");
+  //   } else {
+  //     setIsDefiDrawerOpen(false);
+  //   }
+  // }, [activeTab]);
 
   const safeNumber = (value: unknown): number => {
     if (typeof value === "number") return value;
@@ -726,31 +726,31 @@ export default function WalletAnalyzer({
       <div className=" flex flex-col gap-4 relative border-b border-white/20 text-gray-400 text-xs uppercase tracking-wider after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[1px] after:bg-gradient-to-r after:from-[#FA4E30] after:to-[#39C8A6] after:content-[''] pb-4 md:flex-row md:items-center ">
         <nav className="flex flex-wrap gap-3 text-sm font-medium text-gray-400">
           {analyzerTabs.map((tab) => {
-            if (tab.id === "defi") {
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    setIsDefiDrawerOpen((prev) => !prev);
-                    onTabChange(tab.id);
-                  }}
-                  className={`px-4 py-2 rounded-lg transition tracking-wide flex items-center gap-2 ${
-                    activeTab === tab.id
-                      ? "bg-black/60 text-white border border-white/40"
-                      : "text-gray-400 hover:text-white"
-                  }`}
-                >
-                  <span>{tab.label}</span>
-                  <span
-                    className={`text-xs transition-transform ${
-                      isDefiDrawerOpen ? "rotate-180" : ""
-                    }`}
-                  >
-                    ▾
-                  </span>
-                </button>
-              );
-            }
+            // if (tab.id === "defi") {
+            //   return (
+            //     <button
+            //       key={tab.id}
+            //       onClick={() => {
+            //         setIsDefiDrawerOpen((prev) => !prev);
+            //         onTabChange(tab.id);
+            //       }}
+            //       className={`px-4 py-2 rounded-lg transition tracking-wide flex items-center gap-2 ${
+            //         activeTab === tab.id
+            //           ? "bg-black/60 text-white border border-white/40"
+            //           : "text-gray-400 hover:text-white"
+            //       }`}
+            //     >
+            //       <span>{tab.label}</span>
+            //       <span
+            //         className={`text-xs transition-transform ${
+            //           isDefiDrawerOpen ? "rotate-180" : ""
+            //         }`}
+            //       >
+            //         ▾
+            //       </span>
+            //     </button>
+            //   );
+            // }
 
             return (
               <button

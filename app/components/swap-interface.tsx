@@ -886,7 +886,7 @@ export default function SwapInterface({
    * ========================= */
   async function onSwap() {
     try {
-      console.log("[swap] start");
+      // console.log("[swap] start");
       setErr("");
       if (routePairs.length === 0) throw new Error("Route not ready");
       const ok = await ensureConnectedForAction();
@@ -897,20 +897,20 @@ export default function SwapInterface({
         throw new Error("Enter a valid amount");
 
       setBusy(true);
-      console.log("[swap] routePairs", routePairs);
+      // console.log("[swap] routePairs", routePairs);
 
       const amountInMicro =
         activePay.decimals === 0
           ? Math.round(amt).toString()
           : Math.round(amt * pow10(activePay.decimals)).toString();
-      console.log("[swap] amountInMicro", amountInMicro);
+      // console.log("[swap] amountInMicro", amountInMicro);
 
       const chosenSlippage = slippageBps / 10_000;
       const max_spread_str = Math.max(
         0.005,
         Math.min(0.5, chosenSlippage)
       ).toFixed(3);
-      console.log("[swap] max_spread", max_spread_str);
+      // console.log("[swap] max_spread", max_spread_str);
 
       // simulate again to compute min receive
       let expectedOutMicro = "0";
@@ -931,7 +931,7 @@ export default function SwapInterface({
           { simulation: { offer_asset } }
         );
         expectedOutMicro = String(sim?.return_amount || "0");
-        console.log("[swap] expectedOutMicro single", expectedOutMicro);
+        // console.log("[swap] expectedOutMicro single", expectedOutMicro);
       } else if (routePairs.length === 2) {
         const pair1 = routePairs[0];
         const pair2 = routePairs[1];
@@ -962,7 +962,7 @@ export default function SwapInterface({
           }
         );
         expectedOutMicro = String(sim2?.return_amount || "0");
-        console.log("[swap] expectedOutMicro multi", expectedOutMicro);
+        // console.log("[swap] expectedOutMicro multi", expectedOutMicro);
       } else {
         throw new Error("Unsupported route length");
       }
@@ -971,12 +971,12 @@ export default function SwapInterface({
         Number(expectedOutMicro) * (1 - Math.max(0.005, chosenSlippage))
       );
       const minimum_receive = String(Math.max(0, minReceiveMicroNum));
-      console.log("[swap] minimum_receive", minimum_receive);
+      // console.log("[swap] minimum_receive", minimum_receive);
 
       if (routePairs.length === 1) {
         const pair = routePairs[0];
         if (activePay.type === "native") {
-          console.log("[swap] single hop native", pair.pairContract);
+          // console.log("[swap] single hop native", pair.pairContract);
           const { coins } = await import("@cosmjs/stargate");
           const msg = {
             swap: {
@@ -1041,11 +1041,11 @@ export default function SwapInterface({
           );
 
           setTxHash(res.transactionHash);
-          console.log("[swap] txHash", res.transactionHash);
+          // console.log("[swap] txHash", res.transactionHash);
           setShowTxAlert(true);
           setAmountIn(""); // Clear the input field after successful swap
         } else {
-          console.log("[swap] single hop cw20", pair.pairContract);
+          // console.log("[swap] single hop cw20", pair.pairContract);
           const ask_asset_info =
             activeReceive.type === "native"
               ? { native_token: { denom: (activeReceive as any).denom } }
@@ -1107,13 +1107,13 @@ export default function SwapInterface({
             `Traded from degenter.io`
           );
           setTxHash(res.transactionHash);
-          console.log("[swap] txHash", res.transactionHash);
+          // console.log("[swap] txHash", res.transactionHash);
           setShowTxAlert(true);
           setAmountIn(""); // Clear the input field after successful swap
         }
       } else {
         // router path
-        console.log("[swap] router path", ROUTER_CONTRACT);
+        // console.log("[swap] router path", ROUTER_CONTRACT);
         const operations = routePairs.map((p, idx) => {
           const isFirst = idx === 0;
           const isLast = idx === routePairs.length - 1;
@@ -1153,7 +1153,7 @@ export default function SwapInterface({
         if (activePay.type === "native") {
           const { coins } = await import("@cosmjs/stargate");
           const funds = coins(amountInMicro, (activePay as any).denom);
-          console.log("[swap] router native funds", funds);
+          // console.log("[swap] router native funds", funds);
           const res = await client.execute(
             address,
             ROUTER_CONTRACT,
@@ -1163,11 +1163,11 @@ export default function SwapInterface({
             funds
           );
           setTxHash(res.transactionHash);
-          console.log("[swap] txHash", res.transactionHash);
+          // console.log("[swap] txHash", res.transactionHash);
           setShowTxAlert(true);
           setAmountIn(""); // Clear the input field after successful swap
         } else {
-          console.log("[swap] router cw20", (activePay as any).contract);
+          // console.log("[swap] router cw20", (activePay as any).contract);
           const msg64 = b64(msgNative);
           const sendMsg = {
             send: {
@@ -1184,7 +1184,7 @@ export default function SwapInterface({
             MEMO
           );
           setTxHash(res.transactionHash);
-          console.log("[swap] txHash", res.transactionHash);
+          // console.log("[swap] txHash", res.transactionHash);
           setShowTxAlert(true);
           setAmountIn(""); // Clear the input field after successful swap
         }

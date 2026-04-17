@@ -48,14 +48,12 @@ export default function ProfileHeader({
   const pnlFetchInFlightRef = useRef(false);
   const [pnlStats, setPnlStats] = useState<{
     tradingVolume: number;
+    txCount: number;
     txsBuy: number;
     txsSell: number;
     holdSeconds: number;
-    count: number;
     bought: number;
     sold: number;
-    avgCost: number;
-    avgWinCost: number;
     totalPnl: number;
   } | null>(null);
 
@@ -186,7 +184,7 @@ export default function ProfileHeader({
           endpoints,
           `wallets/${encodeURIComponent(
             walletAddress
-          )}/pnl/tokens?win=30d&sort=total_pnl_desc&limit=100`,
+          )}/portfolio/value-series?win=30d`,
           {
             signal: controller.signal,
             cache: "no-store",
@@ -194,65 +192,17 @@ export default function ProfileHeader({
           }
         );
 
-        const items = Array.isArray(payload?.items)
-          ? payload.items
-          : Array.isArray(payload?.data?.items)
-          ? payload.data.items
-          : Array.isArray(payload?.data)
-          ? payload.data
-          : Array.isArray(payload)
-          ? payload
-          : [];
-
-        const stats = {
-          tradingVolume: 0,
-          txsBuy: 0,
-          txsSell: 0,
-          holdSeconds: 0,
-          count: items.length,
-          bought: 0,
-          sold: 0,
-          avgCost: 0,
-          avgWinCost: 0,
-          totalPnl: 0,
-        };
-
-        let avgBuySum = 0;
-        let avgBuyCount = 0;
-        let avgWinBuySum = 0;
-        let avgWinBuyCount = 0;
-
-        items.forEach((item: any) => {
-          const bought = safeNumber(item.bought_usd);
-          const sold = safeNumber(item.sold_usd);
-          const total = safeNumber(item.total_pnl_usd);
-          const avgBuy = safeNumber(item.avg_buy_price_usd);
-          const holdSeconds = safeNumber(item.hold_duration_sec);
-          const txsBuy = safeNumber(item.txs_buy);
-          const txsSell = safeNumber(item.txs_sell);
-
-          stats.bought += bought;
-          stats.sold += sold;
-          stats.totalPnl += total;
-          stats.txsBuy += txsBuy;
-          stats.txsSell += txsSell;
-          if (Number.isFinite(holdSeconds)) stats.holdSeconds += holdSeconds;
-
-          if (avgBuy > 0) {
-            avgBuySum += avgBuy;
-            avgBuyCount += 1;
-          }
-          if (total > 0 && avgBuy > 0) {
-            avgWinBuySum += avgBuy;
-            avgWinBuyCount += 1;
-          }
+        const kpis = payload?.kpis ?? payload?.data?.kpis ?? {};
+        setPnlStats({
+          tradingVolume: safeNumber(kpis.trading_volume_usd),
+          txCount: safeNumber(kpis.tx_count),
+          txsBuy: safeNumber(kpis.txs_buy),
+          txsSell: safeNumber(kpis.txs_sell),
+          holdSeconds: safeNumber(kpis.avg_hold_seconds),
+          bought: safeNumber(kpis.bought_usd),
+          sold: safeNumber(kpis.sold_usd),
+          totalPnl: safeNumber(kpis.total_pnl_usd),
         });
-
-        stats.tradingVolume = stats.bought + stats.sold;
-        stats.avgCost = avgBuyCount ? avgBuySum / avgBuyCount : 0;
-        stats.avgWinCost = avgWinBuyCount ? avgWinBuySum / avgWinBuyCount : 0;
-
-        setPnlStats(stats);
       } catch (err: any) {
         if (err?.name === "AbortError") return;
         setPnlError("Failed to load stats");
@@ -373,7 +323,7 @@ export default function ProfileHeader({
                         Avg Holding Duration
                       </p>
                       <p className="text-sm font-semibold text-white">
-                        {formatHoldMinutes(pnlStats.holdSeconds, pnlStats.count)}
+                        {formatHoldMinutes(pnlStats.holdSeconds, 1)}
                       </p>
                     </div>
                     <div className="rounded-lg border border-white/5 bg-white/5 p-2">

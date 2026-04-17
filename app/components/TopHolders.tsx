@@ -10,6 +10,10 @@ import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 const API_BASE = API_BASE_URL;
 
 const MAX_HOLDERS = 200;
+const PAIR_CONTRACT_POOL_IDS: Record<string, string> = {
+  zig1h72z8ptvcdqvuvy2lqanupwtextjmjmktj2ejgne2padxk0z8zds48shzq: "5",
+  zig1jv7v8an78vwyfx409nvrguktz8dl97hg7v0qs59pnc9krlf4en8szqsq8h: "10",
+};
 
 interface Holder {
   address: string;
@@ -27,6 +31,14 @@ interface TokenDetails {
 interface TopHoldersProps {
   tokenId?: string;
   exponent?: number;
+  selectedPair?: {
+    baseSymbol?: string | null;
+    quoteSymbol?: string | null;
+    baseDenom?: string | null;
+    quoteDenom?: string | null;
+    pairContract?: string | null;
+    poolId?: string | null;
+  } | null;
 }
 
 type TabType =
@@ -36,7 +48,43 @@ type TabType =
   | "Security"
   | "My Swaps";
 
-const TopHolders: React.FC<TopHoldersProps> = ({ tokenId }) => {
+const normalizeTokenRef = (value?: string | null) =>
+  (value ?? "").replace(/^ibc\/\w+\//, "").trim().toLowerCase();
+
+const isLikelyPairContract = (value?: string | null) =>
+  normalizeTokenRef(value).startsWith("zig1");
+
+const isZigAsset = (value?: string | null) => {
+  const normalized = normalizeTokenRef(value);
+  return normalized === "zig" || normalized === "uzig";
+};
+
+const extractTokenRef = (value?: string | null) => {
+  const normalized = (value ?? "").trim();
+  if (!normalized) return "";
+  return normalized.split(".").pop() || normalized;
+};
+
+const getKnownPoolIdForPairContract = (pairContract?: string | null) => {
+  const normalized = normalizeTokenRef(pairContract);
+  return normalized ? PAIR_CONTRACT_POOL_IDS[normalized] ?? null : null;
+};
+
+const getPoolIdFromPool = (pool: any): string | null => {
+  const candidates = [
+    pool?.poolId,
+    pool?.pool_id,
+    pool?.poolIdNumber,
+    pool?.id,
+  ];
+  const value = candidates.find((candidate) => candidate != null && candidate !== "");
+  return value == null ? null : String(value);
+};
+
+const getPairContractFromPool = (pool: any): string | null =>
+  pool?.pairContract ?? pool?.pair_contract ?? null;
+
+const TopHolders: React.FC<TopHoldersProps> = ({ tokenId, selectedPair }) => {
   // console.log('[TopHolders] tokenId:', tokenId);
   const [holders, setHolders] = useState<Holder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,14 +92,125 @@ const TopHolders: React.FC<TopHoldersProps> = ({ tokenId }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const holdersPerPage = 20;
   const [tokenDetails, setTokenDetails] = useState<TokenDetails | null>(null);
+  const selectedPairContract =
+    selectedPair?.pairContract ||
+    (isLikelyPairContract(selectedPair?.quoteDenom)
+      ? selectedPair?.quoteDenom
+      : null) ||
+    (isLikelyPairContract(selectedPair?.baseDenom)
+      ? selectedPair?.baseDenom
+      : null);
+  const selectedBaseDenom = isLikelyPairContract(selectedPair?.baseDenom)
+    ? null
+    : selectedPair?.baseDenom;
+  const selectedQuoteDenom = isLikelyPairContract(selectedPair?.quoteDenom)
+    ? null
+    : selectedPair?.quoteDenom;
+  const selectedPairWithZig =
+    isZigAsset(selectedPair?.baseSymbol) ||
+    isZigAsset(selectedPair?.quoteSymbol) ||
+    isZigAsset(selectedBaseDenom) ||
+    isZigAsset(selectedQuoteDenom);
+  const shouldUsePoolPricing =
+    !selectedPairWithZig &&
+    Boolean(
+      selectedPair?.poolId ||
+        getKnownPoolIdForPairContract(selectedPairContract) ||
+        (selectedBaseDenom && selectedQuoteDenom) ||
+        selectedPairContract
+    );
+
+  const resolveTokenRef = () =>
+    extractTokenRef(selectedBaseDenom) ||
+    extractTokenRef(tokenId) ||
+    extractTokenRef(selectedPair?.baseSymbol) ||
+    "";
+
+  const resolveSelectedPairPoolId = async (
+    tokenRef: string
+  ): Promise<string | null> => {
+    if (!shouldUsePoolPricing) return null;
+    if (selectedPair?.poolId) return selectedPair.poolId;
+    const knownPoolId = getKnownPoolIdForPairContract(selectedPairContract);
+    if (knownPoolId) return knownPoolId;
+
+    const poolSources = [
+      selectedBaseDenom,
+      selectedQuoteDenom,
+      selectedPairContract,
+      tokenRef,
+    ].filter((value): value is string => Boolean(value));
+
+    for (const source of poolSources) {
+      try {
+        const response = await fetch(
+          `${API_BASE}/tokens/${encodeURIComponent(
+            source
+          )}/pools?dominant=base&bucket=24h&limit=100`,
+          { headers: API_HEADERS }
+        );
+        if (!response.ok) continue;
+        const json = await response.json();
+        const pools = Array.isArray(json?.data) ? json.data : [];
+        const matchedPool = pools.find((pool: any) => {
+          const pairContract = normalizeTokenRef(getPairContractFromPool(pool));
+          if (
+            selectedPairContract &&
+            pairContract === normalizeTokenRef(selectedPairContract)
+          ) {
+            return true;
+          }
+
+          const poolBase = normalizeTokenRef(pool?.base?.denom);
+          const poolQuote = normalizeTokenRef(pool?.quote?.denom);
+          const selectedBase = normalizeTokenRef(selectedBaseDenom);
+          const selectedQuote = normalizeTokenRef(selectedQuoteDenom);
+          return (
+            poolBase === selectedBase &&
+            poolQuote === selectedQuote
+          );
+        });
+        const poolId = getPoolIdFromPool(matchedPool);
+        if (poolId) return poolId;
+      } catch (error) {
+        console.error("Error resolving holders pool id:", error);
+      }
+    }
+
+    return null;
+  };
+
+  const buildTokenUrl = (tokenRef: string, poolId: string | null) => {
+    if (shouldUsePoolPricing && poolId) {
+      return `${API_BASE}/tokens/${encodeURIComponent(
+        tokenRef
+      )}?priceSource=pool&poolId=${encodeURIComponent(
+        poolId
+      )}&dominant=quote&view=auto`;
+    }
+    return `${API_BASE}/tokens/${encodeURIComponent(tokenRef)}`;
+  };
+
+  const buildHoldersUrl = (tokenRef: string, poolId: string | null) => {
+    if (shouldUsePoolPricing && poolId) {
+      return `${API_BASE}/tokens/${encodeURIComponent(
+        tokenRef
+      )}/holders?priceSource=pool&poolId=${encodeURIComponent(
+        poolId
+      )}&dominant=quote&view=auto`;
+    }
+    return `${API_BASE}/tokens/${encodeURIComponent(tokenRef)}/holders`;
+  };
 
   // Fetch token details including exponent
   useEffect(() => {
     const fetchTokenDetails = async () => {
-      if (!tokenId) return;
+      const tokenRef = resolveTokenRef();
+      if (!tokenRef) return;
       try {
+        const poolId = await resolveSelectedPairPoolId(tokenRef);
         const response = await fetch(
-          `${API_BASE}/tokens/${encodeURIComponent(tokenId)}`,
+          buildTokenUrl(tokenRef, poolId),
           { headers: API_HEADERS }
         );
         if (!response.ok) throw new Error("Failed to fetch token details");
@@ -64,7 +223,7 @@ const TopHolders: React.FC<TopHoldersProps> = ({ tokenId }) => {
     };
 
     fetchTokenDetails();
-  }, [tokenId]);
+  }, [tokenId, selectedPair]);
 
   const fetchContractLabel = async (contractAddress: string) => {
     try {
@@ -81,11 +240,13 @@ const TopHolders: React.FC<TopHoldersProps> = ({ tokenId }) => {
   };
 
   const fetchTopHolders = async () => {
-    if (!tokenId) return;
+    const tokenRef = resolveTokenRef();
+    if (!tokenRef) return;
     try {
       setLoading(true);
+      const poolId = await resolveSelectedPairPoolId(tokenRef);
       const res = await fetch(
-        `${API_BASE}/tokens/${encodeURIComponent(tokenId)}/holders`,
+        buildHoldersUrl(tokenRef, poolId),
         {
           cache: "no-store",
           headers: API_HEADERS,
@@ -118,7 +279,7 @@ const TopHolders: React.FC<TopHoldersProps> = ({ tokenId }) => {
 
   useEffect(() => {
     fetchTopHolders();
-  }, [tokenId]);
+  }, [tokenId, selectedPair]);
 
   // Pagination logic
   const indexOfLastHolder = currentPage * holdersPerPage;

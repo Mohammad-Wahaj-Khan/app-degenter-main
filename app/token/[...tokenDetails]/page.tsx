@@ -328,16 +328,35 @@ export default function PairDetails() {
               if (match && active) {
                 matchedPoolId = getPoolId(match);
                 matchedPairContract = getPairContract(match);
-                quoteDenom = match?.quote?.denom || quoteDenom;
-                setResolvedDenom(match?.base?.denom || baseDenom);
-                setResolvedQuoteDenom(quoteDenom);
-                setResolvedBaseSymbol(match?.base?.symbol || null);
-                setResolvedQuoteSymbol(match?.quote?.symbol || null);
+                const poolBaseDenom = match?.base?.denom || null;
+                const poolQuoteDenom = match?.quote?.denom || null;
+                const poolBaseSymbol = match?.base?.symbol || null;
+                const poolQuoteSymbol = match?.quote?.symbol || null;
+                const routeMatchesPoolQuote =
+                  secondSegmentIsPairContract &&
+                  normalizeDenom(baseDenom) === normalizeDenom(poolQuoteDenom);
+                const activeBaseDenom = routeMatchesPoolQuote
+                  ? poolQuoteDenom || baseDenom
+                  : poolBaseDenom || baseDenom;
+                const activeQuoteDenom = routeMatchesPoolQuote
+                  ? poolBaseDenom
+                  : poolQuoteDenom || quoteDenom;
+                const activeBaseSymbol = routeMatchesPoolQuote
+                  ? poolQuoteSymbol
+                  : poolBaseSymbol;
+                const activeQuoteSymbol = routeMatchesPoolQuote
+                  ? poolBaseSymbol
+                  : poolQuoteSymbol;
+                quoteDenom = activeQuoteDenom;
+                setResolvedDenom(activeBaseDenom);
+                setResolvedQuoteDenom(activeQuoteDenom);
+                setResolvedBaseSymbol(activeBaseSymbol || null);
+                setResolvedQuoteSymbol(activeQuoteSymbol || null);
                 setResolvedRoutePair({
-                  baseSymbol: match?.base?.symbol || null,
-                  quoteSymbol: match?.quote?.symbol || null,
-                  baseDenom: match?.base?.denom || baseDenom,
-                  quoteDenom: match?.quote?.denom || quoteDenom,
+                  baseSymbol: activeBaseSymbol || null,
+                  quoteSymbol: activeQuoteSymbol || null,
+                  baseDenom: activeBaseDenom,
+                  quoteDenom: activeQuoteDenom,
                   pairContract: matchedPairContract,
                   poolId: matchedPoolId,
                 });
@@ -792,11 +811,15 @@ export default function PairDetails() {
                     onSignerFilterChange={setSignerSummary}
                   />
                 ) : activeTab === "holders" ? (
-                  <TopHolders tokenId={token?.pair_contract} />
+                  <TopHolders
+                    tokenId={token?.pair_contract}
+                    selectedPair={effectiveSelectedPair}
+                  />
                 ) : activeTab === "security" ? (
                   <Security
                     tokenId={token?.id}
                     tokenKey={token?.pair_contract}
+                    selectedPair={effectiveSelectedPair}
                   />
                 ) : activeTab === "topTrades" ? (
                   <TopTrades tokenId={token?.pair_contract} />
