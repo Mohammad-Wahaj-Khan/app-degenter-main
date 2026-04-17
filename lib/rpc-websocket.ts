@@ -168,5 +168,7 @@ export class RPCWebSocketClient {
 
 // 🟢 Singleton instance
 export const rpcWebSocket = new RPCWebSocketClient(
-  process.env.NEXT_PUBLIC_WS_URL || "wss://dev-api.degenter.io/ws"
+  process.env.NEXT_PUBLIC_WS_URL ||
+  process.env.NEXT_PUBLIC_TRADES_WS_URL ||
+  "wss://main-api.degenter.io/ws"
 );

@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation";
 import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
 import { Zap, Layers, BarChart3, Users, ChevronRight } from "lucide-react";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "https://dev-api.degenter.io").replace(/\/+$/, "");
+const API_BASE = (
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "https://main-api.degenter.io"
+).replace(/\/+$/, "");
 const TOKENS_URL = `${API_BASE}/tokens?bucket=24h&priceSource=best&dir=desc&includeChange=1&limit=200&offset=0&sort=volume`;
 const MISS_EDIT_URL = `${API_BASE}/tokens/missedit`;
 

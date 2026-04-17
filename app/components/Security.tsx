@@ -13,6 +13,10 @@ import {
 } from "@/lib/api";
 
 const API_BASE = API_BASE_URL;
+const PAIR_CONTRACT_POOL_IDS: Record<string, string> = {
+  zig1h72z8ptvcdqvuvy2lqanupwtextjmjmktj2ejgne2padxk0z8zds48shzq: "5",
+  zig1jv7v8an78vwyfx409nvrguktz8dl97hg7v0qs59pnc9krlf4en8szqsq8h: "10",
+};
 
 type TabType = "Security" | "Top Holders" | "Recent Trades";
 
@@ -50,9 +54,57 @@ interface SecurityAPIResponse {
   };
 }
 
-const Security: React.FC<{ tokenId?: string | number; tokenKey?: string }> = ({
+const normalizeTokenRef = (value?: string | null) =>
+  (value ?? "").replace(/^ibc\/\w+\//, "").trim().toLowerCase();
+
+const isLikelyPairContract = (value?: string | null) =>
+  normalizeTokenRef(value).startsWith("zig1");
+
+const isZigAsset = (value?: string | null) => {
+  const normalized = normalizeTokenRef(value);
+  return normalized === "zig" || normalized === "uzig";
+};
+
+const extractTokenRef = (value?: string | null) => {
+  const normalized = (value ?? "").trim();
+  if (!normalized) return "";
+  return normalized.split(".").pop() || normalized;
+};
+
+const getKnownPoolIdForPairContract = (pairContract?: string | null) => {
+  const normalized = normalizeTokenRef(pairContract);
+  return normalized ? PAIR_CONTRACT_POOL_IDS[normalized] ?? null : null;
+};
+
+const getPoolIdFromPool = (pool: any): string | null => {
+  const candidates = [
+    pool?.poolId,
+    pool?.pool_id,
+    pool?.poolIdNumber,
+    pool?.id,
+  ];
+  const value = candidates.find((candidate) => candidate != null && candidate !== "");
+  return value == null ? null : String(value);
+};
+
+const getPairContractFromPool = (pool: any): string | null =>
+  pool?.pairContract ?? pool?.pair_contract ?? null;
+
+const Security: React.FC<{
+  tokenId?: string | number;
+  tokenKey?: string;
+  selectedPair?: {
+    baseSymbol?: string | null;
+    quoteSymbol?: string | null;
+    baseDenom?: string | null;
+    quoteDenom?: string | null;
+    pairContract?: string | null;
+    poolId?: string | null;
+  } | null;
+}> = ({
   tokenId,
   tokenKey,
+  selectedPair,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>("Security");
   const [securityData, setSecurityData] = useState<
@@ -63,7 +115,37 @@ const Security: React.FC<{ tokenId?: string | number; tokenKey?: string }> = ({
   const [loading, setLoading] = useState(true);
   const [summaryFallback, setSummaryFallback] =
     useState<TokenDetailResponse["data"] | null>(null);
-  const fetchKey = tokenKey || (tokenId != null ? String(tokenId) : "");
+  const selectedPairContract =
+    selectedPair?.pairContract ||
+    (isLikelyPairContract(selectedPair?.quoteDenom)
+      ? selectedPair?.quoteDenom
+      : null) ||
+    (isLikelyPairContract(selectedPair?.baseDenom)
+      ? selectedPair?.baseDenom
+      : null);
+  const selectedBaseDenom = isLikelyPairContract(selectedPair?.baseDenom)
+    ? null
+    : selectedPair?.baseDenom;
+  const selectedQuoteDenom = isLikelyPairContract(selectedPair?.quoteDenom)
+    ? null
+    : selectedPair?.quoteDenom;
+  const selectedPairWithZig =
+    isZigAsset(selectedPair?.baseSymbol) ||
+    isZigAsset(selectedPair?.quoteSymbol) ||
+    isZigAsset(selectedBaseDenom) ||
+    isZigAsset(selectedQuoteDenom);
+  const shouldUsePoolPricing =
+    !selectedPairWithZig &&
+    Boolean(
+      selectedPair?.poolId ||
+        getKnownPoolIdForPairContract(selectedPairContract) ||
+        (selectedBaseDenom && selectedQuoteDenom) ||
+        selectedPairContract
+    );
+  const fetchKey =
+    extractTokenRef(selectedBaseDenom) ||
+    extractTokenRef(tokenKey) ||
+    (tokenId != null ? String(tokenId) : "");
   const { data: summaryData } = useTokenSummary({
     tokenId,
     tokenKey: fetchKey,
@@ -73,56 +155,77 @@ const Security: React.FC<{ tokenId?: string | number; tokenKey?: string }> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const holdersPerPage = 10;
 
-  // Handle stzig token case
-  if (
-    fetchKey?.toLowerCase() === "stzig" ||
-    fetchKey ===
-      "coin.zig109f7g2rzl2aqee7z6gffn8kfe9cpqx0mjkk7ethmx8m2hq4xpe9snmaam2.stzig"
-  ) {
-    return (
-      <div
-        className="border-b border-x border-[#808080]/20 rounded-b-md overflow-hidden shadow-md w-full text-white backdrop-blur-md"
-        style={{
-          backgroundImage: `linear-gradient(120deg,#000000 65%,#14624F 100%)`,
-          backgroundSize: "cover",
-          backgroundRepeat: "no-repeat",
-        }}
-      >
-        <div className="overflow-x-auto w-full">
-          <table className="w-full text-sm">
-            <thead className="bg-black/60 text-xs uppercase">
-              <tr>
-                <td className="px-4 py-2 text-left text-gray-400">Parameter</td>
-                <td className="px-4 py-2 text-left text-gray-400">Value</td>
-              </tr>
-            </thead>
-            <tbody className="bg-black/30">
-              {[
-                "Security Score",
-                "Mintable",
-                "Can Change Mint Cap",
-                "Total Supply",
-                "Max Supply",
-                "Top 10 Holders %",
-                "Holders",
-              ].map((param) => (
-                <tr key={param} className="border-b border-white/10">
-                  <td className="px-4 py-2 font-medium">{param}</td>
-                  <td className="px-4 py-2 text-gray-400">--</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  }
+  const resolveSelectedPairPoolId = async (
+    tokenRef: string
+  ): Promise<string | null> => {
+    if (!shouldUsePoolPricing) return null;
+    if (selectedPair?.poolId) return selectedPair.poolId;
+    const knownPoolId = getKnownPoolIdForPairContract(selectedPairContract);
+    if (knownPoolId) return knownPoolId;
+
+    const poolSources = [
+      selectedBaseDenom,
+      selectedQuoteDenom,
+      selectedPairContract,
+      tokenRef,
+    ].filter((value): value is string => Boolean(value));
+
+    for (const source of poolSources) {
+      try {
+        const response = await fetch(
+          `${API_BASE}/tokens/${encodeURIComponent(
+            source
+          )}/pools?dominant=base&bucket=24h&limit=100`,
+          { headers: API_HEADERS }
+        );
+        if (!response.ok) continue;
+        const json = await response.json();
+        const pools = Array.isArray(json?.data) ? json.data : [];
+        const match = pools.find((pool: any) => {
+          const pairContract = normalizeTokenRef(getPairContractFromPool(pool));
+          if (
+            selectedPairContract &&
+            pairContract === normalizeTokenRef(selectedPairContract)
+          ) {
+            return true;
+          }
+
+          const poolBase = normalizeTokenRef(pool?.base?.denom);
+          const poolQuote = normalizeTokenRef(pool?.quote?.denom);
+          return (
+            poolBase === normalizeTokenRef(selectedBaseDenom) &&
+            poolQuote === normalizeTokenRef(selectedQuoteDenom)
+          );
+        });
+        const poolId = getPoolIdFromPool(match);
+        if (poolId) return poolId;
+      } catch (err) {
+        console.error("Failed to resolve security pool id:", err);
+      }
+    }
+    return null;
+  };
+
+  const buildTokenUrl = (
+    tokenRef: string,
+    suffix = "",
+    poolId: string | null = null
+  ) => {
+    const base = `${API_BASE}/tokens/${encodeURIComponent(tokenRef)}${suffix}`;
+    if (shouldUsePoolPricing && poolId) {
+      return `${base}?priceSource=pool&poolId=${encodeURIComponent(
+        poolId
+      )}&dominant=quote&view=auto`;
+    }
+    return base;
+  };
 
   /* ---------------- Fetchers ---------------- */
   const fetchSecurity = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/tokens/${fetchKey}/security`, {
+      const poolId = await resolveSelectedPairPoolId(fetchKey);
+      const res = await fetch(buildTokenUrl(fetchKey, "/security", poolId), {
         headers: API_HEADERS,
       });
       const json: SecurityAPIResponse = await res.json();
@@ -137,7 +240,8 @@ const Security: React.FC<{ tokenId?: string | number; tokenKey?: string }> = ({
   const fetchHolders = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/tokens/${fetchKey}/holders`, {
+      const poolId = await resolveSelectedPairPoolId(fetchKey);
+      const res = await fetch(buildTokenUrl(fetchKey, "/holders", poolId), {
         headers: API_HEADERS,
       });
       const json = await res.json();
@@ -152,8 +256,11 @@ const Security: React.FC<{ tokenId?: string | number; tokenKey?: string }> = ({
   const fetchTrades = async () => {
     try {
       setLoading(true);
+      const poolId = await resolveSelectedPairPoolId(fetchKey);
       const res = await fetch(
-        `${API_BASE}/tokens/${fetchKey}/trades?limit=20`,
+        `${buildTokenUrl(fetchKey, "/trades", poolId)}${
+          buildTokenUrl(fetchKey, "/trades", poolId).includes("?") ? "&" : "?"
+        }limit=20`,
         { headers: API_HEADERS }
       );
       const json = await res.json();
@@ -172,14 +279,17 @@ const Security: React.FC<{ tokenId?: string | number; tokenKey?: string }> = ({
       if (activeTab === "Top Holders") fetchHolders();
       if (activeTab === "Recent Trades") fetchTrades();
     }
-  }, [activeTab, fetchKey]);
+  }, [activeTab, fetchKey, selectedPair]);
 
   useEffect(() => {
     if (!fetchKey || summaryData) return;
     setSummaryFallback(null);
     let active = true;
-    tokenAPI
-      .getTokenDetailsBySymbol(fetchKey, "best", true)
+    resolveSelectedPairPoolId(fetchKey)
+      .then((poolId) =>
+        fetch(buildTokenUrl(fetchKey, "", poolId), { headers: API_HEADERS })
+      )
+      .then((res) => res?.json())
       .then((res) => {
         if (!active) return;
         if (res?.data) setSummaryFallback(res.data);
@@ -190,7 +300,7 @@ const Security: React.FC<{ tokenId?: string | number; tokenKey?: string }> = ({
     return () => {
       active = false;
     };
-  }, [fetchKey, summaryData]);
+  }, [fetchKey, summaryData, selectedPair]);
 
   const formatCompact = (value?: number, prefix = "") => {
     if (value == null || !Number.isFinite(value)) return "—";
@@ -211,6 +321,11 @@ const Security: React.FC<{ tokenId?: string | number; tokenKey?: string }> = ({
     setCurrentPage(Math.max(1, Math.min(page, totalPages)));
 
   const tabs: TabType[] = ["Security", "Top Holders", "Recent Trades"];
+  const showStzigPlaceholder =
+    !shouldUsePoolPricing &&
+    (fetchKey?.toLowerCase() === "stzig" ||
+      fetchKey ===
+        "coin.zig109f7g2rzl2aqee7z6gffn8kfe9cpqx0mjkk7ethmx8m2hq4xpe9snmaam2.stzig");
   // console.log(securityData, "security data");
   const liveMarketCap = formatCompact(
     summary?.mcapDetail?.usd ?? summary?.mc,
@@ -242,7 +357,32 @@ const Security: React.FC<{ tokenId?: string | number; tokenKey?: string }> = ({
       }}
     >
       <div className="overflow-x-auto w-full">
-        {loading ? (
+        {showStzigPlaceholder ? (
+          <table className="w-full text-sm">
+            <thead className="bg-black/60 text-xs uppercase">
+              <tr>
+                <td className="px-4 py-2 text-left text-gray-400">Parameter</td>
+                <td className="px-4 py-2 text-left text-gray-400">Value</td>
+              </tr>
+            </thead>
+            <tbody className="bg-black/30">
+              {[
+                "Security Score",
+                "Mintable",
+                "Can Change Mint Cap",
+                "Total Supply",
+                "Max Supply",
+                "Top 10 Holders %",
+                "Holders",
+              ].map((param) => (
+                <tr key={param} className="border-b border-white/10">
+                  <td className="px-4 py-2 font-medium">{param}</td>
+                  <td className="px-4 py-2 text-gray-400">--</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : loading ? (
           <div className="p-6 text-center text-gray-400">Loading...</div>
         ) : activeTab === "Security" ? (
           securityData || summary ? (

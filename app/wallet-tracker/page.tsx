@@ -343,7 +343,7 @@ export default function WalletTracker() {
           <TopMarketToken />
         </div>
       {/* Main Content - Above globe */}
-      <div className="relative z-10 min-h-screen text-white font-sans selection:bg-[#10b981]/30 selection:text-[#10b981] overflow-x-hidden">
+      <div className="relative min-h-screen text-white font-sans selection:bg-[#10b981]/30 selection:text-[#10b981] overflow-x-hidden">
         <div className="py-20 md:py-24 px-4 sm:px-6">
           <div className="text-center space-y-10">
             

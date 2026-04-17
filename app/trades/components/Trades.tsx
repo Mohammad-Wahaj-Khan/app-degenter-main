@@ -1,7 +1,14 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import {
+  startTransition,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import Image from "next/image";
 import { Copy, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
@@ -12,8 +19,10 @@ const Degenter_Label = "Degenter";
 const API_BASE = API_BASE_URL;
 const TRADES_WS_URL = process.env.NEXT_PUBLIC_TRADES_WS_URL || "";
 const MAX_TRADES = 500;
-const HIGHLIGHT_DURATION_MS = 2000;
+const HIGHLIGHT_DURATION_MS = 800;
 const FALLBACK_POLL_INTERVAL_MS = 8000;
+const WS_BATCH_WINDOW_MS = 64;
+const JUST_NOW_THRESHOLD_MS = 5_000;
 const TOKEN_OPTIONS_CACHE: { loaded: boolean; options: TokenOption[] } = {
   loaded: false,
   options: [],
@@ -109,8 +118,12 @@ export interface Trade {
   txHash: string;
   direction: "buy" | "sell" | "provide" | "withdraw";
   offerDenom: string;
+  offerSymbol?: string;
+  offerImage?: string;
   offerAmount: number;
   askDenom: string;
+  askSymbol?: string;
+  askImage?: string;
   returnAmount: number;
   valueNative?: number;
   valueUsd: number;
@@ -132,6 +145,7 @@ export interface TradesFilter {
 export interface TokenOption {
   denom: string;
   label: string;
+  tokenId?: string;
 }
 
 const TIME_RANGE_MS: Record<TradesFilter["timeRange"], number> = {
@@ -158,6 +172,7 @@ const Trades = ({
 }: TradesProps) => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [currentPage, setCurrentPage] = useState(1);
   const tradesPerPage = 10;
   const [symbolMap, setSymbolMap] = useState<Record<string, string>>({});
@@ -172,6 +187,9 @@ const Trades = ({
   const newTradeTimeoutsRef = useRef<Map<string, number>>(new Map());
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const isUserScrolledRef = useRef(false);
+  const pendingWsTradesRef = useRef<Trade[]>([]);
+  const pendingWsSnapshotRef = useRef(false);
+  const wsFlushTimeoutRef = useRef<number | null>(null);
 
   // Colors from image_cc0611.png (Figma)
   const COLORS = {
@@ -212,8 +230,10 @@ const Trades = ({
         for (const it of items) {
           if (it?.denom && it?.symbol) {
             map[it.denom] = it.symbol;
+            map[it.denom.toLowerCase()] = it.symbol;
             if (it.imageUri) {
               imageMap[it.denom] = it.imageUri;
+              imageMap[it.denom.toLowerCase()] = it.imageUri;
             }
           }
         }
@@ -260,6 +280,7 @@ const Trades = ({
             return {
               denom,
               label: token.symbol || denom,
+              tokenId: token.tokenId,
             };
           })
           .filter((option) => option.denom && !isZigDenom(option.denom));
@@ -280,9 +301,9 @@ const Trades = ({
   }, [fetchApi]);
 
   const formatTime = (timeStr: string) => {
-    const diff = Math.floor(
-      (new Date().getTime() - new Date(timeStr).getTime()) / 1000
-    );
+    const diffMs = nowMs - new Date(timeStr).getTime();
+    if (diffMs < JUST_NOW_THRESHOLD_MS) return "Just now";
+    const diff = Math.floor(diffMs / 1000);
     if (diff < 60) return `${diff}s ago`;
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}hr ago`;
@@ -335,8 +356,9 @@ const Trades = ({
 
   const symbolFor = (denom?: string) => {
     if (!denom) return "";
-    if (denom.toLowerCase().includes("uzig")) return "ZIG";
-    const found = symbolMap[denom];
+    const lower = denom.toLowerCase();
+    if (lower.includes("uzig")) return "ZIG";
+    const found = symbolMap[denom] ?? symbolMap[lower];
     if (found) return found;
     const cleaned = denom.replace(/ibc\/\w+\//i, "");
     const parts = cleaned.split(/[./]/);
@@ -346,10 +368,20 @@ const Trades = ({
 
   const getTokenIcon = (denom?: string): string => {
     if (!denom) return "/zigicon.png";
-    return tokenImageMap[denom] ?? "/zigicon.png";
+    return tokenImageMap[denom] ?? tokenImageMap[denom.toLowerCase()] ?? "/zigicon.png";
   };
 
   const isZigDenom = (denom?: string) => denom?.toLowerCase().includes("uzig");
+
+  const getTradeTokenSymbol = (trade: Trade, side: "ask" | "offer") => {
+    if (side === "ask") return trade.askSymbol || symbolFor(trade.askDenom);
+    return trade.offerSymbol || symbolFor(trade.offerDenom);
+  };
+
+  const getTradeTokenIcon = (trade: Trade, side: "ask" | "offer") => {
+    if (side === "ask") return trade.askImage || getTokenIcon(trade.askDenom);
+    return trade.offerImage || getTokenIcon(trade.offerDenom);
+  };
 
   const tradeKey = (trade: Trade) =>
     trade.txHash ||
@@ -359,12 +391,15 @@ const Trades = ({
     (incoming: Trade[]) => {
       if (!incoming.length) return;
       const now = Date.now();
-      setNewTradeKeys((prev) => {
-        const next = { ...prev };
-        incoming.forEach((trade) => {
-          next[tradeKey(trade)] = now;
+      startTransition(() => {
+        setNewTradeKeys((prev) => {
+          const next = { ...prev };
+          incoming.forEach((trade) => {
+            next[tradeKey(trade)] = now;
+          });
+          return next;
         });
-        return next;
+        setNowMs(now);
       });
 
       if (typeof window === "undefined") return;
@@ -389,6 +424,17 @@ const Trades = ({
     []
   );
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const intervalId = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   const mergeIncomingTrades = useCallback(
     (
       prevTrades: Trade[],
@@ -408,6 +454,33 @@ const Trades = ({
     },
     []
   );
+
+  const flushPendingWsTrades = useCallback(() => {
+    const pendingTrades = pendingWsTradesRef.current;
+    const isSnapshot = pendingWsSnapshotRef.current;
+
+    pendingWsTradesRef.current = [];
+    pendingWsSnapshotRef.current = false;
+    wsFlushTimeoutRef.current = null;
+
+    if (!pendingTrades.length) return;
+
+    hasWsTradesRef.current = true;
+    startTransition(() => {
+      setTrades((prev) => {
+        const { trades: nextTrades, incoming } = mergeIncomingTrades(
+          prev,
+          pendingTrades,
+          isSnapshot
+        );
+        if (incoming.length) {
+          markTradesAsNew(incoming);
+        }
+        return nextTrades;
+      });
+      setLoading(false);
+    });
+  }, [markTradesAsNew, mergeIncomingTrades]);
 
   const getZigSideAmount = (
     offerDenom: string,
@@ -517,8 +590,12 @@ const Trades = ({
         txHash: tradeData.tx_hash ?? tradeData.txHash ?? item?.tx_hash ?? "",
         direction,
         offerDenom,
+        offerSymbol: tradeData.offer_symbol ?? tradeData.offerSymbol ?? undefined,
+        offerImage: tradeData.offer_image ?? tradeData.offerImage ?? undefined,
         offerAmount,
         askDenom,
+        askSymbol: tradeData.ask_symbol ?? tradeData.askSymbol ?? undefined,
+        askImage: tradeData.ask_image ?? tradeData.askImage ?? undefined,
         returnAmount,
         valueNative: zigAmount || undefined,
         valueUsd,
@@ -573,8 +650,12 @@ const Trades = ({
       txHash: trade.txHash ?? trade.tx_hash ?? "",
       direction,
       offerDenom,
+      offerSymbol: trade.offerSymbol ?? trade.offer_symbol ?? undefined,
+      offerImage: trade.offerImage ?? trade.offer_image ?? undefined,
       offerAmount,
       askDenom,
+      askSymbol: trade.askSymbol ?? trade.ask_symbol ?? undefined,
+      askImage: trade.askImage ?? trade.ask_image ?? undefined,
       returnAmount,
       valueNative: Number(trade.valueNative ?? zigAmount ?? 0) || undefined,
       valueUsd: Number(trade.valueUsd ?? trade.value_usd ?? 0),
@@ -584,12 +665,46 @@ const Trades = ({
     };
   };
 
+  const tokenOptionsFromTrades = useMemo<TokenOption[]>(() => {
+    const uniqueTokens = new Map<string, string>();
+    trades.forEach((trade) => {
+      [trade.askDenom, trade.offerDenom].forEach((denom) => {
+        if (!denom) return;
+        if (!uniqueTokens.has(denom)) {
+          uniqueTokens.set(denom, symbolFor(denom));
+        }
+      });
+    });
+    return Array.from(uniqueTokens.entries())
+      .map(([denom, label]) => ({
+        denom,
+        label,
+        tokenId: undefined,
+      }))
+      .filter(({ denom }) => !isZigDenom(denom));
+  }, [trades, symbolMap]);
+
+  const resolvedTokenOption = useMemo(() => {
+    const tokenQuery = filters.tokenDenom.trim().toLowerCase();
+    if (!tokenQuery) return null;
+    const options = allTokenOptions.length ? allTokenOptions : tokenOptionsFromTrades;
+    return (
+      options.find((option) => {
+        const denom = option.denom.toLowerCase();
+        const label = option.label.toLowerCase();
+        const tokenId = String(option.tokenId ?? "").toLowerCase();
+        return denom === tokenQuery || label === tokenQuery || tokenId === tokenQuery;
+      }) ?? null
+    );
+  }, [allTokenOptions, filters.tokenDenom, tokenOptionsFromTrades]);
+
   const fetchTradesFromApi = useCallback(async () => {
     const timeframe = TIME_RANGE_API[filters.timeRange] ?? "24h";
-    const tokenDenom = filters.tokenDenom.trim();
-    const endpoint = tokenDenom
+    const tokenQuery = filters.tokenDenom.trim();
+    const tokenRef = resolvedTokenOption?.tokenId || tokenQuery;
+    const endpoint = tokenRef
       ? `${API_BASE}/trades/token/${encodeURIComponent(
-          tokenDenom
+          tokenRef
         )}?tf=${timeframe}&unit=usd&limit=5000&source=chain`
       : `${API_BASE}/trades?tf=${timeframe}&unit=usd&limit=5000&source=chain`;
     try {
@@ -599,7 +714,42 @@ const Trades = ({
       const res = await fetchApi(endpoint);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
+      if (json?.token?.denom && json?.token?.symbol) {
+        setSymbolMap((prev) => ({
+          ...prev,
+          [json.token.denom]: json.token.symbol,
+          [String(json.token.denom).toLowerCase()]: json.token.symbol,
+        }));
+      }
       if (json?.success && Array.isArray(json.data)) {
+        setSymbolMap((prev) => {
+          const next = { ...prev };
+          json.data.forEach((trade: any) => {
+            if (trade?.offerDenom && trade?.offerSymbol) {
+              next[trade.offerDenom] = trade.offerSymbol;
+              next[String(trade.offerDenom).toLowerCase()] = trade.offerSymbol;
+            }
+            if (trade?.askDenom && trade?.askSymbol) {
+              next[trade.askDenom] = trade.askSymbol;
+              next[String(trade.askDenom).toLowerCase()] = trade.askSymbol;
+            }
+          });
+          return next;
+        });
+        setTokenImageMap((prev) => {
+          const next = { ...prev };
+          json.data.forEach((trade: any) => {
+            if (trade?.offerDenom && trade?.offerImage) {
+              next[trade.offerDenom] = trade.offerImage;
+              next[String(trade.offerDenom).toLowerCase()] = trade.offerImage;
+            }
+            if (trade?.askDenom && trade?.askImage) {
+              next[trade.askDenom] = trade.askImage;
+              next[String(trade.askDenom).toLowerCase()] = trade.askImage;
+            }
+          });
+          return next;
+        });
         const mapped = json.data.map(mapApiTradeToLocal);
         setTrades(mapped);
       }
@@ -608,7 +758,7 @@ const Trades = ({
     } finally {
       setLoading(false);
     }
-  }, [fetchApi, filters.timeRange, filters.tokenDenom]);
+  }, [fetchApi, filters.timeRange, filters.tokenDenom, resolvedTokenOption]);
 
   useEffect(() => {
     wsMessageHandlerRef.current = (event) => {
@@ -618,25 +768,27 @@ const Trades = ({
           parseTradesFromStreamMessage(msg);
         if (!tradesFromMessage.length) return;
 
-        hasWsTradesRef.current = true;
-        setTrades((prev) => {
-          const { trades: nextTrades, incoming } = mergeIncomingTrades(
-            prev,
-            tradesFromMessage,
-            isSnapshot
+        if (isSnapshot) {
+          pendingWsTradesRef.current = tradesFromMessage;
+          pendingWsSnapshotRef.current = true;
+        } else {
+          pendingWsTradesRef.current = pendingWsTradesRef.current.concat(
+            tradesFromMessage
           );
-          if (!incoming.length) {
-            return nextTrades;
-          }
-          markTradesAsNew(incoming);
-          return nextTrades;
-        });
-        setLoading(false);
+        }
+
+        if (wsFlushTimeoutRef.current != null || typeof window === "undefined") {
+          return;
+        }
+
+        wsFlushTimeoutRef.current = window.setTimeout(() => {
+          flushPendingWsTrades();
+        }, WS_BATCH_WINDOW_MS);
       } catch (error) {
         console.error("Error processing WebSocket message:", error);
       }
     };
-  }, [parseTradesFromStreamMessage, mergeIncomingTrades, markTradesAsNew]);
+  }, [flushPendingWsTrades, parseTradesFromStreamMessage]);
 
   useEffect(() => {
     if (!TRADES_WS_URL) return;
@@ -673,6 +825,10 @@ const Trades = ({
   useEffect(() => {
     return () => {
       if (typeof window === "undefined") return;
+      if (wsFlushTimeoutRef.current != null) {
+        window.clearTimeout(wsFlushTimeoutRef.current);
+        wsFlushTimeoutRef.current = null;
+      }
       for (const timeoutId of newTradeTimeoutsRef.current.values()) {
         window.clearTimeout(timeoutId);
       }
@@ -718,24 +874,6 @@ const Trades = ({
     }
   };
 
-  const tokenOptionsFromTrades = useMemo(() => {
-    const uniqueTokens = new Map<string, string>();
-    trades.forEach((trade) => {
-      [trade.askDenom, trade.offerDenom].forEach((denom) => {
-        if (!denom) return;
-        if (!uniqueTokens.has(denom)) {
-          uniqueTokens.set(denom, symbolFor(denom));
-        }
-      });
-    });
-    return Array.from(uniqueTokens.entries())
-      .map(([denom, label]) => ({
-        denom,
-        label,
-      }))
-      .filter(({ denom }) => !isZigDenom(denom));
-  }, [trades, symbolMap]);
-
   useEffect(() => {
     if (!onAvailableTokens) return;
     const options = allTokenOptions.length
@@ -773,9 +911,17 @@ const Trades = ({
 
       if (filters.tokenDenom) {
         const tokenLower = filters.tokenDenom.toLowerCase();
+        const resolvedDenom = resolvedTokenOption?.denom.toLowerCase();
+        const resolvedSymbol = resolvedTokenOption?.label.toLowerCase();
         const matchesToken =
           trade.askDenom.toLowerCase() === tokenLower ||
-          trade.offerDenom.toLowerCase() === tokenLower;
+          trade.offerDenom.toLowerCase() === tokenLower ||
+          trade.askDenom.toLowerCase() === resolvedDenom ||
+          trade.offerDenom.toLowerCase() === resolvedDenom ||
+          (trade.askSymbol?.toLowerCase() ?? "") === tokenLower ||
+          (trade.offerSymbol?.toLowerCase() ?? "") === tokenLower ||
+          (trade.askSymbol?.toLowerCase() ?? "") === resolvedSymbol ||
+          (trade.offerSymbol?.toLowerCase() ?? "") === resolvedSymbol;
         if (!matchesToken) return false;
       }
 
@@ -785,7 +931,7 @@ const Trades = ({
 
       return true;
     });
-  }, [trades, filters]);
+  }, [trades, filters, resolvedTokenOption]);
   useEffect(() => {
     onFilteredTradesChange?.(filteredTrades);
   }, [filteredTrades, onFilteredTradesChange]);
@@ -831,41 +977,17 @@ const Trades = ({
       }}
     >
       <style jsx>{`
-        @keyframes slideIn {
-          from {
-            opacity: 0;
-            transform: translateY(-20px);
-            max-height: 0;
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-            max-height: 100px;
-          }
-        }
-        
         @keyframes highlightPulse {
           0% {
-            background-color: rgba(74, 222, 128, 0.2);
-            box-shadow: 0 0 20px rgba(74, 222, 128, 0.3);
-          }
-          50% {
-            background-color: rgba(74, 222, 128, 0.1);
-            box-shadow: 0 0 10px rgba(74, 222, 128, 0.1);
+            background-color: rgba(74, 222, 128, 0.08);
           }
           100% {
             background-color: transparent;
-            box-shadow: none;
           }
         }
         
         .trade-row-new {
-          animation: slideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards,
-                     highlightPulse 2s ease-out forwards;
-        }
-        
-        .trade-row-new td {
-          border-bottom: 1px solid rgba(74, 222, 128, 0.3);
+          animation: highlightPulse 650ms ease-out forwards;
         }
       `}</style>
       
@@ -893,19 +1015,16 @@ const Trades = ({
                 </td>
               </tr>
             ) : (
-              paginatedTrades.map((trade, index) => {
+              paginatedTrades.map((trade) => {
                 const entityClass = determineEntityClass(trade);
                 const rowKeyValue = tradeKey(trade);
                 const isNewTrade = rowKeyValue in newTradeKeys;
                 return (
                   <tr
                     key={rowKeyValue}
-                    className={`group transition-all duration-300 hover:bg-white/[0.02] border-b border-white/15 ${
+                    className={`group border-b border-white/15 transition-colors duration-150 hover:bg-white/[0.02] ${
                       isNewTrade ? "trade-row-new" : ""
                     }`}
-                    style={{
-                      animationDelay: isNewTrade ? `${index * 50}ms` : '0ms'
-                    }}
                   >
                     <td className="px-6 py-4 text-sm text-gray-300 border-b border-white/15">
                       {formatTime(trade.time)}
@@ -939,8 +1058,8 @@ const Trades = ({
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2 text-[#20D87C]">
                           <Image
-                            src={getTokenIcon(trade.askDenom)}
-                            alt={`${symbolFor(trade.askDenom)} icon`}
+                            src={getTradeTokenIcon(trade, "ask")}
+                            alt={`${getTradeTokenSymbol(trade, "ask")} icon`}
                             width={18}
                             height={18}
                             className="w-4 h-4 rounded-full object-cover"
@@ -948,13 +1067,13 @@ const Trades = ({
                           />
                           <span className="text-sm font-semibold">
                             +{formatAmount(trade.returnAmount)}{" "}
-                            {symbolFor(trade.askDenom)}
+                            {getTradeTokenSymbol(trade, "ask")}
                           </span>
                         </div>
                         <div className="flex items-center gap-2 text-[#F64F39]">
                           <Image
-                            src={getTokenIcon(trade.offerDenom)}
-                            alt={`${symbolFor(trade.offerDenom)} icon`}
+                            src={getTradeTokenIcon(trade, "offer")}
+                            alt={`${getTradeTokenSymbol(trade, "offer")} icon`}
                             width={18}
                             height={18}
                             className="w-4 h-4 rounded-full object-cover"
@@ -962,7 +1081,7 @@ const Trades = ({
                           />
                           <span className="text-sm font-semibold">
                             -{formatAmount(trade.offerAmount)}{" "}
-                            {symbolFor(trade.offerDenom)}
+                            {getTradeTokenSymbol(trade, "offer")}
                           </span>
                         </div>
                       </div>
