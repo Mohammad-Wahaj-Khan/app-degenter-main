@@ -44,7 +44,18 @@ const fetchApi = (url: string, init: RequestInit = {}) =>
   });
 
 /* ---------------- COMPONENT ---------------- */
-export default function SwapPanel({ params }: { params: { token: string } }) {
+export default function SwapPanel({
+  params,
+  selectedPair,
+}: {
+  params: { token: string };
+  selectedPair?: {
+    baseSymbol?: string | null;
+    quoteSymbol?: string | null;
+    baseDenom?: string | null;
+    quoteDenom?: string | null;
+  } | null;
+}) {
   // async function resolvePairBySymbol(symbol: string) {
   //   try {
   //     const res = await fetch(`${API_BASE}/tokens/swap-list`);
@@ -230,24 +241,31 @@ export default function SwapPanel({ params }: { params: { token: string } }) {
     setShowSwapOptions(!showSwapOptions);
   };
 
+  const togglePairOptions = () => {
+    setShowPairOptions((v) => !v);
+  };
+
   /* ---------------- UI ---------------- */
   return (
     <div className="backdrop-blur-sm rounded-xl w-full lg:w-80">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 w-full">
           <div
-            className="text-white/50 bg-black/20 px-3 py-1 rounded-t-lg w-full text-lg font-medium flex items-center justify-between transition-colors duration-200 cursor-not-allowed"
-            title="Coming soon"
+            onClick={togglePairOptions}
+            className={`${
+              showPairOptions ? "bg-[#1A5346]" : "bg-black/20"
+            } text-white px-3 py-1 rounded-t-lg w-full text-lg font-medium flex items-center justify-between transition-colors duration-200 cursor-pointer`}
           >
             <div className="flex items-center gap-2">
               <Stars size={16} className="text-[#FA4E30]" />
               All Pairs
-              <Lock size={14} className="text-white/40" />
             </div>
             <div className="py-1 px-2 rounded-t-md">
               <ChevronDown
                 size={18}
-                className="text-white/40 transition-transform duration-200"
+                className={`text-white/70 transition-transform duration-200 ${
+                  showPairOptions ? "rotate-180" : ""
+                }`}
               />
             </div>
           </div>
@@ -299,7 +317,7 @@ export default function SwapPanel({ params }: { params: { token: string } }) {
                 Failed to load token
               </div>
             ) : token ? (
-              <AllSpcPairs />
+              <AllSpcPairs tokenKey={tokenSymbol} />
             ) : (
               <div className="text-center text-neutral-400 py-6">
                 No token data.
@@ -353,6 +371,7 @@ export default function SwapPanel({ params }: { params: { token: string } }) {
                 tokenIcon={token.image}
                 chainId={CHAIN_ID}
                 rpcUrl={RPC_URL}
+                selectedPair={selectedPair}
               />
             ) : (
               <div className="text-center text-red-400 py-6">

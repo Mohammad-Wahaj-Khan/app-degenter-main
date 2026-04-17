@@ -15,11 +15,12 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import { API_BASE_URL } from "@/lib/api";
 
 /* =========================
    API + Types
    ========================= */
-const API_BASE = "http://144.91.85.132:8003";
+const API_BASE = API_BASE_URL.replace(/\/+$/, "");
 const tokensPerPage = 20;
 
 type TokenResponse = {

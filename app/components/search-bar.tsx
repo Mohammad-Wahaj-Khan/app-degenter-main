@@ -406,9 +406,8 @@ export default function SearchBar({
     setRecent(getRecent());
     setSelectedToken(t);
 
-    // Navigate to the token's pair page
-    const tokenPath = t.denom?.startsWith("ibc/") ? t.symbol : t.denom;
-    window.location.href = `/token/${tokenPath}`;
+    const tokenPath = t.denom || t.id;
+    router.push(`/token/${encodeURIComponent(tokenPath)}`);
 
     await fetchTokenPools(t.id);
   };
@@ -674,7 +673,13 @@ export default function SearchBar({
                           {recent.map((r) => (
                             <button
                               key={r.id}
-                              onClick={() => router.push(`/token/${r.id}`)}
+                              onClick={() =>
+                                router.push(
+                                  `/token/${encodeURIComponent(
+                                    r.denom || r.id
+                                  )}`
+                                )
+                              }
                               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/90 text-[13px]"
                             >
                               <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />

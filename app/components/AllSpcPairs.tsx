@@ -1,20 +1,39 @@
 "use client";
 import { useState, useEffect } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
-const API_BASE = API_BASE_URL;
 
-export default function AllSpcPairs() {
+const API_BASE = API_BASE_URL.replace(/\/+$/, "");
+
+export default function AllSpcPairs({
+  tokenKey,
+}: {
+  tokenKey?: string | null;
+}) {
+  const router = useRouter();
   const [open, setOpen] = useState(true);
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchData() {
+    if (!tokenKey) {
+      setData([]);
+      setLoading(false);
+      return;
+    }
+    async function fetchData(resolvedKey: string) {
       try {
-        const res = await fetch(`${API_BASE}/tokens/stzig/pools`, {
+        setLoading(true);
+        const headers = {
+          "Content-Type": "application/json",
+          ...API_HEADERS,
+        };
+        const res = await fetch(
+          `${API_BASE}/tokens/${encodeURIComponent(resolvedKey)}/pools`,
+          {
           headers: API_HEADERS,
-        });
+          }
+        );
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) setData(json.data);
       } catch (e) {
@@ -23,8 +42,8 @@ export default function AllSpcPairs() {
         setLoading(false);
       }
     }
-    fetchData();
-  }, []);
+    fetchData(tokenKey);
+  }, [tokenKey]);
 
   return (
     <div className="w-full  max-w-3xl mx-auto mt-6   z-[50] ">
@@ -47,7 +66,26 @@ export default function AllSpcPairs() {
             data.map((p, i) => (
               <div
                 key={i}
-                className=" p-4 flex flex-col sm:flex-column rounded-b-lg sm:items-start sm:justify-between "
+                className="p-4 flex flex-col sm:flex-column rounded-b-lg sm:items-start sm:justify-between cursor-pointer hover:bg-white/5 transition-colors"
+                onClick={() => {
+                  const baseDenom = p?.base?.denom;
+                  const quoteDenom = p?.quote?.denom;
+                  const quoteSym = String(p?.quote?.symbol || "").toLowerCase();
+                  const quoteDen = String(quoteDenom || "").toLowerCase();
+                  if (baseDenom) {
+                    if (quoteSym === "zig" || quoteDen === "uzig") {
+                      router.push(`/token/${encodeURIComponent(baseDenom)}`);
+                      return;
+                    }
+                  }
+                  if (baseDenom && quoteDenom) {
+                    router.push(
+                      `/token/${encodeURIComponent(
+                        baseDenom
+                      )}/${encodeURIComponent(quoteDenom)}`
+                    );
+                  }
+                }}
               >
                 <div>
                   <div className="text-white font-medium text-base">

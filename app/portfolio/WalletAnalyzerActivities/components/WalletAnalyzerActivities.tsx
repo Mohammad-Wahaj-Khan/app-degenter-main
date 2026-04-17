@@ -117,6 +117,32 @@ export default function WalletAnalyzerActivities({
     }).format(num);
   };
 
+  const availableTokenMap = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const token of availableTokens) {
+      if (!token?.denom) continue;
+      map[token.denom] = token.symbol || token.denom;
+      map[token.denom.toLowerCase()] = token.symbol || token.denom;
+    }
+    return map;
+  }, [availableTokens]);
+
+  const resolveSymbol = useCallback(
+    (denom: string) => {
+      const normalized = denom?.toLowerCase?.() ?? "";
+      const mapped =
+        symbolMap[denom] ||
+        symbolMap[normalized] ||
+        availableTokenMap[denom] ||
+        availableTokenMap[normalized];
+      if (normalized.startsWith("ibc/")) {
+        return mapped || "IBC";
+      }
+      return mapped || denom;
+    },
+    [symbolMap, availableTokenMap]
+  );
+
   // Load available tokens
   const loadAvailableTokens = useCallback(async () => {
     try {
@@ -298,8 +324,8 @@ export default function WalletAnalyzerActivities({
     const csvRows = [
       headers.join(","),
       ...swaps.map((swap) => {
-        const fromSymbol = symbolMap[swap.offerDenom] || swap.offerDenom;
-        const toSymbol = symbolMap[swap.askDenom] || swap.askDenom;
+        const fromSymbol = resolveSymbol(swap.offerDenom);
+        const toSymbol = resolveSymbol(swap.askDenom);
 
         return [
           `"${new Date(swap.time).toISOString()}"`,
@@ -519,7 +545,7 @@ export default function WalletAnalyzerActivities({
             >
               <Filter size={14} />
               {selectedToken
-                ? symbolMap[selectedToken] || selectedToken
+                ? resolveSymbol(selectedToken)
                 : "All Tokens"}
             </button>
             {isTokenFilterOpen && (
@@ -600,9 +626,9 @@ export default function WalletAnalyzerActivities({
                       <div className="flex flex-col items-center justify-center gap-2">
                         <p className="text-lg font-medium">
                           {selectedToken
-                            ? `No activity found for ${
-                                symbolMap[selectedToken] || selectedToken
-                              }`
+                            ? `No activity found for ${resolveSymbol(
+                                selectedToken
+                              )}`
                             : "No activity found"}
                         </p>
                         {selectedToken && (
@@ -618,9 +644,8 @@ export default function WalletAnalyzerActivities({
                   </tr>
                 ) : (
                   currentItems.map((swap, index) => {
-                    const fromSymbol =
-                      symbolMap[swap.offerDenom] || swap.offerDenom;
-                    const toSymbol = symbolMap[swap.askDenom] || swap.askDenom;
+                    const fromSymbol = resolveSymbol(swap.offerDenom);
+                    const toSymbol = resolveSymbol(swap.askDenom);
                     const fromImage =
                       tokenImageMap[swap.offerDenom] || FALLBACK_TOKEN_IMAGE;
                     const toImage =
@@ -710,7 +735,7 @@ export default function WalletAnalyzerActivities({
             <span>
               {selectedToken
                 ? `Showing ${currentItems.length} of ${filteredSwaps.length} ${
-                    symbolMap[selectedToken] || selectedToken
+                    resolveSymbol(selectedToken)
                   } swaps`
                 : `Showing ${currentItems.length} of ${filteredSwaps.length} swaps`}{" "}
               (Page {currentPage} of {totalPages})
