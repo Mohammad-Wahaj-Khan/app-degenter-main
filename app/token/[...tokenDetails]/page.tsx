@@ -50,6 +50,11 @@ const API_BASE = API_BASE_URL.replace(/\/+$/, "");
 const normalizeDenom = (value?: string | null) =>
   decodeURIComponent(value ?? "").trim().toLowerCase();
 
+const isZigAsset = (value?: string | null) => {
+  const normalized = normalizeDenom(value);
+  return normalized === "zig" || normalized === "uzig";
+};
+
 const getPoolId = (pool: any): string | null =>
   pool?.poolId != null
     ? String(pool.poolId)
@@ -540,6 +545,43 @@ export default function PairDetails() {
     }
   };
 
+  const handleSwapSelectedPair = () => {
+    const pair = effectiveSelectedPair;
+    if (!pair?.baseDenom || !pair?.quoteDenom) return;
+    const isZigPair =
+      isZigAsset(pair.baseSymbol) ||
+      isZigAsset(pair.quoteSymbol) ||
+      isZigAsset(pair.baseDenom) ||
+      isZigAsset(pair.quoteDenom);
+    if (isZigPair) return;
+
+    const swappedPair = {
+      baseSymbol: pair.quoteSymbol ?? null,
+      quoteSymbol: pair.baseSymbol ?? null,
+      baseDenom: pair.quoteDenom,
+      quoteDenom: pair.baseDenom,
+      pairContract: pair.pairContract ?? null,
+      poolId: pair.poolId ?? null,
+    };
+
+    selectedPairOverrideRef.current = swappedPair;
+    setSelectedPairOverride(swappedPair);
+    setResolvedRoutePair(swappedPair);
+    setResolvedDenom(swappedPair.baseDenom);
+    setResolvedQuoteDenom(swappedPair.quoteDenom);
+    setResolvedBaseSymbol(swappedPair.baseSymbol);
+    setResolvedQuoteSymbol(swappedPair.quoteSymbol);
+
+    const secondSegment = swappedPair.pairContract || swappedPair.quoteDenom;
+    const url = `/token/${encodeURIComponent(
+      swappedPair.baseDenom
+    )}/${encodeURIComponent(secondSegment)}`;
+    if (selectedPairUrl !== url) {
+      setSelectedPairUrl(url);
+      router.replace(url);
+    }
+  };
+
   if (!loading && (error || !token)) {
     return <NotFoundPage />;
   }
@@ -632,6 +674,7 @@ export default function PairDetails() {
                     tokenId={token.id}
                     selectedPair={effectiveSelectedPair}
                     onToggleAuditPanel={toggleAuditPanel}
+                    onSwapSelectedPair={handleSwapSelectedPair}
                     isAuditPanelVisible={isAuditPanelVisible}
                     signerSummary={signerSummary}
                   />

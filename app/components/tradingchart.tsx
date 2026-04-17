@@ -178,6 +178,12 @@ function parseReservesString(str: string): Record<string, number> {
 const normalizePairKey = (value?: string | null) =>
   (value ?? "").replace(/^ibc\/\w+\//, "").trim().toLowerCase();
 
+const extractTokenRef = (value?: string | null) => {
+  const normalized = (value ?? "").trim();
+  if (!normalized) return "";
+  return normalized.split(".").pop() || normalized;
+};
+
 const PAIR_CONTRACT_POOL_IDS: Record<string, string> = {
   zig1h72z8ptvcdqvuvy2lqanupwtextjmjmktj2ejgne2padxk0z8zds48shzq: "5",
   zig1jv7v8an78vwyfx409nvrguktz8dl97hg7v0qs59pnc9krlf4en8szqsq8h: "10",
@@ -204,16 +210,6 @@ const getPoolIdFromPool = (pool: any): string | null => {
 
 const getPairContractFromPool = (pool: any): string | null =>
   pool?.pairContract ?? pool?.pair_contract ?? null;
-
-const extractTokenRef = (value?: string | null) => {
-  const normalized = (value ?? "").trim();
-  if (!normalized) return "";
-  const last = normalized.split(".").pop() || normalized;
-  if (last === "stzig") return "stzig";
-  if (last === "zig") return "zig";
-  if (last === "uzig") return "uzig";
-  return last || normalized;
-};
 
 const isZigAsset = (value?: string | null) => {
   const normalized = normalizePairKey(value);
@@ -1140,6 +1136,7 @@ interface TradingChartProps {
     poolId?: string | null;
   } | null;
   onToggleAuditPanel?: () => void;
+  onSwapSelectedPair?: () => void;
   isAuditPanelVisible?: boolean;
   signerSummary?: SignerFilterSummary | null;
   compact?: boolean;
@@ -1198,6 +1195,7 @@ export default function TradingChart({
   tokenId,
   selectedPair,
   onToggleAuditPanel,
+  onSwapSelectedPair,
   signerSummary,
   compact = false,
   realtimeWsEnabled = true,
@@ -1290,7 +1288,7 @@ export default function TradingChart({
     if (!shouldUsePoolPricing) return "auto";
     return "auto";
   }, [shouldUsePoolPricing]);
-  const currentPairPriceLabel = isPoolSelected
+  const currentPairPriceLabel = shouldUsePoolPricing
     ? selectedPoolView === "base"
       ? pairQuoteLabel
       : pairBaseLabel
@@ -1339,28 +1337,14 @@ export default function TradingChart({
         "coin.zig109f7g2rzl2aqee7z6gffn8kfe9cpqx0mjkk7ethmx8m2hq4xpe9snmaam2.stzig"
     );
   }, [token]);
-  const activePoolSide: PairSide = isPoolSelected && priceDisplay === "native"
-    ? "quote"
-    : "base";
-  const activePoolTokenKey =
-    activePoolSide === "base"
-      ? extractTokenRef(selectedBaseDenom) ||
-        extractTokenRef(selectedPair?.baseSymbol) ||
-        token
-      : extractTokenRef(selectedQuoteDenom) ||
-        extractTokenRef(selectedPair?.quoteSymbol) ||
-        token;
-  const chartTokenKey = shouldUsePoolPricing
-    ? activePoolTokenKey
-    : pairContract ?? token;
+  const chartTokenKey =
+    shouldUsePoolPricing && selectedBaseDenom
+      ? extractTokenRef(selectedBaseDenom)
+      : pairContract ?? token;
   const displaySymbol =
-    shouldUsePoolPricing
-      ? activePoolSide === "base"
-        ? pairBaseLabel
-        : pairQuoteLabel
-      : meta.symbol ||
-        tokenData?.symbol ||
-        token;
+    meta.symbol ||
+    tokenData?.symbol ||
+    token;
   const displayName = meta.name || tokenData?.name || "Token";
 
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
@@ -2175,7 +2159,7 @@ const applyTvWalletShapes = useCallback(async () => {
     }
 
     if (currentView === "price") {
-      if (isPoolSelected) {
+      if (shouldUsePoolPricing) {
         return `${value.toFixed(6)} ${currentPairPriceLabel}`;
       }
       return priceDisplay === "usd"
@@ -3133,7 +3117,7 @@ const applyTvWalletShapes = useCallback(async () => {
     const supply = supplyRef.current || tokenData.circulatingSupply || null;
     const zigLive = livePrice?.zig;
     const liveBase =
-      !isPoolSelected && zigLive && Number.isFinite(zigLive)
+      !shouldUsePoolPricing && zigLive && Number.isFinite(zigLive)
         ? priceDisplay === "usd"
           ? zigLive * getZigUsd()
           : zigLive
@@ -3148,12 +3132,12 @@ const applyTvWalletShapes = useCallback(async () => {
     }
 
     return liveBase ??
-      (isPoolSelected
+      (shouldUsePoolPricing
         ? tokenData.priceInNative
         : priceDisplay === "usd"
         ? tokenData.priceInUsd
         : tokenData.priceInNative);
-  }, [tokenData, livePrice, isPoolSelected, priceDisplay, getZigUsd, currentView]);
+  }, [tokenData, livePrice, shouldUsePoolPricing, priceDisplay, getZigUsd, currentView]);
 
   useEffect(() => {
     if (currentPriceVal == null) return;
@@ -3180,8 +3164,8 @@ const applyTvWalletShapes = useCallback(async () => {
   const priceParts = useMemo(() => {
     if (currentPriceVal == null) return null;
     if (currentView === "marketCap") {
-      const prefix = isPoolSelected ? "" : priceDisplay === "usd" ? "$" : "";
-      const suffix = isPoolSelected
+      const prefix = shouldUsePoolPricing ? "" : priceDisplay === "usd" ? "$" : "";
+      const suffix = shouldUsePoolPricing
         ? ""
         : priceDisplay === "usd"
         ? ""
@@ -3189,8 +3173,8 @@ const applyTvWalletShapes = useCallback(async () => {
       return { compact: `${prefix}${formatCompact(currentPriceVal)}${suffix}` };
     }
     const numeric = currentPriceVal.toFixed(6);
-    const prefixSymbol = isPoolSelected ? "" : priceDisplay === "usd" ? "$" : "";
-    const suffix = isPoolSelected
+    const prefixSymbol = shouldUsePoolPricing ? "" : priceDisplay === "usd" ? "$" : "";
+    const suffix = shouldUsePoolPricing
       ? ` ${currentPairPriceLabel}`
       : priceDisplay === "usd"
       ? ""
@@ -3200,7 +3184,7 @@ const applyTvWalletShapes = useCallback(async () => {
       last: numeric.slice(-1),
       suffix,
     };
-  }, [currentPriceVal, currentPairPriceLabel, isPoolSelected, priceDisplay, denom, currentView, formatCompact, nativeLabel]);
+  }, [currentPriceVal, currentPairPriceLabel, shouldUsePoolPricing, priceDisplay, denom, currentView, formatCompact, nativeLabel]);
 
   const formatChange = (c: number) => `${c >= 0 ? "+" : ""}${c.toFixed(2)}%`;
 
@@ -3328,7 +3312,7 @@ const applyTvWalletShapes = useCallback(async () => {
 
             <div className="flex items-center gap-1 bg-[#242424]/50 rounded px-1 py-1">
               {(
-                isPoolSelected
+                shouldUsePoolPricing
                   ? ([
                       ["usd", pairBaseLabel || "BASE"],
                       ["native", pairQuoteLabel || "QUOTE"],
@@ -3337,22 +3321,39 @@ const applyTvWalletShapes = useCallback(async () => {
                       ["usd", "USD"],
                       ["native", "ZIG"],
                     ] as const)
-              ).map(([u, label]) => (
-                <button
-                  key={u}
-                  onClick={() => {
-                    setPriceDisplay(u);
-                    setUnit(u);
-                  }}
-                  className={`px-2 py-0.5 rounded text-xs ${
-                    priceDisplay === u
-                      ? "border border-yellow-300 text-yellow-200"
-                      : "text-white/90 hover:text-white"
-                  }`}
-                >
-                  {isPoolSelected ? label : u === "native" ? nativeLabel : label}
-                </button>
-              ))}
+              ).map(([u, label]) => {
+                const disableActivePoolToken =
+                  shouldUsePoolPricing && u === "usd";
+                const disableUsdForStzig =
+                  !shouldUsePoolPricing && isStZigToken && u === "usd";
+                const disabled = disableActivePoolToken || disableUsdForStzig;
+                return (
+                  <button
+                    key={u}
+                    disabled={disabled}
+                    onClick={() => {
+                      if (disabled) return;
+                      if (shouldUsePoolPricing) {
+                        onSwapSelectedPair?.();
+                        return;
+                      }
+                      setPriceDisplay(u);
+                      setUnit(u);
+                    }}
+                    className={`px-2 py-0.5 rounded text-xs ${
+                      (shouldUsePoolPricing ? u === "usd" : priceDisplay === u)
+                        ? "border border-yellow-300 text-yellow-200"
+                        : "text-white/90 hover:text-white"
+                    } ${
+                      disabled
+                        ? "opacity-50 cursor-not-allowed hover:text-white/90"
+                        : ""
+                    }`}
+                  >
+                    {shouldUsePoolPricing ? label : u === "native" ? nativeLabel : label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
