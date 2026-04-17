@@ -6,6 +6,95 @@ import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 
 const API_BASE = API_BASE_URL;
 
+const PAIR_CONTRACT_POOL_IDS: Record<string, string> = {
+  zig1h72z8ptvcdqvuvy2lqanupwtextjmjmktj2ejgne2padxk0z8zds48shzq: "5",
+  zig1jv7v8an78vwyfx409nvrguktz8dl97hg7v0qs59pnc9krlf4en8szqsq8h: "10",
+};
+
+const normalizePairValue = (value?: string | null) =>
+  (value ?? "").trim().toLowerCase();
+
+const normalizeDenom = (value?: string | null) => {
+  const raw = (value ?? "").trim().toLowerCase();
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+};
+
+const isZigAsset = (value?: string | null) => {
+  const normalized = normalizePairValue(value);
+  return normalized === "zig" || normalized === "uzig";
+};
+
+const isLikelyPairContract = (value?: string | null) =>
+  normalizePairValue(value).startsWith("zig1");
+
+const isSelectedPairWithZig = (
+  selectedPair?: {
+    baseSymbol?: string | null;
+    quoteSymbol?: string | null;
+    baseDenom?: string | null;
+    quoteDenom?: string | null;
+  } | null
+) =>
+  isZigAsset(selectedPair?.baseSymbol) ||
+  isZigAsset(selectedPair?.quoteSymbol) ||
+  isZigAsset(selectedPair?.baseDenom) ||
+  isZigAsset(selectedPair?.quoteDenom);
+
+// Helper function to extract token ID from full denom
+const extractTokenId = (denom: string): string => {
+  const parts = denom.split('.');
+  const lastPart = parts[parts.length - 1];
+  
+  if (lastPart === 'stzig') return 'stzig';
+  if (lastPart === 'zig') return 'zig';
+  if (lastPart === 'uzig') return 'uzig';
+  
+  return lastPart || denom;
+};
+
+const getPoolIdFromPool = (pool: any): string | null => {
+  const candidates = [
+    pool?.poolId,
+    pool?.pool_id,
+    pool?.poolIdNumber,
+    pool?.id,
+  ];
+  const value = candidates.find((candidate) => candidate != null && candidate !== "");
+  return value == null ? null : String(value);
+};
+
+const getKnownPoolIdForPairContract = (pairContract?: string | null) => {
+  const normalized = normalizeDenom(pairContract);
+  return normalized ? PAIR_CONTRACT_POOL_IDS[normalized] ?? null : null;
+};
+
+const isMatchingPool = (
+  pool: any,
+  baseDenom?: string | null,
+  quoteDenom?: string | null,
+  pairContract?: string | null
+) => {
+  const selectedPairContract = normalizeDenom(pairContract);
+  const poolPairContract = normalizeDenom(pool?.pairContract ?? pool?.pair_contract);
+  if (selectedPairContract && poolPairContract === selectedPairContract) return true;
+
+  const poolBase = normalizeDenom(pool?.base?.denom);
+  const poolQuote = normalizeDenom(pool?.quote?.denom);
+  const selectedBase = normalizeDenom(baseDenom);
+  const selectedQuote = normalizeDenom(quoteDenom);
+
+  if (!poolBase || !poolQuote || !selectedBase || !selectedQuote) return false;
+
+  return (
+    (poolBase === selectedBase && poolQuote === selectedQuote) ||
+    (poolBase === selectedQuote && poolQuote === selectedBase)
+  );
+};
+
 interface TokenData {
   token?: {
     tokenId?: string;
@@ -23,6 +112,7 @@ interface TokenData {
   twitter?: string;
   telegram?: string;
   priceInUsd?: number;
+  priceInNative?: number;
   price?: { usd?: number; native?: number; changePct?: Record<string, number> };
   liquidity?: number;
   mcap?: { usd?: number };
@@ -39,66 +129,283 @@ interface TokenData {
   txBuckets?: Record<string, number>;
   buy?: number;
   sell?: number;
+  trade?: number;
   tradeCount?: { total?: number };
   vBuyUSD?: number;
   vSellUSD?: number;
+  uniqueTraders?: number;
+  priceSource?: string;
+  dominant?: string;
+  pairView?: string;
+  poolId?: string;
+  pairContract?: string;
 }
 
 export default function TokenStats({
   tokenId,
   tokenKey,
   summaryData,
+  selectedPair,
 }: {
   tokenId?: string | number;
   tokenKey?: string | null;
   summaryData?: TokenData | null;
+  selectedPair?: {
+    baseSymbol?: string | null;
+    quoteSymbol?: string | null;
+    baseDenom?: string | null;
+    quoteDenom?: string | null;
+    pairContract?: string | null;
+    poolId?: string | null;
+  } | null;
 }) {
   const [data, setData] = useState<TokenData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showMoreInfo, setShowMoreInfo] = useState(false);
   const lastGoodDataRef = useRef<TokenData | null>(null);
+  
+  const selectedPairWithZig = isSelectedPairWithZig(selectedPair);
+  const selectedPairContract =
+    selectedPair?.pairContract ||
+    (isLikelyPairContract(selectedPair?.quoteDenom)
+      ? selectedPair?.quoteDenom
+      : null) ||
+    (isLikelyPairContract(selectedPair?.baseDenom)
+      ? selectedPair?.baseDenom
+      : null);
+  const selectedBaseDenom = isLikelyPairContract(selectedPair?.baseDenom)
+    ? null
+    : selectedPair?.baseDenom;
+  const selectedQuoteDenom = isLikelyPairContract(selectedPair?.quoteDenom)
+    ? null
+    : selectedPair?.quoteDenom;
+  const hasNonZigPairDenoms = Boolean(
+    selectedBaseDenom && selectedQuoteDenom
+  );
+  const hasPairContract = Boolean(selectedPairContract);
+  // Use explicit pool pricing for non-ZIG pairs even if the parent forgot poolId;
+  // fetchData resolves the pool id from /pools before calling /tokens/:id.
+  const shouldUsePoolPricing =
+    !selectedPairWithZig &&
+    Boolean(selectedPair?.poolId || hasNonZigPairDenoms || hasPairContract);
+  // IMPORTANT: Always use the poolId from selectedPair, never from token data
+  const activePoolId = shouldUsePoolPricing ? (selectedPair?.poolId ?? null) : null;
 
-  const resolveTokenDenom = (
-    key?: string | null,
-    summary?: TokenData | null
-  ) => {
-    return (
-      summary?.token?.denom ||
-      // summary?.denom ||
-      (key?.trim() ? key.trim() : null)
-    );
+  const resolveTokenId = (): string | null => {
+    // For selected pairs, use the token symbol/denom (like "stzig"), not numeric ID.
+    if (selectedBaseDenom && !isZigAsset(selectedBaseDenom)) {
+      return extractTokenId(selectedBaseDenom);
+    }
+
+    if (selectedQuoteDenom && !isZigAsset(selectedQuoteDenom)) {
+      return extractTokenId(selectedQuoteDenom);
+    }
+
+    if (selectedPair?.baseSymbol && !isZigAsset(selectedPair.baseSymbol)) {
+      return selectedPair.baseSymbol.toLowerCase();
+    }
+
+    if (selectedPair?.quoteSymbol && !isZigAsset(selectedPair.quoteSymbol)) {
+      return selectedPair.quoteSymbol.toLowerCase();
+    }
+
+    if (shouldUsePoolPricing && tokenKey && tokenKey.trim() !== "") {
+      return extractTokenId(tokenKey);
+    }
+    
+    // For non-pool pricing, we can use numeric tokenId or symbol
+    if (tokenId && String(tokenId).trim() !== "" && !shouldUsePoolPricing) {
+      return String(tokenId);
+    }
+
+    if (tokenKey && tokenKey.trim() !== "") {
+      return extractTokenId(tokenKey);
+    }
+    
+    if (summaryData?.token?.denom) {
+      return extractTokenId(summaryData.token.denom);
+    }
+    
+    if (summaryData?.token?.symbol) {
+      return summaryData.token.symbol.toLowerCase();
+    }
+    
+    return null;
+  };
+
+  // Helper to build token details URL with proper parameters
+  const buildTokenDetailsUrl = (fetchTarget: string, poolId: string | null) => {
+    if (selectedPairWithZig) {
+      return `${API_BASE}/tokens/${encodeURIComponent(fetchTarget)}`;
+    }
+
+    if (poolId) {
+      // When pool is selected, ALWAYS use the poolId from selectedPair
+      // This ensures we get the correct pair's data (e.g., STZIG/ZIGMORNING with poolId=10)
+      return `${API_BASE}/tokens/${encodeURIComponent(fetchTarget)}?priceSource=pool&poolId=${encodeURIComponent(poolId)}&dominant=quote&view=auto`;
+    }
+    // When no pool selected, fetch with best price source
+    return `${API_BASE}/tokens/${encodeURIComponent(fetchTarget)}?priceSource=best`;
+  };
+
+  const resolvePoolIdFromTokenDetails = async (
+    fetchTarget: string
+  ): Promise<string | null> => {
+    const normalizedSelectedPairContract = normalizeDenom(selectedPairContract);
+    if (!normalizedSelectedPairContract) return null;
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/tokens/${encodeURIComponent(fetchTarget)}?priceSource=best&includePools=1`,
+        { headers: API_HEADERS }
+      );
+      if (!response.ok) return null;
+
+      const json = await response.json();
+      const detail = json?.data ?? {};
+      const candidates = [
+        detail,
+        detail?.price,
+        ...(Array.isArray(detail?.poolsDetailed) ? detail.poolsDetailed : []),
+        ...(Array.isArray(detail?.pools) ? detail.pools : []),
+      ];
+
+      const match = candidates.find((candidate: any) => {
+        const candidatePairContract = normalizeDenom(
+          candidate?.pairContract ?? candidate?.pair_contract
+        );
+        return candidatePairContract === normalizedSelectedPairContract;
+      });
+
+      return getPoolIdFromPool(match);
+    } catch (err) {
+      console.error("Failed to resolve pool id from token details:", err);
+      return null;
+    }
+  };
+
+  const resolveSelectedPairPoolId = async (
+    fetchTarget: string
+  ): Promise<string | null> => {
+    if (!shouldUsePoolPricing) return null;
+    if (activePoolId) return activePoolId;
+    const knownPoolId = getKnownPoolIdForPairContract(selectedPairContract);
+    if (knownPoolId) return knownPoolId;
+    if (!selectedBaseDenom && !selectedQuoteDenom && !selectedPairContract) {
+      return null;
+    }
+
+    const poolSources = [
+      selectedBaseDenom,
+      selectedQuoteDenom,
+      selectedPairContract,
+    ].filter((value): value is string => Boolean(value));
+    for (const sourceDenom of poolSources) {
+      try {
+        const response = await fetch(
+          `${API_BASE}/tokens/${encodeURIComponent(
+            sourceDenom
+          )}/pools?dominant=base&bucket=24h&limit=100`,
+          { headers: API_HEADERS }
+        );
+        if (!response.ok) continue;
+        const json = await response.json();
+        const pools = Array.isArray(json?.data) ? json.data : [];
+        const match = pools.find((pool: any) =>
+          isMatchingPool(
+            pool,
+            selectedBaseDenom,
+            selectedQuoteDenom,
+            selectedPairContract
+          )
+        );
+        const resolvedPoolId = getPoolIdFromPool(match);
+        if (resolvedPoolId) return resolvedPoolId;
+      } catch (err) {
+        console.error("Failed to resolve selected pair pool id:", err);
+      }
+    }
+
+    return resolvePoolIdFromTokenDetails(fetchTarget);
   };
 
   const fetchData = async (isPolling = false) => {
-    const fetchTarget = resolveTokenDenom(tokenKey, summaryData);
-    if (!fetchTarget) return;
+    // Get the token identifier
+    const fetchTarget = resolveTokenId();
+    
+    if (!fetchTarget) {
+      console.log("No token ID resolved, skipping fetch");
+      setLoading(false);
+      return;
+    }
 
     try {
       if (!isPolling) {
         setLoading(true);
       }
 
-      const res = await fetch(
-        `${API_BASE}/tokens/${encodeURIComponent(
-          fetchTarget
-        )}?priceSource=best&includePools=1`,
-        {
-          headers: API_HEADERS,
-        }
-      );
-      const json = await res.json();
-      if (json?.success && json?.data) {
-        lastGoodDataRef.current = json.data;
-        setData(json.data);
-      } else if (lastGoodDataRef.current) {
-        setData(lastGoodDataRef.current);
-      }
-    } catch (err) {
-      console.error("Error fetching token stats:", err);
-      if (!isPolling) {
+      const poolId = await resolveSelectedPairPoolId(fetchTarget);
+      if (shouldUsePoolPricing && !poolId) {
+        console.error("Unable to resolve pool id for selected non-ZIG pair:", selectedPair);
         if (lastGoodDataRef.current) {
           setData(lastGoodDataRef.current);
         }
+        return;
+      }
+      
+      // Build the URL with proper parameters
+      const tokenUrl = buildTokenDetailsUrl(fetchTarget, poolId);
+      
+      console.log("========== TOKEN STATS FETCH ==========");
+      console.log("Fetching token stats from:", tokenUrl);
+      console.log("Using active pool ID:", poolId);
+      console.log("Resolved token target:", fetchTarget);
+      console.log("Should use pool pricing:", shouldUsePoolPricing);
+      console.log("Selected pair has direct ZIG side:", selectedPairWithZig);
+      console.log("Selected pair:", selectedPair);
+      console.log("======================================");
+      
+      // Fetch token details with pool pricing if pool is selected
+      const statsResponse = await fetch(tokenUrl, { headers: API_HEADERS });
+
+      if (statsResponse.ok) {
+        const json = await statsResponse.json();
+        if (json?.success && json?.data) {
+          const tokenData = json.data;
+          
+          // DO NOT override the poolId from response - keep using selectedPair's poolId
+          // The response might have a different poolId (like default pool), but we want to show
+          // the data for the selected pool
+          lastGoodDataRef.current = tokenData;
+          setData(tokenData);
+          
+          console.log("Token data fetched:", {
+            symbol: tokenData.symbol,
+            name: tokenData.name,
+            priceInUsd: tokenData.priceInUsd,
+            priceInNative: tokenData.priceInNative,
+            responsePoolId: tokenData.poolId,
+            selectedPoolId: poolId,
+            priceSource: tokenData.priceSource,
+          });
+        } else {
+          console.error("API returned success=false:", json);
+          // Fallback to cached data if available
+          if (lastGoodDataRef.current) {
+            setData(lastGoodDataRef.current);
+          }
+        }
+      } else {
+        console.error("Failed to fetch token stats:", statsResponse.status);
+        // Fallback to cached data if available
+        if (lastGoodDataRef.current) {
+          setData(lastGoodDataRef.current);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching token stats:", err);
+      if (!isPolling && lastGoodDataRef.current) {
+        setData(lastGoodDataRef.current);
       }
     } finally {
       if (!isPolling) {
@@ -110,44 +417,66 @@ export default function TokenStats({
   const resolvedMaskKey = (
     tokenKey ??
     summaryData?.token?.denom ??
-    // summaryData?.denom ??
     summaryData?.token?.symbol ??
     ""
   )
     .trim()
     .toLowerCase();
   const isStzig = resolvedMaskKey.includes("stzig");
+  const shouldMaskForStzig = isStzig && !shouldUsePoolPricing;
+  
   const maskText = (
     value?: string,
     options: { hideForStzig?: boolean; fallback?: string } = {}
   ) => {
     const { hideForStzig = true, fallback = "—" } = options;
     const formatted = value ?? fallback;
-    if (isStzig && hideForStzig) return fallback;
+    if (shouldMaskForStzig && hideForStzig) return fallback;
     return formatted === "" ? fallback : formatted;
   };
+  
   const maskNumber = (
     value?: number,
     format: (n: number) => string = (n) => n.toString(),
     hideForStzig = true
   ) => {
     if (value == null || !Number.isFinite(value)) return "—";
-    if (isStzig && hideForStzig) return "—";
+    if (shouldMaskForStzig && hideForStzig) return "—";
     return format(value);
   };
 
-  // Apply live summary updates when available
+  // Apply live summary updates when available (only when no pool selected)
   useEffect(() => {
+    if (shouldUsePoolPricing) return;
     if (!summaryData) return;
-    lastGoodDataRef.current = summaryData;
+    
+    // For non-pool views, use summary data
     setData(summaryData);
+    lastGoodDataRef.current = summaryData;
     setLoading(false);
-  }, [summaryData]);
+  }, [shouldUsePoolPricing, summaryData]);
 
-  // Initial fetch and set up polling (fallback)
+  // Initial fetch when selectedPair or token changes
   useEffect(() => {
-    if (!summaryData) fetchData();
-  }, [tokenKey, summaryData]);
+    // Reset data when selectedPair changes
+    setData(null);
+    
+    // Small delay to ensure state updates
+    const timer = setTimeout(() => {
+      fetchData();
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, [
+    selectedPair?.poolId,
+    selectedPair?.baseSymbol,
+    selectedPair?.quoteSymbol,
+    selectedPair?.baseDenom,
+    selectedPair?.quoteDenom,
+    selectedPair?.pairContract,
+    tokenId,
+    tokenKey,
+  ]);
 
   const handleReload = () => {
     fetchData();
@@ -162,7 +491,7 @@ export default function TokenStats({
   }
 
   if (!data) {
-    if (!tokenKey) {
+    if (!tokenKey && !tokenId && !selectedPair) {
       return (
         <div className="bg-black/50 border border-gray-700 rounded-lg p-6 text-center text-gray-400">
           Waiting for token details...
@@ -171,7 +500,7 @@ export default function TokenStats({
     }
     return (
       <div className="bg-black/50 border border-gray-700 rounded-lg p-6 text-center text-red-400">
-        No data found for token: {tokenKey || tokenId}
+        No data found for token
       </div>
     );
   }
@@ -179,19 +508,14 @@ export default function TokenStats({
   // local helper (no imports)
   const formatChangePct = (n?: number): string => {
     if (n == null || !Number.isFinite(n)) return "—";
-    // avoid showing "-0%"
     const v = Math.abs(n) < 0.0005 ? 0 : n;
     const abs = Math.abs(v);
-
-    // dynamic precision
     const maxDp =
       abs >= 100 ? 0 : abs >= 10 ? 1 : abs >= 1 ? 2 : abs >= 0.1 ? 3 : 4;
-
     const body = new Intl.NumberFormat(undefined, {
       maximumFractionDigits: maxDp,
-      signDisplay: "exceptZero", // adds "+" for positives
+      signDisplay: "exceptZero",
     }).format(v);
-
     return `${body}%`;
   };
 
@@ -201,20 +525,13 @@ export default function TokenStats({
 
   const toShort = (num?: number, prefix = ""): string => {
     if (num == null || !Number.isFinite(num)) return "—";
-
-    // helper: round to 2 dp as a number (avoids string thresholds)
     const r2 = (x: number) => Number(x.toFixed(2));
-
-    // Try billions first *after rounding*
     const b = r2(num / 1e9);
     if (b >= 1) return `${prefix}${b.toFixed(2)}B`;
-
     const m = r2(num / 1e6);
     if (m >= 1) return `${prefix}${m.toFixed(2)}M`;
-
     const k = r2(num / 1e3);
     if (k >= 1) return `${prefix}${k.toFixed(2)}K`;
-
     return `${prefix}${r2(num).toFixed(2)}`;
   };
 
@@ -240,7 +557,7 @@ export default function TokenStats({
     hideForStzig: false,
   });
   const masked24hTrades = maskNumber(
-    data.txBuckets?.["24h"],
+    data.txBuckets?.["24h"] ?? data.trade ?? data.tradeCount?.total,
     (n) => n.toString(),
     false
   );
@@ -250,23 +567,23 @@ export default function TokenStats({
   const maskedVolume24h = maskText(volume24hText, { hideForStzig: false });
   const maskedTotalSupply = maskText(totalSupply);
   const maskedCirculatingSupply = maskText(circulatingSupply);
-  const change24hClass = isStzig
+  const change24hClass = shouldMaskForStzig
     ? "text-gray-400"
     : change24h != null && Number(change24h) >= 0
     ? "text-green-400"
     : "text-red-400";
-  const txValueClass = isStzig ? "text-gray-400" : "text-green-400";
-  const volValueClass = isStzig ? "text-gray-400" : "text-red-400";
-  const buyValueClass = isStzig ? "text-gray-400" : "text-green-400";
-  const sellValueClass = isStzig ? "text-gray-400" : "text-red-400";
+  const txValueClass = shouldMaskForStzig ? "text-gray-400" : "text-green-400";
+  const volValueClass = shouldMaskForStzig ? "text-gray-400" : "text-red-400";
+  const buyValueClass = shouldMaskForStzig ? "text-gray-400" : "text-green-400";
+  const sellValueClass = shouldMaskForStzig ? "text-gray-400" : "text-red-400";
 
   const changeColor = (v?: number) =>
     v && v > 0 ? "text-green-400" : v && v < 0 ? "text-red-400" : "text-white";
 
   const formatIntervalChange = (value?: number) =>
-    isStzig || value == null ? "—" : `${value.toFixed(2)}%`;
+    shouldMaskForStzig || value == null ? "—" : `${value.toFixed(2)}%`;
   const formatIntervalVolume = (value?: number) =>
-    isStzig ? "—" : value ? `$${toShort(value)}` : "0";
+    shouldMaskForStzig ? "—" : value ? `$${toShort(value)}` : "0";
 
   const maskedBuys = maskNumber(data.buy, (n) => n.toString(), false);
   const maskedSells = maskNumber(data.sell, (n) => n.toString(), false);
@@ -344,7 +661,6 @@ export default function TokenStats({
             </p>
           </div>
 
-          {/* Additional Info Boxes - Collapsible */}
           <div
             className={`transition-all duration-300 ease-in-out overflow-hidden col-span-2 ${
               showMoreInfo ? "max-h-[200px] opacity-100" : "max-h-0 opacity-0"
@@ -391,9 +707,8 @@ export default function TokenStats({
         </button>
       </div>
 
-      {/* ─── Price Chart Indicators ───────────────────────────── */}
       <div className="bg-black/60 border border-[#808080]/20 rounded-lg p-4 mb-4">
-        <div className="grid grid-cols-4  gap-3 mb-4 text-center">
+        <div className="grid grid-cols-4 gap-3 mb-4 text-center">
           {["30m", "1h", "4h", "24h"].map((p) => {
             const changeValue = data.priceChange?.[p];
             const volumeValue = data.volumeUSD?.[p];
@@ -432,14 +747,9 @@ export default function TokenStats({
             <p className="text-gray-400 text-sm mb-1">Sells</p>
             <p className={`${sellValueClass} font-medium`}>{maskedSells}</p>
           </div>
-          {/* <div>
-            <p className="text-gray-400 text-sm mb-1">Total</p>
-            <p className="text-white font-medium">{data.tradeCount?.total ?? "—"}</p>
-          </div> */}
         </div>
 
-        <div className=" shadow-sm">
-          {/* Top row */}
+        <div className="shadow-sm">
           <div
             className="flex justify-between bg-[#0c0c0c] border border-gray-700 p-6 rounded-xl relative overflow-hidden items-start mb-[-10px] text-sm sm:text-base"
             style={{
@@ -447,7 +757,6 @@ export default function TokenStats({
                 "0 4px 20px -5px rgba(32, 216, 124, 0.3), 0 4px 20px -5px rgba(246, 79, 57, 0.2)",
             }}
           >
-            {/* Glow effect at bottom */}
             <div
               className="absolute bottom-0 left-0 right-0 h-1/2"
               style={{
@@ -471,7 +780,7 @@ export default function TokenStats({
             </div>
             <div className="text-right">
               <div className="text-gray-300 font-medium">
-                Seller:{" "}
+                Sells:{" "}
                 <span className="text-white font-medium">
                   {data.sell ?? "—"}
                 </span>
@@ -482,14 +791,9 @@ export default function TokenStats({
             </div>
           </div>
 
-          {/* Progress bar */}
-          <div className=" w-full h-[6px] sm:h-[8px] relative">
-            {/* Track with border */}
+          <div className="w-full h-[6px] sm:h-[8px] relative">
             <div className="absolute inset-0 rounded-full bg-black/30 border border-white/10"></div>
-
-            {/* Progress bar with glow */}
             <div className="h-full flex relative z-10">
-              {/* Buy section with glow */}
               <div className="relative" style={{ width: `${buyPct}%` }}>
                 <div
                   className="absolute -inset-0.5 rounded-full"
@@ -512,8 +816,6 @@ export default function TokenStats({
                   ></div>
                 </div>
               </div>
-
-              {/* Sell section with glow */}
               <div className="relative" style={{ width: `${sellPct}%` }}>
                 <div
                   className="absolute -inset-0.5 rounded-full"

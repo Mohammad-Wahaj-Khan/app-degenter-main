@@ -1,6 +1,7 @@
 const ZIGCHAIN_API = 'https://api.zigchain.com';
 const FALLBACK_API = 'https://public-zigchain-lcd.numia.xyz';
-const DEGENTER_API = 'https://dev-api.degenter.io';
+const DEGENTER_API =
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'https://main-api.degenter.io';
 const REFRESH_MS = 10 * 60 * 1000;
 const HOME_REFRESH = 5 * 60 * 1000;
 

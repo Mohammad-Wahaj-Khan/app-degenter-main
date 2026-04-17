@@ -1,7 +1,8 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
+/* @import "tw-animate-css";
+@import "shadcn/tailwind.css"; */
 * {
   margin: 0;
   padding: 0;
@@ -194,10 +195,16 @@ body {
 .water-container::before {
   content: "";
   position: absolute;
-  top: -20%; left: -20%; width: 140%; height: 140%;
-  background: 
-    radial-gradient(circle at 50% 50%, rgba(30, 167, 109, 0.05) 0%, transparent 50%),
-    url('https://www.transparenttextures.com/patterns/carbon-fibre.png'); /* Subtle texture */
+  top: -20%;
+  left: -20%;
+  width: 140%;
+  height: 140%;
+  background: radial-gradient(
+      circle at 50% 50%,
+      rgba(30, 167, 109, 0.05) 0%,
+      transparent 50%
+    ),
+    url("https://www.transparenttextures.com/patterns/carbon-fibre.png"); /* Subtle texture */
   filter: url(#water-filter); /* Applies the real water distortion */
   opacity: 0.4;
   pointer-events: none;
@@ -206,8 +213,16 @@ body {
 
 /* 2. Waterfall Entrance Animation */
 @keyframes waterfall-in {
-  0% { transform: translateY(-30px) scale(0.98); opacity: 0; filter: blur(8px); }
-  100% { transform: translateY(0) scale(1); opacity: 1; filter: blur(0); }
+  0% {
+    transform: translateY(-30px) scale(0.98);
+    opacity: 0;
+    filter: blur(8px);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+    filter: blur(0);
+  }
 }
 
 .coin360-progress {
@@ -217,7 +232,12 @@ body {
 .coin360-progress .progress-float-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(120deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.45) 50%, rgba(255, 255, 255, 0) 100%);
+  background: linear-gradient(
+    120deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.45) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
   opacity: 0.35;
   mix-blend-mode: screen;
   pointer-events: none;
@@ -349,9 +369,9 @@ body {
 
 .shark-row {
   /* animation:  */
-    /* waterfall-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards, */
-    /* shark-pulse 3s ease-in-out infinite */
-    /* ; */
+  /* waterfall-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards, */
+  /* shark-pulse 3s ease-in-out infinite */
+  /* ; */
   /* border-left: 3px solid #1EA76D; */
 }
 
@@ -367,10 +387,7 @@ body {
   filter: blur(3px);
   opacity: 0.78;
   transform: scale(0.96);
-  transition:
-    transform 0.45s ease,
-    filter 0.45s ease,
-    opacity 0.35s ease,
+  transition: transform 0.45s ease, filter 0.45s ease, opacity 0.35s ease,
     box-shadow 0.35s ease;
   will-change: transform, filter, opacity;
 }
@@ -386,4 +403,88 @@ body {
   opacity: 1;
   transform: scale(1.05);
   box-shadow: 0 25px 70px rgba(239, 68, 68, 0.35);
+}
+
+@layer base {
+  .theme {
+    --font-heading: var(--font-sans);
+    --font-sans: var(--font-sans);
+  }
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --radius: 0.625rem;
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar-primary: oklch(0.205 0 0);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.708 0 0);
+  }
+  .dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+  }
+  /* Remove or comment out the problematic @apply rules */
+  /* * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  } */
 }

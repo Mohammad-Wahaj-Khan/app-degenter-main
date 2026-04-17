@@ -16,7 +16,32 @@ import {
   API_HEADERS,
 } from "@/lib/api";
 
-const API_BASE = API_BASE_URL;
+const API_BASE = API_BASE_URL.replace(/\/+$/, "");
+
+const normalizePairValue = (value?: string | null) =>
+  (value ?? "").trim().toLowerCase();
+
+const isZigAsset = (value?: string | null) => {
+  const normalized = normalizePairValue(value);
+  return normalized === "zig" || normalized === "uzig";
+};
+
+const isLikelyPairContract = (value?: string | null) =>
+  normalizePairValue(value).startsWith("zig1");
+
+const isZigSelectedPair = (
+  selectedPair?: {
+    baseSymbol?: string | null;
+    quoteSymbol?: string | null;
+    baseDenom?: string | null;
+    quoteDenom?: string | null;
+    poolId?: string | null;
+  } | null
+) =>
+  isZigAsset(selectedPair?.baseSymbol) ||
+  isZigAsset(selectedPair?.quoteSymbol) ||
+  isZigAsset(selectedPair?.baseDenom) ||
+  isZigAsset(selectedPair?.quoteDenom);
 
 /* ---------------- Types ---------------- */
 interface Token {
@@ -108,40 +133,47 @@ const resolveTokenKeyFromId = async (tokenId: string) => {
 };
 
 /* ---------------- Fetch Token ---------------- */
-async function fetchTokenBySymbol(symbol: string): Promise<Token | null> {
+async function fetchTokenBySymbol(
+  symbol: string,
+  options: { poolId?: string | null } = {}
+): Promise<Token | null> {
   try {
-    const safeSymbol = encodeURIComponent(symbol);
-    const url = `${API_BASE}/tokens/${safeSymbol}?priceSource=best&includePools=1`;
-    const res = await fetch(url, { headers: API_HEADERS });
-
-    if (!res.ok) {
-      console.error(`API Error: ${res.status} ${res.statusText}`);
-      const errorText = await res.text();
-      console.error("Response:", errorText);
+    if (symbol.toLowerCase().startsWith("zig1")) {
+      const resolved = await resolvePairContractToToken(symbol);
+      if (resolved && resolved !== symbol) {
+        return fetchTokenBySymbol(resolved, options);
+      }
       return null;
     }
-
-    const json = await res.json();
-    if (!json?.success) {
+    const json = await tokenAPI.getTokenDetailsBySymbol(
+      symbol,
+      options.poolId ? "pool" : "best",
+      true,
+      {},
+      options.poolId
+    );
+    if (!json?.success || !json?.data) {
       console.error("API returned unsuccessful response:", json);
       return null;
     }
 
-    const t = json?.data?.token ?? json?.data;
+    const payload = json.data;
+    const t = payload?.token;
     if (!t) {
       console.error("No data in API response");
       return null;
     }
 
     // Extract Twitter data from response
-    const twitterData = json?.twitter || t.socials?.twitter || {};
+    const twitterData =
+      (typeof json?.twitter === "object" && json.twitter ? json.twitter : {}) ||
+      {};
     const twitterHandle =
       t.twitter
         ?.replace("https://x.com/", "")
         .replace("https://twitter.com/", "") ||
       json?.twitter?.handle ||
-      t.socials?.twitter?.handle ||
-      t.socials?.twitter?.userId;
+      undefined;
 
     const twitterUrl = twitterHandle
       ? twitterHandle.startsWith("http")
@@ -174,11 +206,10 @@ async function fetchTokenBySymbol(symbol: string): Promise<Token | null> {
         t.description || t.name || "Hello everyone! This is a Degenter token.",
       icon: derivedIcon,
       twitter: twitterUrl,
-      telegram: t.telegram ?? json?.telegram ?? null,
-      website: t.website ?? json?.website ?? null,
+      telegram: t.telegram ?? null,
+      website: t.website ?? null,
       createdAt: t.createdAt ?? null,
       socials: {
-        ...(t.socials || {}),
         twitter: {
           handle: twitterData.handle || twitterHandle?.replace("@", ""),
           userId: twitterData.userId,
@@ -196,6 +227,30 @@ async function fetchTokenBySymbol(symbol: string): Promise<Token | null> {
     };
   } catch (err) {
     console.error("Error fetching token:", err);
+    return null;
+  }
+}
+
+async function resolvePairContractToToken(pairContract: string) {
+  try {
+    const res = await fetch(
+      `${API_BASE}/tokens/${encodeURIComponent(pairContract)}/pools`,
+      { headers: API_HEADERS }
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    const pool = json?.data?.[0] || null;
+    return (
+      pool?.base?.denom ||
+      pool?.quote?.denom ||
+      pool?.base?.tokenId ||
+      pool?.quote?.tokenId ||
+      json?.token?.denom ||
+      json?.token?.tokenId ||
+      null
+    );
+  } catch (err) {
+    console.error("Error resolving pair contract:", err);
     return null;
   }
 }
@@ -229,7 +284,18 @@ const SkeletonLoader = () => (
 );
 
 /* ---------------- Component ---------------- */
-export default function AddLeft() {
+export default function AddLeft({
+  selectedPair,
+}: {
+  selectedPair?: {
+    baseSymbol?: string | null;
+    quoteSymbol?: string | null;
+    baseDenom?: string | null;
+    quoteDenom?: string | null;
+    pairContract?: string | null;
+    poolId?: string | null;
+  } | null;
+} = {}) {
   const [error, setError] = useState<string | null>(null);
   const { tokenDetails } = useParams();
   const [token, setToken] = useState<Token | null>(null);
@@ -251,18 +317,45 @@ export default function AddLeft() {
   const [summaryFallback, setSummaryFallback] = useState<
     TokenDetailResponse["data"] | null
   >(null);
-  const tokenKey = Array.isArray(tokenDetails) ? tokenDetails[0] : tokenDetails;
+  const tokenParts = Array.isArray(tokenDetails)
+    ? tokenDetails
+    : [tokenDetails];
+  const tokenKey = tokenParts[0];
+  const baseSymbolFromRoute = tokenParts[0] ?? null;
+  const quoteSymbolFromRoute = tokenParts[1] ?? null;
+  const routePairContract = isLikelyPairContract(quoteSymbolFromRoute)
+    ? quoteSymbolFromRoute
+    : null;
+  const selectedPairFromRoute: {
+    baseSymbol?: string | null;
+    quoteSymbol?: string | null;
+    baseDenom?: string | null;
+    quoteDenom?: string | null;
+    pairContract?: string | null;
+    poolId?: string | null;
+  } | null =
+    baseSymbolFromRoute && quoteSymbolFromRoute
+      ? {
+          baseDenom: baseSymbolFromRoute,
+          quoteDenom: routePairContract ? null : quoteSymbolFromRoute,
+          pairContract: routePairContract,
+        }
+      : null;
+  const effectiveSelectedPair = selectedPair ?? selectedPairFromRoute;
   const summaryTokenKey =
     token?.denom ||
     token?.symbol ||
     token?.display ||
     resolvedTokenKey ||
     tokenKey;
+  const selectedPoolId = effectiveSelectedPair?.poolId ?? null;
+  const shouldUsePoolPricing =
+    Boolean(selectedPoolId) && !isZigSelectedPair(effectiveSelectedPair);
   const { data: summaryData } = useTokenSummary({
-    tokenId: token?.id,
-    tokenKey: summaryTokenKey,
+    tokenId: shouldUsePoolPricing ? null : token?.id,
+    tokenKey: shouldUsePoolPricing ? null : summaryTokenKey,
   });
-  const summary = summaryData ?? summaryFallback;
+  const summary = shouldUsePoolPricing ? summaryFallback : summaryData ?? summaryFallback;
 
   const formatCompact = (value?: number, prefix = "$") => {
     if (value == null || !Number.isFinite(value)) return "—";
@@ -343,7 +436,9 @@ export default function AddLeft() {
       setLoading(true);
       setError(null);
       try {
-        const t = await fetchTokenBySymbol(summaryTokenKey);
+        const t = await fetchTokenBySymbol(summaryTokenKey, {
+          poolId: shouldUsePoolPricing ? selectedPoolId : null,
+        });
         if (!t) {
           setError("Token not found");
         }
@@ -357,14 +452,20 @@ export default function AddLeft() {
     };
 
     loadToken();
-  }, [tokenDetails, summaryTokenKey]);
+  }, [selectedPoolId, shouldUsePoolPricing, tokenDetails, summaryTokenKey]);
 
   useEffect(() => {
     if (!summaryTokenKey || summaryData) return;
     setSummaryFallback(null);
     let active = true;
     tokenAPI
-      .getTokenDetailsBySymbol(summaryTokenKey, "best", true)
+      .getTokenDetailsBySymbol(
+        summaryTokenKey,
+        shouldUsePoolPricing ? "pool" : "best",
+        true,
+        {},
+        shouldUsePoolPricing ? selectedPoolId : null
+      )
       .then((res) => {
         if (!active) return;
         if (res?.data) setSummaryFallback(res.data);
@@ -375,7 +476,7 @@ export default function AddLeft() {
     return () => {
       active = false;
     };
-  }, [summaryTokenKey, summaryData]);
+  }, [selectedPoolId, shouldUsePoolPricing, summaryTokenKey, summaryData]);
 
   /* ---------------- UI ---------------- */
   return (
@@ -543,6 +644,7 @@ export default function AddLeft() {
             tokenId={token.id}
             tokenKey={summaryTokenKey}
             summaryData={summary}
+            selectedPair={effectiveSelectedPair}
           />
         ) : loading ? (
           <div className="text-gray-400 text-center py-4">

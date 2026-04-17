@@ -4,6 +4,7 @@ import React from "react";
 import { useChain } from "@cosmos-kit/react";
 import { CHAIN_NAME } from "../../../config/chain";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
+import ValidatorsDelegationsPanel from "./ValidatorsDelegationsPanel";
 import {
   Bar,
   BarChart,
@@ -20,10 +21,20 @@ export const analyzerTabs = [
   { id: "trading", label: "Trading PNL" },
   { id: "portfolio", label: "Portfolio" },
   { id: "activities", label: "Activities" },
+  { id: "defi", label: "DeFi" },
 ] as const;
 
 export type AnalyzerTabId = (typeof analyzerTabs)[number]["id"];
 export type TradingTimeframe = "24h" | "7d" | "10d" | "1M";
+
+const defiOptions = [
+  { id: "valdaro", label: "Valdaro", locked: true },
+  { id: "permapod", label: "Permapod", locked: true },
+  { id: "nawa", label: "Nawa Finance", locked: true },
+  { id: "validators", label: "Validators", locked: false },
+] as const;
+
+type DefiOptionId = (typeof defiOptions)[number]["id"];
 
 const timeframeOptions: TradingTimeframe[] = ["24h", "7d", "10d", "1M"];
 const timeframeToWin: Record<TradingTimeframe, string> = {
@@ -72,6 +83,9 @@ export default function WalletAnalyzer({
   onTimeframeChange,
 }: WalletAnalyzerBoxesProps) {
   const showTradingDetails = activeTab === "trading";
+  const [isDefiDrawerOpen, setIsDefiDrawerOpen] = React.useState(false);
+  const [activeDefiOption, setActiveDefiOption] =
+    React.useState<DefiOptionId>("validators");
   const { address: connectedAddress } = useChain(CHAIN_NAME || "zigchain-1");
   const address = addressOverride?.trim() || connectedAddress;
   const apiEndpoints = React.useMemo(
@@ -168,6 +182,21 @@ export default function WalletAnalyzer({
     loading: boolean;
     error: string | null;
   }>({ points: [], loading: false, error: null });
+
+  React.useEffect(() => {
+    if (activeTab !== "defi" && isDefiDrawerOpen) {
+      setIsDefiDrawerOpen(false);
+    }
+  }, [activeTab, isDefiDrawerOpen]);
+
+  React.useEffect(() => {
+    if (activeTab === "defi") {
+      setIsDefiDrawerOpen(true);
+      setActiveDefiOption("validators");
+    } else {
+      setIsDefiDrawerOpen(false);
+    }
+  }, [activeTab]);
 
   const safeNumber = (value: unknown): number => {
     if (typeof value === "number") return value;
@@ -696,19 +725,50 @@ export default function WalletAnalyzer({
       {/* Top Header Navigation */}
       <div className=" flex flex-col gap-4 relative border-b border-white/20 text-gray-400 text-xs uppercase tracking-wider after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[1px] after:bg-gradient-to-r after:from-[#FA4E30] after:to-[#39C8A6] after:content-[''] pb-4 md:flex-row md:items-center ">
         <nav className="flex flex-wrap gap-3 text-sm font-medium text-gray-400">
-          {analyzerTabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => onTabChange(tab.id)}
-              className={`px-4 py-2 rounded-lg transition tracking-wide ${
-                activeTab === tab.id
-                  ? "bg-black/60 text-white border border-white/40"
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {analyzerTabs.map((tab) => {
+            if (tab.id === "defi") {
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setIsDefiDrawerOpen((prev) => !prev);
+                    onTabChange(tab.id);
+                  }}
+                  className={`px-4 py-2 rounded-lg transition tracking-wide flex items-center gap-2 ${
+                    activeTab === tab.id
+                      ? "bg-black/60 text-white border border-white/40"
+                      : "text-gray-400 hover:text-white"
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  <span
+                    className={`text-xs transition-transform ${
+                      isDefiDrawerOpen ? "rotate-180" : ""
+                    }`}
+                  >
+                    ▾
+                  </span>
+                </button>
+              );
+            }
+
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setIsDefiDrawerOpen(false);
+                  onTabChange(tab.id);
+                }}
+                className={`px-4 py-2 rounded-lg transition tracking-wide ${
+                  activeTab === tab.id
+                    ? "bg-black/60 text-white border border-white/40"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </nav>
 
         {showTradingDetails && (
@@ -729,6 +789,62 @@ export default function WalletAnalyzer({
           </div>
         )}
       </div>
+
+      {isDefiDrawerOpen && (
+        <div className="mt-4 rounded-2xl border border-white/10 bg-black/60 p-4 shadow-2xl">
+          <div className="flex items-center justify-between border-b border-white/10 pb-3">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
+              DeFi Options
+            </div>
+            {/* <button
+              type="button"
+              onClick={() => setIsDefiDrawerOpen(false)}
+              className="text-zinc-400 transition hover:text-white"
+            >
+              X
+            </button> */}
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
+            {defiOptions.map((option) => {
+              const isActive = activeDefiOption === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  disabled={option.locked}
+                  onClick={() => {
+                    if (option.locked) return;
+                    setActiveDefiOption(option.id);
+                  }}
+                  className={`w-full rounded-xl border px-4 py-3 text-left text-sm transition ${
+                    option.locked
+                      ? "cursor-not-allowed border-white/5 bg-white/5 text-zinc-500"
+                      : isActive
+                      ? "border-white/30 bg-white/10 text-white"
+                      : "border-white/10 bg-white/5 text-zinc-300 hover:border-white/30 hover:bg-white/10"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{option.label}</span>
+                    {option.locked ? (
+                      <span className="text-[11px] uppercase tracking-widest text-zinc-500">
+                        Locked
+                      </span>
+                    ) : isActive ? (
+                      <span className="text-[11px] uppercase tracking-widest text-emerald-300">
+                        Active
+                      </span>
+                    ) : null}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          {activeDefiOption === "validators" && (
+            <ValidatorsDelegationsPanel address={address} />
+          )}
+        </div>
+      )}
 
       {showTradingDetails && (
         <div className="grid grid-cols-1 gap-4">

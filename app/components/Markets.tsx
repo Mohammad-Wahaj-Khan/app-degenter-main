@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { 
   TrendingUp, 
   Activity, 
@@ -21,6 +22,14 @@ import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 
 interface MarketsProps {
   denom?: string;
+  onSelectPair?: (pair: {
+    baseSymbol?: string | null;
+    quoteSymbol?: string | null;
+    baseDenom?: string | null;
+    quoteDenom?: string | null;
+    pairContract?: string | null;
+    poolId?: string | null;
+  }) => void;
 }
 
 interface PoolToken {
@@ -32,6 +41,10 @@ interface PoolToken {
 }
 
 interface PoolEntry {
+  id?: string | number;
+  poolId?: string | number;
+  pool_id?: string | number;
+  poolIdNumber?: string | number;
   pairContract: string;
   base: PoolToken;
   quote: PoolToken;
@@ -56,6 +69,27 @@ interface PoolsResponse {
 
 const API_BASE = API_BASE_URL.replace(/\/+$/, "");
 
+const isZigDenom = (value?: string | null) => {
+  const normalized = (value ?? "").trim().toLowerCase();
+  return normalized === "zig" || normalized === "uzig";
+};
+
+const buildPoolsUrl = (denom: string) =>
+  `${API_BASE}/tokens/${encodeURIComponent(
+    denom
+  )}/pools?dominant=base&bucket=24h&limit=100`;
+
+const resolvePoolId = (entry: PoolEntry): string | null => {
+  const candidates = [
+    entry.poolId,
+    entry.pool_id,
+    entry.poolIdNumber,
+    entry.id,
+  ];
+  const value = candidates.find((candidate) => candidate != null && candidate !== "");
+  return value == null ? null : String(value);
+};
+
 // Sophisticated number formatting
 const formatCurrency = (val: number, compact = true) => {
   if (!Number.isFinite(val)) return "—";
@@ -75,7 +109,8 @@ const formatNumber = (val: number) => {
   }).format(val);
 };
 
-export default function Markets({ denom }: MarketsProps) {
+export default function Markets({ denom, onSelectPair }: MarketsProps) {
+  const router = useRouter();
   const [rawResponse, setRawResponse] = useState<PoolsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -96,10 +131,10 @@ export default function Markets({ denom }: MarketsProps) {
           "Content-Type": "application/json",
           ...API_HEADERS,
         };
-        const response = await fetch(
-          `${API_BASE}/tokens/${encodeURIComponent(denom)}/pools`,
-          { headers, signal: controller.signal }
-        );
+        const response = await fetch(buildPoolsUrl(denom), {
+          headers,
+          signal: controller.signal,
+        });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data: PoolsResponse = await response.json();
         setRawResponse(data);
@@ -270,6 +305,34 @@ export default function Markets({ denom }: MarketsProps) {
                       className="group relative transition-all duration-200 hover:bg-white/[0.03]"
                       onMouseEnter={() => setHoveredRow(entry.pairContract)}
                       onMouseLeave={() => setHoveredRow(null)}
+                      onClick={() => {
+                        const selectedPair = {
+                          baseSymbol: entry.base?.symbol ?? null,
+                          quoteSymbol: entry.quote?.symbol ?? null,
+                          baseDenom: entry.base?.denom ?? null,
+                          quoteDenom: entry.quote?.denom ?? null,
+                          pairContract: entry.pairContract ?? null,
+                          poolId: resolvePoolId(entry),
+                        };
+                        if (onSelectPair) {
+                          onSelectPair(selectedPair);
+                          return;
+                        }
+                        const baseDenom = selectedPair.baseDenom;
+                        const pairContract = selectedPair.pairContract;
+                        const quoteDenom = selectedPair.quoteDenom;
+                        const targetUrl =
+                          baseDenom && pairContract && !isZigDenom(quoteDenom)
+                            ? `/token/${encodeURIComponent(
+                                baseDenom
+                              )}/${encodeURIComponent(pairContract)}`
+                            : baseDenom
+                            ? `/token/${encodeURIComponent(baseDenom)}`
+                            : null;
+                        if (targetUrl) {
+                          router.push(targetUrl);
+                        }
+                      }}
                     >
                       {/* Hover indicator */}
                       {/* <div className={`absolute left-0 top-0 bottom-0 w-[2px] bg-[#FA4E30] transition-opacity duration-200 ${isHovered ? 'opacity-100' : 'opacity-0'}`} /> */}
@@ -354,7 +417,10 @@ export default function Markets({ denom }: MarketsProps) {
 
                       <td className="py-4 px-6 text-right">
                         <button
-                          onClick={() => setSelectedPool(entry)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedPool(entry);
+                          }}
                           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-medium text-slate-300 hover:bg-[#FA4E30] hover:text-white hover:border-[#FA4E30] transition-all duration-200 group/btn"
                         >
                           Details

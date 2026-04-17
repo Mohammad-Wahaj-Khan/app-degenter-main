@@ -35,8 +35,12 @@ interface Trade {
   tradeId?: string;
   direction: "buy" | "sell" | "provide" | "withdraw";
   offerDenom: string;
+  offerSymbol?: string;
+  offerImage?: string;
   offerAmount: number; // human amount
   askDenom: string;
+  askSymbol?: string;
+  askImage?: string;
   returnAmount: number; // human amount
   valueNative: number; // human native (ZIG) or token depending on context
   valueUsd: number;
@@ -66,6 +70,15 @@ export interface SignerFilterSummary {
 
 interface RecentTradesProps {
   tokenId?: string;
+  pairContract?: string | null;
+  selectedPair?: {
+    baseSymbol?: string | null;
+    quoteSymbol?: string | null;
+    baseDenom?: string | null;
+    quoteDenom?: string | null;
+    pairContract?: string | null;
+    poolId?: string | null;
+  } | null;
   filteredSigner?: string | null;
   onSignerFilterChange?: (summary: SignerFilterSummary | null) => void;
 }
@@ -87,6 +100,57 @@ const isZigDenom = (denom?: string) =>
 
 const normalizeTokenRef = (value?: string) =>
   (value ?? "").replace(/^ibc\/\w+\//, "").trim().toLowerCase();
+
+const PAIR_CONTRACT_POOL_IDS: Record<string, string> = {
+  zig1h72z8ptvcdqvuvy2lqanupwtextjmjmktj2ejgne2padxk0z8zds48shzq: "5",
+  zig1jv7v8an78vwyfx409nvrguktz8dl97hg7v0qs59pnc9krlf4en8szqsq8h: "10",
+};
+
+const isZigAsset = (value?: string | null) => {
+  const normalized = normalizeTokenRef(value ?? undefined);
+  return normalized === "zig" || normalized === "uzig";
+};
+
+const isLikelyPairContract = (value?: string | null) =>
+  normalizeTokenRef(value ?? undefined).startsWith("zig1");
+
+const extractTokenRef = (value?: string | null) => {
+  const normalized = (value ?? "").trim();
+  if (!normalized) return "";
+  const last = normalized.split(".").pop() || normalized;
+  if (last === "stzig") return "stzig";
+  if (last === "zig") return "zig";
+  if (last === "uzig") return "uzig";
+  return last || normalized;
+};
+
+const getKnownPoolIdForPairContract = (pairContract?: string | null) => {
+  const normalized = normalizeTokenRef(pairContract ?? undefined);
+  return normalized ? PAIR_CONTRACT_POOL_IDS[normalized] ?? null : null;
+};
+
+const getPoolIdFromPool = (pool: any): string | null => {
+  const candidates = [
+    pool?.poolId,
+    pool?.pool_id,
+    pool?.poolIdNumber,
+    pool?.id,
+  ];
+  const value = candidates.find((candidate) => candidate != null && candidate !== "");
+  return value == null ? null : String(value);
+};
+
+const getPairContractFromPool = (pool: any): string | null =>
+  pool?.pairContract ?? pool?.pair_contract ?? null;
+
+const numericField = (...values: unknown[]) => {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return 0;
+};
 
 const getZigSideAmount = (
   offerDenom: string,
@@ -113,8 +177,17 @@ const getTradeClass = (zigAmount: number = 0): string => {
 
 const mapApiTradeToLocal = (trade: any): Trade => {
   const direction = (trade.direction as Trade["direction"]) || "buy";
-  const offerAmount = Number(trade.offerAmount ?? 0);
-  const returnAmount = Number(trade.returnAmount ?? 0);
+  const offerAmount = numericField(
+    trade.offerAmount,
+    trade.offer_amount,
+    trade.offer_amount_human
+  );
+  const returnAmount = numericField(
+    trade.returnAmount,
+    trade.return_amount,
+    trade.askAmount,
+    trade.ask_amount
+  );
   const zigAmount = getZigSideAmount(
     trade.offerDenom ?? trade.offer_denom ?? "",
     trade.askDenom ?? trade.ask_denom ?? "",
@@ -129,27 +202,38 @@ const mapApiTradeToLocal = (trade: any): Trade => {
     tradeId: trade.tradeId ?? trade.trade_id ?? "",
     direction,
     offerDenom: trade.offerDenom ?? trade.offer_denom ?? "",
+    offerSymbol: trade.offerSymbol ?? trade.offer_symbol ?? undefined,
+    offerImage: trade.offerImage ?? trade.offer_image ?? undefined,
     offerAmount,
     askDenom: trade.askDenom ?? trade.ask_denom ?? "",
+    askSymbol: trade.askSymbol ?? trade.ask_symbol ?? undefined,
+    askImage: trade.askImage ?? trade.ask_image ?? undefined,
     returnAmount,
-    valueNative:
-      typeof trade.valueNative === "number"
-        ? trade.valueNative
-        : trade.value_native ?? 0,
-    valueUsd:
-      typeof trade.valueUsd === "number"
-        ? trade.valueUsd
-        : trade.value_usd ?? 0,
-    priceUsd:
-      typeof trade.priceUsd === "number"
-        ? trade.priceUsd
-        : trade.price_usd ?? 0,
-    priceInZig:
-      typeof trade.priceNative === "number"
-        ? trade.priceNative
-        : typeof trade.price_in_zig === "number"
-        ? trade.price_in_zig
-        : 0,
+    valueNative: numericField(
+      trade.valueNative,
+      trade.value_native,
+      trade.valueNativeAmount,
+      trade.value_native_amount
+    ),
+    valueUsd: numericField(
+      trade.valueUsd,
+      trade.value_usd,
+      trade.valueUSD,
+      trade.value_in_usd
+    ),
+    priceUsd: numericField(
+      trade.priceUsd,
+      trade.price_usd,
+      trade.priceUSD,
+      trade.price_in_usd
+    ),
+    priceInZig: numericField(
+      trade.priceNative,
+      trade.price_native,
+      trade.priceInNative,
+      trade.price_in_zig,
+      trade.priceInZig
+    ),
     signer: trade.signer ?? "",
     pairContract: trade.pairContract ?? trade.pair_contract ?? "",
     class: trade.class || getTradeClass(zigAmount),
@@ -263,19 +347,26 @@ const fetchTokenPrice = async (
 /**
  * Preload token metas for a list of tokenIds (to warm cache).
  */
-const preloadTokenData = async (tokenIds: string[]) => {
-  for (const tokenId of tokenIds) {
-    const cleaned = tokenId.replace(/^ibc\/\w+\//, "").toLowerCase();
+const preloadTokenData = async (tokenIds: string[], limit = 20) => {
+  const unique = Array.from(new Set(tokenIds))
+    .map((tokenId) => tokenId.replace(/^ibc\/\w+\//, "").toLowerCase())
+    .filter(Boolean)
+    .slice(0, limit);
+
+  const tasks = unique.map(async (cleaned) => {
     const cached = getCachedTokenData(cleaned);
     if (!cached) {
-      // fetch and cache
       await fetchTokenMeta(cleaned);
     }
-  }
+  });
+
+  await Promise.allSettled(tasks);
 };
 
 const RecentTrades: React.FC<RecentTradesProps> = ({
   tokenId,
+  pairContract,
+  selectedPair,
   filteredSigner,
   onSignerFilterChange,
 }) => {
@@ -285,7 +376,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>("Trade History");
   const isMounted = useRef(true);
-  const [poolId, setPoolId] = useState<number | null>(null);
+  const [poolId, setPoolId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [internalAddressFilter, setInternalAddressFilter] = useState<
@@ -543,19 +634,17 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
       const offerDenom =
         tradeData.offer_asset_denom ?? tradeData.offerDenom ?? "";
       const askDenom = tradeData.ask_asset_denom ?? tradeData.askDenom ?? "";
-      const offerAmountRaw = Number(
-        tradeData.offer_amount_base ??
-          tradeData.offerAmountBase ??
-          tradeData.offer_amount ??
-          tradeData.offerAmount ??
-          0
+      const offerAmountRaw = numericField(
+        tradeData.offer_amount_base,
+        tradeData.offerAmountBase,
+        tradeData.offer_amount,
+        tradeData.offerAmount
       );
-      const returnAmountRaw = Number(
-        tradeData.return_amount_base ??
-          tradeData.returnAmountBase ??
-          tradeData.return_amount ??
-          tradeData.returnAmount ??
-          0
+      const returnAmountRaw = numericField(
+        tradeData.return_amount_base,
+        tradeData.returnAmountBase,
+        tradeData.return_amount,
+        tradeData.returnAmount
       );
 
       const offerAmount = await convertAmount(offerAmountRaw, offerDenom, true);
@@ -576,24 +665,33 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
         tokenAmountHuman = offerAmount;
       }
 
-      const priceInZig = Number(
-        tradeData.price_in_zig ?? tradeData.priceInZig ?? 0
+      const priceInZig = numericField(
+        tradeData.priceNative,
+        tradeData.price_native,
+        tradeData.priceInNative,
+        tradeData.price_in_zig,
+        tradeData.priceInZig
       );
-      const zigUsdAtTrade = Number(
-        tradeData.zig_usd_at_trade ?? tradeData.zigUsdAtTrade ?? 0
+      const zigUsdAtTrade = numericField(
+        tradeData.zig_usd_at_trade,
+        tradeData.zigUsdAtTrade
       );
-      let priceUsd = Number(
-        tradeData.price_in_usd ??
-          tradeData.priceInUsd ??
-          tradeData.price_usd ??
-          0
+      let priceUsd = numericField(
+        tradeData.priceUsd,
+        tradeData.price_usd,
+        tradeData.priceUSD,
+        tradeData.price_in_usd,
+        tradeData.priceInUsd
       );
       if (!priceUsd && priceInZig && zigUsdAtTrade) {
         priceUsd = priceInZig * zigUsdAtTrade;
       }
 
-      let valueUsd = Number(
-        tradeData.value_in_usd ?? tradeData.valueUsd ?? tradeData.value_usd ?? 0
+      let valueUsd = numericField(
+        tradeData.valueUsd,
+        tradeData.value_usd,
+        tradeData.valueUSD,
+        tradeData.value_in_usd
       );
 
       if (!valueUsd) {
@@ -639,18 +737,72 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
     }
   };
 
+  const resolvedTokenId = pairContract || tokenId || null;
+  const selectedPairContract =
+    selectedPair?.pairContract ||
+    (isLikelyPairContract(selectedPair?.quoteDenom)
+      ? selectedPair?.quoteDenom
+      : null) ||
+    (isLikelyPairContract(selectedPair?.baseDenom)
+      ? selectedPair?.baseDenom
+      : null);
+  const selectedBaseDenom = isLikelyPairContract(selectedPair?.baseDenom)
+    ? null
+    : selectedPair?.baseDenom;
+  const selectedQuoteDenom = isLikelyPairContract(selectedPair?.quoteDenom)
+    ? null
+    : selectedPair?.quoteDenom;
+  const selectedKnownPoolId = getKnownPoolIdForPairContract(selectedPairContract);
+  const selectedPairWithZig =
+    isZigAsset(selectedPair?.baseSymbol) ||
+    isZigAsset(selectedPair?.quoteSymbol) ||
+    isZigAsset(selectedBaseDenom) ||
+    isZigAsset(selectedQuoteDenom);
+  const hasNonZigPairDenoms = Boolean(selectedBaseDenom && selectedQuoteDenom);
+  const shouldUsePoolPricing =
+    !selectedPairWithZig &&
+    Boolean(
+      selectedPair?.poolId ||
+        selectedKnownPoolId ||
+        hasNonZigPairDenoms ||
+        selectedPairContract
+    );
+  const activePoolId = selectedPair?.poolId ?? selectedKnownPoolId ?? poolId;
+  const tradesTokenRef =
+    extractTokenRef(selectedBaseDenom) ||
+    extractTokenRef(resolvedTokenId) ||
+    extractTokenRef(selectedPair?.baseSymbol) ||
+    "";
+
+  const buildTokenTradesUrl = useCallback(
+    (tokenRef: string, options: { tf?: string; limit?: number } = {}) => {
+      const tf = options.tf ?? "30d";
+      const limit = options.limit ?? 500;
+      let url = `${API_BASE}/trades/token/${encodeURIComponent(
+        tokenRef
+      )}?tf=${encodeURIComponent(tf)}&unit=usd&limit=${limit}`;
+      if (shouldUsePoolPricing && activePoolId) {
+        url += `&priceSource=pool&poolId=${encodeURIComponent(
+          activePoolId
+        )}&dominant=quote&view=auto`;
+      }
+      return url;
+    },
+    [activePoolId, shouldUsePoolPricing]
+  );
+
   const isTradeForSelectedToken = useCallback(
     (rawItem: any, trade: Trade) => {
-      if (!tokenId) return false;
+      if (!resolvedTokenId) return false;
 
-      const selected = normalizeTokenRef(tokenId);
+      const selected = normalizeTokenRef(resolvedTokenId);
       if (!selected) return false;
 
       const tradeData = unwrapTradePayload(rawItem) ?? rawItem ?? {};
       const candidates = [
-        tokenId,
+        resolvedTokenId,
         selected,
-        tokenId.split(".").pop() || tokenId,
+        resolvedTokenId.split(".").pop() || resolvedTokenId,
         tradeData.token_id,
         tradeData.tokenId,
         tradeData.ask_asset_denom,
@@ -665,7 +817,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
 
       const selectedParts = new Set([
         selected,
-        normalizeTokenRef(tokenId.split(".").pop() || tokenId),
+        normalizeTokenRef(resolvedTokenId.split(".").pop() || resolvedTokenId),
       ]);
 
       return candidates.some((candidate) =>
@@ -677,7 +829,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
         )
       );
     },
-    [tokenId]
+    [resolvedTokenId]
   );
 
   const resolveSymbolFromTokenId = useCallback(
@@ -703,22 +855,42 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
   );
 
   const fetch24hTradesFromApi = useCallback(async (): Promise<Trade[]> => {
-    if (!tokenId) return [];
+    if (shouldUsePoolPricing && activePoolId && tradesTokenRef) {
+      try {
+        const response = await fetchApi(
+          buildTokenTradesUrl(tradesTokenRef, { tf: "30d", limit: 500 }),
+          { cache: "no-store" }
+        );
+        if (!response.ok) return [];
+        const data = await response.json();
+        if (!data?.success || !Array.isArray(data.data)) return [];
+        const cutoff = Date.now() - TRADE_LOOKBACK_MS;
+        return data.data
+          .map(mapApiTradeToLocal)
+          .filter((trade: { time: string }) => {
+            const ts = Date.parse(trade.time);
+            return Number.isFinite(ts) && ts >= cutoff;
+          })
+          .slice(0, MAX_TRADES);
+      } catch (error) {
+        console.error("Error fetching pool-priced token trades:", error);
+        return [];
+      }
+    }
+    if (!resolvedTokenId) return [];
 
     const candidates = Array.from(
       new Set([
-        tokenId,
-        tokenId.split(".").pop() || tokenId,
-        tokenId.toUpperCase(),
+        resolvedTokenId,
+        resolvedTokenId.split(".").pop() || resolvedTokenId,
+        resolvedTokenId.toUpperCase(),
       ])
     ).filter(Boolean);
 
     try {
       for (const candidate of candidates) {
         const response = await fetchApi(
-          `${API_BASE}/trades/token/${encodeURIComponent(
-            candidate
-          )}?tf=30d&unit=usd&limit=500`,
+          buildTokenTradesUrl(candidate, { tf: "30d", limit: 500 }),
           { cache: "no-store" }
         );
         if (!response.ok) continue;
@@ -735,12 +907,10 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           .slice(0, MAX_TRADES);
       }
 
-      const resolvedSymbol = await resolveSymbolFromTokenId(tokenId);
+      const resolvedSymbol = await resolveSymbolFromTokenId(resolvedTokenId);
       if (resolvedSymbol) {
         const response = await fetchApi(
-          `${API_BASE}/trades/token/${encodeURIComponent(
-            resolvedSymbol
-          )}?tf=7d&unit=usd&limit=500`,
+          buildTokenTradesUrl(resolvedSymbol, { tf: "7d", limit: 500 }),
           { cache: "no-store" }
         );
         if (response.ok) {
@@ -763,16 +933,45 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
       console.error("Error fetching 24h trades from API:", error);
       return [];
     }
-  }, [tokenId, resolveSymbolFromTokenId]);
+  }, [
+    activePoolId,
+    buildTokenTradesUrl,
+    resolvedTokenId,
+    resolveSymbolFromTokenId,
+    shouldUsePoolPricing,
+    tradesTokenRef,
+  ]);
 
   // Fetch initial batch of trades
   const fetchInitialTrades = useCallback(async () => {
-    if (!tokenId) return;
+    if (shouldUsePoolPricing && activePoolId && tradesTokenRef) {
+      setLoading(true);
+      try {
+        const response = await fetchApi(
+          buildTokenTradesUrl(tradesTokenRef, { tf: "30d", limit: 500 }),
+          { cache: "no-store" }
+        );
+        if (!response.ok) throw new Error("Failed to fetch pool-priced token trades");
+        const data = await response.json();
+        if (data?.success && Array.isArray(data.data)) {
+          const mappedTrades = data.data.map(mapApiTradeToLocal);
+          setTrades(mappedTrades);
+          setLastUpdated(new Date());
+          initialLoadDone.current = true;
+        }
+      } catch (error) {
+        console.error("Error fetching initial pool-priced token trades:", error);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+    if (!resolvedTokenId) return;
 
     setLoading(true);
     try {
       const response = await fetchApi(
-        `${API_BASE}/trades/token/${encodeURIComponent(tokenId)}?limit=500`,
+        buildTokenTradesUrl(resolvedTokenId, { tf: "24h", limit: 500 }),
         { cache: "no-store" }
       );
 
@@ -790,7 +989,13 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [tokenId]);
+  }, [
+    activePoolId,
+    buildTokenTradesUrl,
+    resolvedTokenId,
+    shouldUsePoolPricing,
+    tradesTokenRef,
+  ]);
 
   const processedTrades = useMemo(() => {
     let filtered = trades;
@@ -807,13 +1012,46 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
 
   useEffect(() => {
     const fetchPoolData = async () => {
-      if (!tokenId) return;
+      if (shouldUsePoolPricing && selectedKnownPoolId) {
+        setPoolId(selectedKnownPoolId);
+        return;
+      }
+
+      if (
+        !resolvedTokenId &&
+        !selectedPair?.baseSymbol &&
+        !selectedPair?.baseDenom
+      ) {
+        setLoading(false);
+        return;
+      }
+      if (
+        !tokenId &&
+        !selectedPair?.baseSymbol &&
+        !selectedBaseDenom &&
+        pairContract
+      ) {
+        setPoolId(pairContract);
+        setLoading(false);
+        return;
+      }
 
       try {
+        const tokenIdKey = tokenId ?? null;
+        const resolvedKey =
+          resolvedTokenId && resolvedTokenId !== pairContract
+            ? resolvedTokenId
+            : null;
+        const baseKey =
+          tokenIdKey ||
+          selectedBaseDenom ||
+          selectedPair?.baseSymbol ||
+          resolvedKey ||
+          "";
         const response = await fetchApi(
           `${API_BASE}/tokens/${encodeURIComponent(
-            tokenId
-          )}?priceSource=best&includePools=1`,
+            baseKey
+          )}/pools?dominant=base&bucket=24h&limit=100`,
           { cache: "no-store" }
         );
         if (!response.ok) {
@@ -828,23 +1066,58 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           return;
         }
         const detail = data?.data ?? data;
-        const tokenPayload = detail?.token ?? detail;
-        const pool =
-          detail?.poolsDetailed?.[0] ||
-          detail?.pools?.[0] ||
-          tokenPayload?.poolsDetailed?.[0] ||
-          tokenPayload?.pools?.[0];
-        const poolIdValue = Number(
-          pool?.poolId ||
-            pool?.pool_id ||
-            detail?.poolId ||
-            detail?.pool_id ||
-            ""
-        );
+        const poolsRaw = detail;
+        const pools: any[] = Array.isArray(poolsRaw) ? poolsRaw : [];
+        if (!pools.length) {
+          setLoading(false);
+          return;
+        }
+        const selectedBase = selectedPair?.baseSymbol?.toLowerCase() ?? null;
+        const selectedQuote = selectedPair?.quoteSymbol?.toLowerCase() ?? null;
+        const normalizedSelectedBaseDenom =
+          selectedBaseDenom?.toLowerCase() ?? null;
+        const normalizedSelectedQuoteDenom =
+          selectedQuoteDenom?.toLowerCase() ?? null;
+        const normalizedSelectedPairContract =
+          selectedPairContract?.toLowerCase() ?? null;
+
+        const pool = selectedPair
+          ? pools.find((p: any) => {
+              const pPairContract =
+                getPairContractFromPool(p)?.toLowerCase?.() ?? "";
+              if (
+                normalizedSelectedPairContract &&
+                pPairContract === normalizedSelectedPairContract
+              ) {
+                return true;
+              }
+              const pBaseSymbol = p?.base?.symbol?.toLowerCase?.() ?? "";
+              const pQuoteSymbol = p?.quote?.symbol?.toLowerCase?.() ?? "";
+              const pBaseDenom = p?.base?.denom?.toLowerCase?.() ?? "";
+              const pQuoteDenom = p?.quote?.denom?.toLowerCase?.() ?? "";
+
+              const baseOk = selectedBase
+                ? pBaseSymbol === selectedBase
+                : normalizedSelectedBaseDenom
+                ? pBaseDenom === normalizedSelectedBaseDenom
+                : false;
+              const quoteOk = selectedQuote
+                ? pQuoteSymbol === selectedQuote
+                : normalizedSelectedQuoteDenom
+                ? pQuoteDenom === normalizedSelectedQuoteDenom
+                : false;
+
+              return baseOk && quoteOk;
+            })
+          : pools?.[0];
+        const poolIdValue =
+          getPoolIdFromPool(pool) ||
+          getKnownPoolIdForPairContract(getPairContractFromPool(pool)) ||
+          selectedKnownPoolId ||
+          "";
 
         if (poolIdValue) {
-          // console.log("🎯 Found pool id:", poolIdValue);
-          setPoolId(poolIdValue);
+          setPoolId(String(poolIdValue));
         } else {
           console.error("❌ No pool id found in pool data");
           setLoading(false);
@@ -856,7 +1129,17 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
     };
 
     fetchPoolData();
-  }, [tokenId]);
+  }, [
+    pairContract,
+    resolvedTokenId,
+    selectedBaseDenom,
+    selectedKnownPoolId,
+    selectedPair,
+    selectedPairContract,
+    selectedQuoteDenom,
+    shouldUsePoolPricing,
+    tokenId,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -881,10 +1164,13 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
         for (const it of items) {
           if (it?.denom && it?.symbol) {
             map[it.denom] = it.symbol;
+            map[it.denom.toLowerCase()] = it.symbol;
             if (it.imageUri) {
               imageMap[it.denom] = it.imageUri;
+              imageMap[it.denom.toLowerCase()] = it.imageUri;
             } else {
               imageMap[it.denom] = "/zigicon.png";
+              imageMap[it.denom.toLowerCase()] = "/zigicon.png";
             }
           }
         }
@@ -905,15 +1191,17 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
   }, []);
 
   useEffect(() => {
-    const tokenIds = Array.from(
-      new Set(
-        trades.flatMap((trade) => [
-          trade.offerDenom.replace(/^ibc\/\w+\//, "").toLowerCase(),
-          trade.askDenom.replace(/^ibc\/\w+\//, "").toLowerCase(),
-        ])
-      )
-    );
-    preloadTokenData(tokenIds);
+    if (!trades.length) return;
+    const tokenIds = trades.flatMap((trade) => [
+      trade.offerDenom.replace(/^ibc\/\w+\//, "").toLowerCase(),
+      trade.askDenom.replace(/^ibc\/\w+\//, "").toLowerCase(),
+    ]);
+    const timeoutId = window.setTimeout(() => {
+      preloadTokenData(tokenIds, 20);
+    }, 200);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [trades]);
 
   useEffect(() => {
@@ -991,7 +1279,8 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
 
   // WebSocket setup with proper connection handling
   useEffect(() => {
-    if (!tokenId) return;
+    if (shouldUsePoolPricing && activePoolId) return;
+    if (!resolvedTokenId) return;
 
     // Reset stale trades when selected token changes.
     setTrades([]);
@@ -1022,7 +1311,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           const subscribeMessage = {
             type: "sub",
             stream: "trades",
-            token_id: tokenId, // Assuming the API supports filtering by token_id
+            token_id: resolvedTokenId, // Assuming the API supports filtering by token_id
           };
           ws.send(JSON.stringify(subscribeMessage));
         };
@@ -1111,7 +1400,24 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
       }
       setWsConnected(false);
     };
-  }, [tokenId, fetchInitialTrades, markNewTrades, isTradeForSelectedToken]);
+  }, [
+    resolvedTokenId,
+    activePoolId,
+    fetchInitialTrades,
+    markNewTrades,
+    isTradeForSelectedToken,
+    shouldUsePoolPricing,
+  ]);
+
+  useEffect(() => {
+    if (!shouldUsePoolPricing || !activePoolId || !tradesTokenRef) return;
+
+    setTrades([]);
+    setCurrentPage(1);
+    initialLoadDone.current = false;
+
+    fetchInitialTrades();
+  }, [activePoolId, fetchInitialTrades, shouldUsePoolPricing, tradesTokenRef]);
 
   const formatTimeAgo = useCallback((dateString: string) => {
     try {
@@ -1137,20 +1443,27 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
-  const symbolFor = (denom?: string): string => {
+  const symbolFor = (denom?: string, explicitSymbol?: string): string => {
+    if (explicitSymbol?.trim()) return explicitSymbol.trim().toUpperCase();
     if (!denom) return "";
-    if (denom === "uzig" || denom.includes("uzig")) return "ZIG";
-    const found = symbolMap[denom];
+    const normalized = denom.trim();
+    const normalizedLower = normalized.toLowerCase();
+    if (normalizedLower === "uzig" || normalizedLower.includes("uzig")) return "ZIG";
+    const found = symbolMap[normalized] ?? symbolMap[normalizedLower];
     if (found) return found;
-    const parts = denom.split(".");
-    const last = parts[parts.length - 1] || denom;
+    if (normalizedLower.startsWith("ibc/")) return "IBC";
+    const parts = normalized.split(".");
+    const last = parts[parts.length - 1] || normalized;
     return last.toUpperCase();
   };
 
-  const getTokenIcon = (denom?: string): string => {
+  const getTokenIcon = (denom?: string, explicitImage?: string): string => {
+    if (explicitImage?.trim()) return explicitImage.trim();
     if (!denom) return "/zigicon.png";
-    if (denom === "uzig" || denom.includes("uzig")) return "/zigicon.png";
-    const found = tokenImageMap[denom];
+    const normalized = denom.trim();
+    const normalizedLower = normalized.toLowerCase();
+    if (normalizedLower === "uzig" || normalizedLower.includes("uzig")) return "/zigicon.png";
+    const found = tokenImageMap[normalized] ?? tokenImageMap[normalizedLower];
     if (found) return found;
     // Fallback to placeholder
     return "/zigicon.png";
@@ -1289,27 +1602,27 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2 text-[#1EA76D] font-semibold text-base leading-tight">
               <Image
-                src={getTokenIcon(trade.askDenom)}
-                alt={symbolFor(trade.askDenom)}
+                src={getTokenIcon(trade.askDenom, trade.askImage)}
+                alt={symbolFor(trade.askDenom, trade.askSymbol)}
                 width={16}
                 height={16}
                 className="w-4 h-4 rounded-full"
                 unoptimized
               />
               +{formatRecentTradeAmount(trade.returnAmount)}{" "}
-              {symbolFor(trade.askDenom)}
+              {symbolFor(trade.askDenom, trade.askSymbol)}
             </div>
             <div className="flex items-center gap-2 text-[#FF5C5C] font-semibold text-base leading-tight">
               <Image
-                src={getTokenIcon(trade.offerDenom)}
-                alt={symbolFor(trade.offerDenom)}
+                src={getTokenIcon(trade.offerDenom, trade.offerImage)}
+                alt={symbolFor(trade.offerDenom, trade.offerSymbol)}
                 width={16}
                 height={16}
                 className="w-4 h-4 rounded-full"
                 unoptimized
               />
               -{formatRecentTradeAmount(trade.offerAmount)}{" "}
-              {symbolFor(trade.offerDenom)}
+              {symbolFor(trade.offerDenom, trade.offerSymbol)}
             </div>
           </div>
         </td>
@@ -1566,7 +1879,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
               <tr>
                 <td colSpan={8} className="text-center  text-gray-500 py-6">
                   {activeTab === "Trade History"
-                    ? "No recent trades"
+                    ? "No trades found"
                     : `No data available for ${activeTab}`}
                 </td>
               </tr>

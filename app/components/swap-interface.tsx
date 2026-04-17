@@ -41,6 +41,7 @@ type TokenListItem = {
   denom: string; // "uzig" | "ibc/..." | factory "coin.zig1...<token>"
   exponent: number; // decimals
   imageUri?: string;
+  pairContract?: string | null;
   verified?: boolean; // optional badge
 };
 
@@ -66,6 +67,12 @@ type Props = {
   tokenIcon?: string;
   chainId: string;
   rpcUrl: string;
+  selectedPair?: {
+    baseSymbol?: string | null;
+    quoteSymbol?: string | null;
+    baseDenom?: string | null;
+    quoteDenom?: string | null;
+  } | null;
 };
 
 const pow10 = (d: number) => Math.pow(10, d);
@@ -181,6 +188,7 @@ export default function SwapInterface({
   tokenIcon,
   chainId,
   rpcUrl,
+  selectedPair,
 }: Props) {
   // PAGE TOKEN + ZIG baseline
   const ZIG: SwapAsset = {
@@ -299,6 +307,49 @@ export default function SwapInterface({
   const activeReceive: SwapAsset =
     direction === "payToReceive" ? PAGE_TOKEN : other;
 
+  const assetMatches = useCallback((key: string, asset: SwapAsset) => {
+    const k = key.toLowerCase();
+    if (asset.type === "native") {
+      return (
+        asset.denom.toLowerCase() === k ||
+        asset.symbol.toLowerCase() === k
+      );
+    }
+    return (
+      asset.contract.toLowerCase() === k ||
+      asset.symbol.toLowerCase() === k
+    );
+  }, []);
+
+  const resolveAssetFromKey = useCallback(
+    (key?: string | null): SwapAsset | null => {
+      if (!key) return null;
+      const k = key.toLowerCase();
+      if (k === "zig" || k === "uzig") return { ...ZIG };
+      const match = tokenList.find(
+        (t) => t.denom?.toLowerCase() === k || t.symbol?.toLowerCase() === k
+      );
+      if (!match) return null;
+      if (isCw20Contract(match.denom)) {
+        return {
+          type: "cw20",
+          contract: match.denom.trim(),
+          symbol: match.symbol,
+          icon: match.imageUri || tokenIcon,
+          decimals: match.exponent ?? 6,
+        };
+      }
+      return {
+        type: "native",
+        denom: cleanDenom(match.denom),
+        symbol: match.symbol,
+        icon: match.imageUri || tokenIcon,
+        decimals: match.exponent ?? 6,
+      };
+    },
+    [tokenList, tokenIcon]
+  );
+
   const fromRef =
     activePay.type === "native"
       ? (activePay as any).denom
@@ -324,7 +375,9 @@ export default function SwapInterface({
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetchApi(`${apiBase}/tokens/swap-list`);
+        const r = await fetchApi(
+          `${apiBase}/tokens/swap-list?bucket=24h&unit=usd`
+        );
         const j = await r.json();
         const list: TokenListItem[] = Array.isArray(j?.data) ? j.data : [];
         setTokenList(list);
@@ -333,6 +386,43 @@ export default function SwapInterface({
       }
     })();
   }, [apiBase, fetchApi]);
+
+  const pairContractForRef = useCallback(
+    (ref: string) => {
+      if (!ref || isCw20Contract(ref)) return null;
+      return tokenList.find((t) => t.denom === ref)?.pairContract || null;
+    },
+    [tokenList]
+  );
+
+  useEffect(() => {
+    if (!selectedPair) return;
+    const baseKey = selectedPair.baseDenom || selectedPair.baseSymbol || null;
+    const quoteKey =
+      selectedPair.quoteDenom || selectedPair.quoteSymbol || null;
+    if (!baseKey || !quoteKey) return;
+
+    const pageIsBase = assetMatches(baseKey, PAGE_TOKEN);
+    const pageIsQuote = assetMatches(quoteKey, PAGE_TOKEN);
+    const baseAsset = pageIsBase ? PAGE_TOKEN : resolveAssetFromKey(baseKey);
+    const quoteAsset = pageIsQuote ? PAGE_TOKEN : resolveAssetFromKey(quoteKey);
+
+    // pay is base
+    if (pageIsBase && quoteAsset) {
+      setOther(quoteAsset);
+      setDirection("receiveToPay"); // pay = base (PAGE_TOKEN)
+      return;
+    }
+    if (pageIsQuote && baseAsset) {
+      setOther(baseAsset);
+      setDirection("payToReceive"); // pay = base (other)
+      return;
+    }
+    if (baseAsset) {
+      setOther(baseAsset);
+      setDirection("payToReceive"); // pay = base (other)
+    }
+  }, [selectedPair, PAGE_TOKEN, assetMatches, resolveAssetFromKey]);
 
   const keyOf = (a: SwapAsset) => (a.type === "native" ? a.denom : a.contract);
   const iconForDenom = useCallback(
@@ -372,12 +462,37 @@ export default function SwapInterface({
 
       if (pairsIn.length === 1) {
         const ptype: string | undefined =
-          diag?.sell_leg?.pairType || diag?.buy_leg?.pairType;
-        pairs = [{ ...pairsIn[0], pairType: ptype }];
-      } else if (pairsIn.length === 2) {
+          diag?.sell_leg?.pairType ||
+          diag?.buy_leg?.pairType ||
+          pairsIn[0]?.pairType;
+        const fallbackContract =
+          pairsIn[0]?.pairContract ||
+          pairContractForRef(fromRef === "uzig" ? toRef : fromRef);
         pairs = [
-          { ...pairsIn[0], pairType: diag?.sell_leg?.pairType },
-          { ...pairsIn[1], pairType: diag?.buy_leg?.pairType },
+          {
+            ...pairsIn[0],
+            pairType: ptype,
+            pairContract: fallbackContract || pairsIn[0]?.pairContract,
+          },
+        ];
+      } else if (pairsIn.length === 2) {
+        const p1Contract =
+          pairsIn[0]?.pairContract || pairContractForRef(fromRef);
+        const p2Contract =
+          pairsIn[1]?.pairContract || pairContractForRef(toRef);
+        const p1Type = diag?.sell_leg?.pairType || pairsIn[0]?.pairType;
+        const p2Type = diag?.buy_leg?.pairType || pairsIn[1]?.pairType;
+        pairs = [
+          {
+            ...pairsIn[0],
+            pairType: p1Type,
+            pairContract: p1Contract || pairsIn[0]?.pairContract,
+          },
+          {
+            ...pairsIn[1],
+            pairType: p2Type,
+            pairContract: p2Contract || pairsIn[1]?.pairContract,
+          },
         ];
       }
       setRoutePairs(pairs);
@@ -431,7 +546,7 @@ export default function SwapInterface({
     } catch (e: any) {
       setErr(e?.message || "Failed to fetch route");
     }
-  }, [apiBase, fromRef, toRef, fetchApi]);
+  }, [apiBase, fromRef, toRef, fetchApi, pairContractForRef]);
 
   useEffect(() => {
     if (pollRef.current) {
@@ -771,6 +886,7 @@ export default function SwapInterface({
    * ========================= */
   async function onSwap() {
     try {
+      console.log("[swap] start");
       setErr("");
       if (routePairs.length === 0) throw new Error("Route not ready");
       const ok = await ensureConnectedForAction();
@@ -781,17 +897,20 @@ export default function SwapInterface({
         throw new Error("Enter a valid amount");
 
       setBusy(true);
+      console.log("[swap] routePairs", routePairs);
 
       const amountInMicro =
         activePay.decimals === 0
           ? Math.round(amt).toString()
           : Math.round(amt * pow10(activePay.decimals)).toString();
+      console.log("[swap] amountInMicro", amountInMicro);
 
       const chosenSlippage = slippageBps / 10_000;
       const max_spread_str = Math.max(
         0.005,
         Math.min(0.5, chosenSlippage)
       ).toFixed(3);
+      console.log("[swap] max_spread", max_spread_str);
 
       // simulate again to compute min receive
       let expectedOutMicro = "0";
@@ -812,6 +931,7 @@ export default function SwapInterface({
           { simulation: { offer_asset } }
         );
         expectedOutMicro = String(sim?.return_amount || "0");
+        console.log("[swap] expectedOutMicro single", expectedOutMicro);
       } else if (routePairs.length === 2) {
         const pair1 = routePairs[0];
         const pair2 = routePairs[1];
@@ -842,6 +962,7 @@ export default function SwapInterface({
           }
         );
         expectedOutMicro = String(sim2?.return_amount || "0");
+        console.log("[swap] expectedOutMicro multi", expectedOutMicro);
       } else {
         throw new Error("Unsupported route length");
       }
@@ -850,10 +971,12 @@ export default function SwapInterface({
         Number(expectedOutMicro) * (1 - Math.max(0.005, chosenSlippage))
       );
       const minimum_receive = String(Math.max(0, minReceiveMicroNum));
+      console.log("[swap] minimum_receive", minimum_receive);
 
       if (routePairs.length === 1) {
         const pair = routePairs[0];
         if (activePay.type === "native") {
+          console.log("[swap] single hop native", pair.pairContract);
           const { coins } = await import("@cosmjs/stargate");
           const msg = {
             swap: {
@@ -918,9 +1041,11 @@ export default function SwapInterface({
           );
 
           setTxHash(res.transactionHash);
+          console.log("[swap] txHash", res.transactionHash);
           setShowTxAlert(true);
           setAmountIn(""); // Clear the input field after successful swap
         } else {
+          console.log("[swap] single hop cw20", pair.pairContract);
           const ask_asset_info =
             activeReceive.type === "native"
               ? { native_token: { denom: (activeReceive as any).denom } }
@@ -982,11 +1107,13 @@ export default function SwapInterface({
             `Traded from degenter.io`
           );
           setTxHash(res.transactionHash);
+          console.log("[swap] txHash", res.transactionHash);
           setShowTxAlert(true);
           setAmountIn(""); // Clear the input field after successful swap
         }
       } else {
         // router path
+        console.log("[swap] router path", ROUTER_CONTRACT);
         const operations = routePairs.map((p, idx) => {
           const isFirst = idx === 0;
           const isLast = idx === routePairs.length - 1;
@@ -1004,13 +1131,14 @@ export default function SwapInterface({
             : { native_token: { denom: "uzig" } };
 
           const normalizedType = toRouterPairType(p.pairType);
-          return {
+          const op: any = {
             oro_swap: {
               offer_asset_info,
               ask_asset_info,
               pair_type: normalizedType,
             },
           };
+          return op;
         });
 
         const msgNative = {
@@ -1025,6 +1153,7 @@ export default function SwapInterface({
         if (activePay.type === "native") {
           const { coins } = await import("@cosmjs/stargate");
           const funds = coins(amountInMicro, (activePay as any).denom);
+          console.log("[swap] router native funds", funds);
           const res = await client.execute(
             address,
             ROUTER_CONTRACT,
@@ -1034,9 +1163,11 @@ export default function SwapInterface({
             funds
           );
           setTxHash(res.transactionHash);
+          console.log("[swap] txHash", res.transactionHash);
           setShowTxAlert(true);
           setAmountIn(""); // Clear the input field after successful swap
         } else {
+          console.log("[swap] router cw20", (activePay as any).contract);
           const msg64 = b64(msgNative);
           const sendMsg = {
             send: {
@@ -1053,6 +1184,7 @@ export default function SwapInterface({
             MEMO
           );
           setTxHash(res.transactionHash);
+          console.log("[swap] txHash", res.transactionHash);
           setShowTxAlert(true);
           setAmountIn(""); // Clear the input field after successful swap
         }
@@ -1068,6 +1200,7 @@ export default function SwapInterface({
       setBalances((p) => ({ ...p, [keyOf(activePay)]: v }));
     } catch (e: any) {
       const m = String(e?.message || e);
+      console.error("[swap] error", e);
       const parsedKey = parseRouterKeyFromError(m);
       if (/max spread/i.test(m))
         setErr(
@@ -1133,10 +1266,13 @@ export default function SwapInterface({
     quickSymbols?: string[]; // ["ZIG","USDC","USDT"]
   };
 
-  const ddItems = useMemo(
-    () => tokenList.slice().sort((a, b) => a.symbol.localeCompare(b.symbol)),
-    [tokenList]
-  );
+  const ddItems = useMemo(() => {
+    const toKey = (t: TokenListItem) =>
+      (t.symbol || t.name || t.denom || "").toString();
+    return tokenList
+      .slice()
+      .sort((a, b) => toKey(a).localeCompare(toKey(b)));
+  }, [tokenList]);
 
   const Selector = memo(function Selector({
     id,

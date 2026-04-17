@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { TrendingUp, TrendingDown, Activity, Zap, Crown, Flame, Clock, ChevronUp, ChevronDown, BarChart3, Sparkles } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, Crown, Clock } from 'lucide-react';
 import { createChart, ColorType, UTCTimestamp } from 'lightweight-charts';
 import Link from 'next/link';
 import { API_BASE_URL, API_HEADERS } from '@/lib/api';
@@ -18,17 +18,13 @@ interface Token {
   imageUri: string;
   change24hPct?: number;
   tokenId?: string;
+  changePct?: ChangePct;
+  candles: OhlcvPoint[];
 }
 
 const API_URL = API_BASE_URL;
 
 const formatPercent = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
-const formatPrice = (value: number) => {
-  if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
-  if (value >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
-  if (value >= 1e3) return `$${(value / 1e3).toFixed(2)}K`;
-  return `$${value.toFixed(4)}`;
-};
 const formatExactPrice = (value: number) => {
   if (!Number.isFinite(value)) return '—';
   if (value >= 100) return `$${value.toFixed(2)}`;
@@ -51,6 +47,91 @@ type ChangePct = {
   "30m"?: number;
   "4h"?: number;
   "24h"?: number;
+};
+
+type MoversApiToken = {
+  tokenId?: number | string;
+  symbol?: string;
+  name?: string;
+  priceUsd?: number;
+  holders?: number;
+  mcapUsd?: number | null;
+  volUsd?: number;
+  imageUri?: string;
+  change24hPct?: number;
+  changePct?: ChangePct;
+  candles1d?: Array<{
+    ts: string;
+    o: number;
+    h: number;
+    l: number;
+    c: number;
+    v?: number;
+    trades?: number;
+  }>;
+};
+
+type MoversApiResponse = {
+  success?: boolean;
+  data?: {
+    gainers?: MoversApiToken[];
+    losers?: MoversApiToken[];
+  };
+};
+
+const normalizeCandle = (candle: NonNullable<MoversApiToken['candles1d']>[number]): OhlcvPoint => ({
+  ts_sec: Math.floor(new Date(candle.ts).getTime() / 1000),
+  open: candle.o,
+  high: candle.h,
+  low: candle.l,
+  close: candle.c,
+  volume: candle.v,
+  trades: candle.trades
+});
+
+const mapMoverToken = (token: MoversApiToken, index: number): Token => ({
+  rank: index + 1,
+  symbol: token.symbol || 'UNKNOWN',
+  name: token.name || token.symbol || 'Unknown',
+  priceUsd: token.priceUsd || 0,
+  holders: token.holders || 0,
+  mcapUsd: token.mcapUsd ?? null,
+  volUsd: token.volUsd || 0,
+  imageUri: token.imageUri || '',
+  change24hPct: token.change24hPct ?? token.changePct?.['24h'],
+  tokenId: token.tokenId ? String(token.tokenId) : undefined,
+  changePct: token.changePct || {},
+  candles: Array.isArray(token.candles1d) ? token.candles1d.map(normalizeCandle) : []
+});
+
+const getTokenKey = (token: Token) => (token.tokenId || token.symbol || '').toLowerCase();
+const getWindowChange = (token: Token, window: keyof ChangePct) => token.changePct?.[window] ?? 0;
+
+const dedupeTokens = (list: Token[], window: keyof ChangePct) => {
+  const unique = new Map<string, Token>();
+
+  list.forEach((token) => {
+    const key = getTokenKey(token);
+    const existing = unique.get(key);
+    if (!existing) {
+      unique.set(key, token);
+      return;
+    }
+
+    const currentAbsChange = Math.abs(getWindowChange(token, window));
+    const existingAbsChange = Math.abs(getWindowChange(existing, window));
+
+    if (currentAbsChange > existingAbsChange) {
+      unique.set(key, token);
+      return;
+    }
+
+    if (currentAbsChange === existingAbsChange && (token.volUsd || 0) > (existing.volUsd || 0)) {
+      unique.set(key, token);
+    }
+  });
+
+  return Array.from(unique.values());
 };
 
 const TradingViewChart = ({
@@ -135,70 +216,6 @@ const TradingViewChart = ({
   }, [data, height, currentPrice]);
 
   return <div ref={containerRef} className="w-full h-full" />;
-};
-
-const CandlestickChart = ({
-  data,
-  width = 200,
-  height = 120
-}: {
-  data: OhlcvPoint[];
-  width?: number;
-  height?: number;
-}) => {
-  if (!data.length) {
-    return (
-      <div className="h-full flex items-center text-white/40 text-xs">No trading data</div>
-    );
-  }
-
-  const pad = 6;
-  const slice = data.slice(-40);
-  const highs = slice.map((d) => d.high);
-  const lows = slice.map((d) => d.low);
-  const max = Math.max(...highs);
-  const min = Math.min(...lows);
-  const range = max - min || 1;
-
-  const candleWidth = (width - pad * 2) / slice.length;
-  const bodyWidth = Math.max(2, candleWidth * 0.6);
-
-  const yFor = (v: number) => pad + (1 - (v - min) / range) * (height - pad * 2);
-
-  return (
-    <svg
-      width="100%"
-      height="100%"
-      viewBox={`0 0 ${width} ${height}`}
-      className="block"
-      preserveAspectRatio="none"
-    >
-      {slice.map((d, i) => {
-        const x = pad + i * candleWidth + candleWidth / 2;
-        const openY = yFor(d.open);
-        const closeY = yFor(d.close);
-        const highY = yFor(d.high);
-        const lowY = yFor(d.low);
-        const isUp = d.close >= d.open;
-        const color = isUp ? "#10b981" : "#ef4444";
-        const bodyY = Math.min(openY, closeY);
-        const bodyH = Math.max(2, Math.abs(openY - closeY));
-        return (
-          <g key={`${d.ts_sec}-${i}`}>
-            <line x1={x} x2={x} y1={highY} y2={lowY} stroke={color} strokeWidth={1} />
-            <rect
-              x={x - bodyWidth / 2}
-              y={bodyY}
-              width={bodyWidth}
-              height={bodyH}
-              fill={color}
-              rx={1}
-            />
-          </g>
-        );
-      })}
-    </svg>
-  );
 };
 
 const Sparkline = ({
@@ -288,252 +305,99 @@ const Sparkline = ({
   );
 };
 
-const AnimatedNumber = ({ value, prefix = '', suffix = '' }: { value: number; prefix?: string; suffix?: string }) => {
-  const [displayValue, setDisplayValue] = useState(value);
-  
-  useEffect(() => {
-    const duration = 1000;
-    const start = displayValue;
-    const end = value;
-    const startTime = performance.now();
-    
-    const animate = (currentTime: number) => {
-      const elapsed = currentTime - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      const easeOutQuart = 1 - Math.pow(1 - progress, 4);
-      const current = start + (end - start) * easeOutQuart;
-      setDisplayValue(current);
-      
-      if (progress < 1) {
-        requestAnimationFrame(animate);
-      }
-    };
-    
-    requestAnimationFrame(animate);
-  }, [value]);
-  
-  return <span>{prefix}{displayValue.toFixed(2)}{suffix}</span>;
-};
-
 const FindGemsMain = () => {
-  const [tokens, setTokens] = useState<Token[]>([]);
+  const [allTokens, setAllTokens] = useState<Token[]>([]);
   const [gainers, setGainers] = useState<Token[]>([]);
   const [losers, setLosers] = useState<Token[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasRenderedInitialCards, setHasRenderedInitialCards] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [treemapWindow, setTreemapWindow] = useState<'30m' | '4h' | '24h'>('24h');
   const [heatmapTab, setHeatmapTab] = useState<'all' | 'gainers' | 'losers'>('all');
-  const [ohlcvByToken, setOhlcvByToken] = useState<Record<string, OhlcvPoint[]>>({});
-  const [changePctBySymbol, setChangePctBySymbol] = useState<Record<string, ChangePct>>({});
-  const [selectedTimeframe, setSelectedTimeframe] = useState<'30m' | '4h' | '24h'>('24h');
   
   useEffect(() => {
     const fetchTokens = async () => {
       try {
         setLoading(true);
+        setError(null);
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
           ...(typeof API_HEADERS === 'object' && API_HEADERS !== null ? Object.fromEntries(Object.entries(API_HEADERS).map(([k, v]) => [k, String(v)])) : {}),
         };
 
-        const [gainersResponse, losersResponse] = await Promise.all([
-          fetch(`${API_URL}/tokens/gainers`, { headers }),
-          fetch(`${API_URL}/tokens/losers`, { headers })
-        ]);
+        const response = await fetch(
+          `${API_URL}/tokens/movers?chartTf=${encodeURIComponent(treemapWindow)}&includeCandles=1&sparkLimit=30`,
+          { headers }
+        );
 
-        if (!gainersResponse.ok || !losersResponse.ok) {
-          throw new Error('Failed to fetch token boards');
+        if (!response.ok) {
+          throw new Error('Failed to fetch token movers');
         }
 
-        const gainersData = await gainersResponse.json();
-        const losersData = await losersResponse.json();
+        const moversData = (await response.json()) as MoversApiResponse;
+        const gainersList = Array.isArray(moversData.data?.gainers) ? moversData.data.gainers : [];
+        const losersList = Array.isArray(moversData.data?.losers) ? moversData.data.losers : [];
 
-        if (gainersData.success && Array.isArray(gainersData.data)) {
-          const mappedGainers = gainersData.data.map((token: any, index: number) => ({
-            rank: index + 1,
-            symbol: token.symbol,
-            name: token.name || token.symbol,
-            priceUsd: token.priceUsd,
-            holders: token.holders || 0,
-            mcapUsd: token.mcapUsd ?? null,
-            volUsd: token.volUsd || 0,
-            imageUri: token.imageUri,
-            change24hPct: token.change24hPct,
-            tokenId: token.tokenId
-          }));
-          setGainers(mappedGainers);
-        }
+        const mappedGainers = gainersList
+          .filter((token) => token.symbol && (token.priceUsd || 0) > 0)
+          .map(mapMoverToken);
+        const mappedLosers = losersList
+          .filter((token) => token.symbol && (token.priceUsd || 0) > 0)
+          .map(mapMoverToken);
 
-        if (losersData.success && Array.isArray(losersData.data)) {
-          const mappedLosers = losersData.data.map((token: any, index: number) => ({
-            rank: index + 1,
-            symbol: token.symbol,
-            name: token.name || token.symbol,
-            priceUsd: token.priceUsd,
-            holders: token.holders || 0,
-            mcapUsd: token.mcapUsd ?? null,
-            volUsd: token.volUsd || 0,
-            imageUri: token.imageUri,
-            change24hPct: token.change24hPct,
-            tokenId: token.tokenId
-          }));
-          setLosers(mappedLosers);
-        }
-
-        const combined = [...(gainersData.data || []), ...(losersData.data || [])]
-          .filter((token: any) => token.symbol && token.priceUsd > 0)
-          .slice(0, 33)
-          .map((token: any, index: number) => ({
-            rank: index + 1,
-            symbol: token.symbol,
-            name: token.name || token.symbol,
-            priceUsd: token.priceUsd,
-            holders: token.holders || 0,
-            mcapUsd: token.mcapUsd ?? null,
-            volUsd: token.volUsd || 0,
-            imageUri: token.imageUri,
-            change24hPct: token.change24hPct,
-            tokenId: token.tokenId
-          }));
         const uniq = new Map<string, Token>();
-        combined.forEach((t) => {
-          if (!uniq.has(t.symbol)) uniq.set(t.symbol, t);
+        [...mappedGainers, ...mappedLosers].forEach((token) => {
+          const key = getTokenKey(token);
+          if (!uniq.has(key)) {
+            uniq.set(key, token);
+          }
         });
-        const deduped = Array.from(uniq.values());
-        deduped.sort((a, b) => (b.volUsd || 0) - (a.volUsd || 0));
-        setTokens(deduped);
-      } catch (err) {
+        const mergedAllTokens = Array.from(uniq.values()).sort((a, b) => (b.volUsd || 0) - (a.volUsd || 0));
+
+        setAllTokens(mergedAllTokens);
+        setGainers(mappedGainers);
+        setLosers(mappedLosers);
+      } catch {
         setError('Failed to fetch tokens');
       } finally {
         setLoading(false);
       }
     };
     fetchTokens();
-  }, []);
+  }, [treemapWindow]);
 
   const topGainers = useMemo(() => gainers.slice(0, 10), [gainers]);
   const topLosers = useMemo(() => losers.slice(0, 10), [losers]);
 
   const heatmapTokens = useMemo(() => {
-    const base =
-      heatmapTab === 'gainers'
-        ? tokens.filter((t) => (changePctBySymbol[t.symbol]?.[treemapWindow] || 0) >= 0)
-        : heatmapTab === 'losers'
-          ? tokens.filter((t) => (changePctBySymbol[t.symbol]?.[treemapWindow] || 0) < 0)
-          : tokens;
+    if (heatmapTab === 'gainers') {
+      return dedupeTokens(gainers, treemapWindow)
+        .filter((token) => getWindowChange(token, treemapWindow) > 0)
+        .sort((a, b) => {
+          const changeDiff = getWindowChange(b, treemapWindow) - getWindowChange(a, treemapWindow);
+          if (changeDiff !== 0) return changeDiff;
+          return (b.volUsd || 0) - (a.volUsd || 0);
+        });
+    }
 
-    const unique = new Map<string, Token>();
-    base.forEach((t) => {
-      const key = (t.tokenId || t.symbol || '').toLowerCase();
-      if (!unique.has(key)) unique.set(key, t);
-    });
-    return Array.from(unique.values());
-  }, [tokens, heatmapTab, changePctBySymbol, treemapWindow]);
+    if (heatmapTab === 'losers') {
+      return dedupeTokens(losers, treemapWindow)
+        .filter((token) => getWindowChange(token, treemapWindow) < 0)
+        .sort((a, b) => {
+          const changeDiff = getWindowChange(a, treemapWindow) - getWindowChange(b, treemapWindow);
+          if (changeDiff !== 0) return changeDiff;
+          return (b.volUsd || 0) - (a.volUsd || 0);
+        });
+    }
 
-  const visibleTokens = useMemo(() => {
-    const unique = new Map<string, Token>();
-    [...topGainers, ...topLosers, ...heatmapTokens].forEach((t) => {
-      unique.set(t.symbol, t);
-    });
-    return Array.from(unique.values());
-  }, [topGainers, topLosers, heatmapTokens]);
-
-  useEffect(() => {
-    const tokenIds = Array.from(
-      new Set(
-        heatmapTokens
-          .map((t) => t.tokenId)
-          .filter((id): id is string => Boolean(id))
-      )
-    );
-    if (!tokenIds.length) return;
-
-    const controller = new AbortController();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...API_HEADERS,
-    };
-
-    const fetchAll = async () => {
-      const results = await Promise.all(
-        tokenIds.map(async (tokenId) => {
-          if (ohlcvByToken[tokenId]) return null;
-          try {
-            const res = await fetch(`${API_URL}/tokens/${encodeURIComponent(tokenId)}/ohlcv`, {
-              headers,
-              signal: controller.signal
-            });
-            if (!res.ok) return null;
-            const json = await res.json();
-            const data = Array.isArray(json?.data) ? (json.data as OhlcvPoint[]) : [];
-            return { tokenId, data };
-          } catch {
-            return null;
-          }
-        })
-      );
-
-      const next: Record<string, OhlcvPoint[]> = {};
-      results.forEach((r) => {
-        if (r && r.tokenId) next[r.tokenId] = r.data;
-      });
-      if (Object.keys(next).length) {
-        setOhlcvByToken((prev) => ({ ...prev, ...next }));
-      }
-    };
-
-    fetchAll();
-    return () => controller.abort();
-  }, [heatmapTokens, ohlcvByToken]);
+    return allTokens;
+  }, [allTokens, gainers, losers, heatmapTab, treemapWindow]);
 
   useEffect(() => {
-    const symbols = Array.from(
-      new Set(
-        visibleTokens
-          .map((t) => t.symbol)
-          .filter((s): s is string => Boolean(s))
-      )
-    );
-    if (!symbols.length) return;
-
-    const controller = new AbortController();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...API_HEADERS,
-    };
-
-    const fetchAll = async () => {
-      const results = await Promise.all(
-        symbols.map(async (symbol) => {
-          if (changePctBySymbol[symbol]) return null;
-          try {
-            const res = await fetch(`${API_URL}/tokens/${encodeURIComponent(symbol)}`, {
-              headers,
-              signal: controller.signal
-            });
-            if (!res.ok) return null;
-            const json = await res.json();
-            const changePct = json?.data?.price?.changePct || json?.data?.priceChange || null;
-            if (!changePct) return null;
-            return { symbol, changePct };
-          } catch {
-            return null;
-          }
-        })
-      );
-
-      const next: Record<string, ChangePct> = {};
-      results.forEach((r) => {
-        if (r && r.symbol) next[r.symbol] = r.changePct;
-      });
-      if (Object.keys(next).length) {
-        setChangePctBySymbol((prev) => ({ ...prev, ...next }));
-      }
-    };
-
-    fetchAll();
-    return () => controller.abort();
-  }, [visibleTokens, changePctBySymbol]);
+    if (!loading && heatmapTokens.length > 0 && !hasRenderedInitialCards) {
+      setHasRenderedInitialCards(true);
+    }
+  }, [loading, heatmapTokens.length, hasRenderedInitialCards]);
 
   const getIntensityColor = (change: number) => {
     const absChange = Math.abs(change);
@@ -550,21 +414,59 @@ const FindGemsMain = () => {
     }
   };
 
+  const renderHeatmapSkeleton = (key: string, isTop3: boolean, isPositive: boolean) => {
+    const intensity = getIntensityColor(isPositive ? 12 : -12);
+
+    return (
+      <div
+        key={key}
+        className={`relative overflow-hidden rounded-2xl ${isTop3 ? 'col-span-2 row-span-2' : ''}`}
+      >
+        <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${intensity} opacity-75`} />
+        <div className="absolute inset-0 animate-pulse rounded-2xl bg-black/20" />
+
+        <div className="relative flex h-full flex-col justify-between p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className={`rounded-full bg-white/20 ring-2 ring-white/10 ${isTop3 ? 'h-12 w-12' : 'h-8 w-8'}`} />
+              <div className="space-y-2">
+                <div className={`rounded-full bg-white/20 ${isTop3 ? 'h-5 w-20' : 'h-4 w-14'}`} />
+                {isTop3 ? <div className="h-3 w-24 rounded-full bg-white/10" /> : null}
+              </div>
+            </div>
+
+            {isTop3 ? <div className="h-8 w-14 rounded-full bg-white/15" /> : null}
+          </div>
+
+          <div className="space-y-3">
+            <div className={`rounded-full bg-white/20 ${isTop3 ? 'h-10 w-28' : 'h-7 w-20'}`} />
+            <div className={`rounded-2xl bg-white/10 ${isTop3 ? 'h-12 w-full' : 'h-8 w-full'}`} />
+          </div>
+        </div>
+
+        {isTop3 ? (
+          <div className="absolute bottom-0 right-0 h-32 w-32 rounded-tl-full bg-gradient-to-tl from-white/10 to-transparent" />
+        ) : null}
+      </div>
+    );
+  };
+
   const renderHeatmapCard = (token: Token, index: number, isTop3: boolean) => {
-    const changePct = changePctBySymbol[token.symbol] || {};
+    const changePct = token.changePct || {};
     const change = changePct[treemapWindow] || 0;
     const isPos = change >= 0;
     const intensity = getIntensityColor(change);
     const tokenPath = encodeURIComponent(token.tokenId || token.symbol);
+    const allowEntranceAnimation = hasRenderedInitialCards;
 
     return (
       <motion.div
-        key={token.symbol}
+        key={`${getTokenKey(token)}-${treemapWindow}`}
         layout
-        initial={{ opacity: 0, scale: 0.8 }}
+        initial={allowEntranceAnimation ? { opacity: 0, scale: 0.96 } : false}
         animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.8 }}
-        transition={{ duration: 0.3, delay: index * 0.02 }}
+        exit={allowEntranceAnimation ? { opacity: 0, scale: 0.98 } : { opacity: 0 }}
+        transition={{ duration: 0.2, delay: allowEntranceAnimation ? index * 0.01 : 0 }}
         className={`relative group rounded-2xl cursor-pointer transition-all duration-500 [perspective:1200px] ${
           isTop3 ? 'col-span-2 row-span-2' : ''
         }`}
@@ -608,9 +510,9 @@ const FindGemsMain = () => {
                 </div>
                 
                 <div className={`mt-2 ${isTop3 ? 'h-12' : 'h-8'}`}>
-                  {token.tokenId ? (
+                  {token.candles.length ? (
                     <Sparkline
-                      data={ohlcvByToken[token.tokenId] || []}
+                      data={token.candles}
                       isPositive={isPos}
                       width={isTop3 ? 200 : 120}
                       height={isTop3 ? 48 : 32}
@@ -659,10 +561,10 @@ const FindGemsMain = () => {
               </div>
 
               <div className="min-h-0">
-                {token.tokenId ? (
+                {token.candles.length ? (
                   <div className={`w-full h-full overflow-hidden ${isTop3 ? 'min-h-[120px]' : 'min-h-[76px]'}`}>
                     <TradingViewChart
-                      data={ohlcvByToken[token.tokenId] || []}
+                      data={token.candles}
                       currentPrice={token.priceUsd}
                       height={isTop3 ? 180 : 110}
                     />
@@ -680,6 +582,54 @@ const FindGemsMain = () => {
       </motion.div>
     );
   };
+
+
+  const renderTableSkeleton = (title: string, isPositive: boolean) => (
+    <div className="rounded-lg p-4 border border-white/5 shadow-[0_0_0_1px_rgba(255,255,255,0.02)] mt-16">
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-[20px] font-semibold tracking-wide text-gray-200">{title}</h3>
+      </div>
+      <table className="w-full text-[10px]">
+        <thead>
+          <tr className="text-gray-500 border-b border-white/5">
+            <th className="text-left pb-2 font-medium">Name</th>
+            <th className="text-left pb-2 font-medium">Current</th>
+            <th className="text-left pb-2 font-medium">Chart</th>
+            <th className="text-left pb-2 font-medium">30M</th>
+            <th className="text-left pb-2 font-medium">4H</th>
+            <th className="text-left pb-2 font-medium">24H</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/5">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <tr key={`${title}-skeleton-${index}`} className="animate-pulse">
+              <td className="py-2">
+                <div className="flex items-center gap-2">
+                  <div className={`h-4 w-4 rounded-full ${isPositive ? 'bg-emerald-500/20' : 'bg-rose-500/20'}`} />
+                  <div className="h-3 w-12 rounded-full bg-white/10" />
+                </div>
+              </td>
+              <td className="py-2">
+                <div className={`h-3 w-10 rounded-full ${isPositive ? 'bg-emerald-500/20' : 'bg-rose-500/20'}`} />
+              </td>
+              <td className="py-2">
+                <div className={`h-6 w-20 rounded-full ${isPositive ? 'bg-emerald-500/15' : 'bg-rose-500/15'}`} />
+              </td>
+              <td className="py-2">
+                <div className={`h-3 w-9 rounded-full ${isPositive ? 'bg-emerald-500/20' : 'bg-rose-500/20'}`} />
+              </td>
+              <td className="py-2">
+                <div className={`h-3 w-9 rounded-full ${isPositive ? 'bg-emerald-500/20' : 'bg-rose-500/20'}`} />
+              </td>
+              <td className="py-2">
+                <div className={`h-3 w-9 rounded-full ${isPositive ? 'bg-emerald-500/20' : 'bg-rose-500/20'}`} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 
 
   const renderTable = (list: Token[], title: string) => (
@@ -705,7 +655,7 @@ const FindGemsMain = () => {
         </thead>
         <tbody className="divide-y divide-white/5">
           {list.map((t) => {
-            const changePct = changePctBySymbol[t.symbol] || {};
+            const changePct = t.changePct || {};
             const current = changePct["24h"] || 0;
             return (
               <tr key={t.symbol} className="hover:bg-white/5 transition-colors">
@@ -715,9 +665,9 @@ const FindGemsMain = () => {
                 </td>
                 <td className="py-2 text-gray-400">{formatPercent(current)}</td>
                 <td className="py-2">
-                  {t.tokenId ? (
+                  {t.candles.length ? (
                     <Sparkline
-                      data={ohlcvByToken[t.tokenId] || []}
+                      data={t.candles}
                       isPositive={current >= 0}
                     />
                   ) : (
@@ -743,10 +693,11 @@ const FindGemsMain = () => {
 
   return (
     <div className="min-h-screen text-white px-3 py-4 sm:px-4 sm:py-6 lg:px-6 font-sans">
+      {error ? <div className="mb-4 text-sm text-rose-400">{error}</div> : null}
       <div className="mx-auto grid grid-cols-1 lg:grid-cols-12 gap-4">
         <div className="col-span-1 lg:col-span-3 py-2 sm:py-3">
-          {renderTable(topGainers, 'Top Gainer')}
-          {renderTable(topLosers, 'Top Loser')}
+          {loading ? renderTableSkeleton('Top Gainer', true) : renderTable(topGainers, 'Top Gainer')}
+          {loading ? renderTableSkeleton('Top Loser', false) : renderTable(topLosers, 'Top Loser')}
         </div>
 
         {/* Right Main: Heatmap */}
@@ -817,7 +768,25 @@ const FindGemsMain = () => {
 
               {/* Treemap Grid */}
               <div className="p-4 sm:p-6">
-                {heatmapTab === 'all' && (
+                {loading ? (
+                  <>
+                    {heatmapTab === 'all' ? (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 auto-rows-[120px] sm:auto-rows-[140px] mb-3">
+                        {Array.from({ length: 3 }).map((_, i) =>
+                          renderHeatmapSkeleton(`top-skeleton-${i}`, true, i % 2 === 0)
+                        )}
+                      </div>
+                    ) : null}
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-5 gap-3 auto-rows-[120px] sm:auto-rows-[140px]">
+                      {Array.from({ length: heatmapTab === 'all' ? 10 : 12 }).map((_, i) =>
+                        renderHeatmapSkeleton(`skeleton-${i}`, false, i % 2 === 0)
+                      )}
+                    </div>
+                  </>
+                ) : null}
+
+                {!loading && heatmapTab === 'all' && (
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 auto-rows-[120px] sm:auto-rows-[140px] mb-3">
                     <AnimatePresence>
                       {heatmapTokens.slice(0, 3).map((token, i) => renderHeatmapCard(token, i, true))}
@@ -825,13 +794,15 @@ const FindGemsMain = () => {
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-5 gap-3 auto-rows-[120px] sm:auto-rows-[140px]">
-                  <AnimatePresence>
-                    {(heatmapTab === 'all' ? heatmapTokens.slice(3) : heatmapTokens).map((token, i) =>
-                      renderHeatmapCard(token, i, false)
-                    )}
-                  </AnimatePresence>
-                </div>
+                {!loading && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-5 gap-3 auto-rows-[120px] sm:auto-rows-[140px]">
+                    <AnimatePresence>
+                      {(heatmapTab === 'all' ? heatmapTokens.slice(3) : heatmapTokens).map((token, i) =>
+                        renderHeatmapCard(token, i, false)
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
               </div>
 
               {/* <div className="px-6 py-4 border-t border-slate-800/50 flex items-center justify-between text-xs text-slate-500">

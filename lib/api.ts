@@ -23,7 +23,7 @@ export const API_HEADERS: Record<string, string> = API_KEY
 
 /* ===== Types ===== */
 export type Bucket = "30m" | "1h" | "4h" | "24h";
-export type PriceSource = "best" | "first" | "all";
+export type PriceSource = "best" | "first" | "all" | "pool";
 export type Timeframe = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
 export type Unit = "native" | "usd";
 
@@ -62,13 +62,19 @@ export interface TokenDetailResponse {
       denom?: string;
       symbol?: string;
       name?: string;
+      display?: string;
+      exponent?: number;
       imageUri?: string;
+      website?: string;
+      twitter?: string;
+      telegram?: string;
       createdAt?: string;
       description?: string | null;
     };
     price?: {
       source?: string;
       poolId?: string;
+      pairContract?: string;
       native?: number;
       usd?: number;
       changePct?: Record<string, number>;
@@ -79,7 +85,10 @@ export interface TokenDetailResponse {
     priceInNative?: number;
     priceInUsd?: number;
     priceSource?: string;
+    dominant?: string;
+    pairView?: string;
     poolId?: string;
+    pairContract?: string;
     pools?: number;
     holder?: number | string;
     creationTime?: string;
@@ -105,7 +114,21 @@ export interface TokenDetailResponse {
     liquidity?: number;
     liquidityNative?: number;
   };
-  twitter?: string | null;
+  twitter?:
+    | {
+        handle?: string;
+        userId?: string;
+        name?: string;
+        isBlueVerified?: boolean;
+        verifiedType?: string | null;
+        profilePicture?: string;
+        coverPicture?: string;
+        followers?: number;
+        following?: number;
+        createdAtTwitter?: string;
+        lastRefreshed?: string;
+      }
+    | null;
 }
 
 // TypeScript Interfaces
@@ -186,12 +209,14 @@ export class TokenAPI {
     symbol: string,
     priceSource: PriceSource = "best",
     includePools = true,
-    init: RequestInit = {}
+    init: RequestInit = {},
+    poolId?: string | null
   ) {
     const safeSymbol = encodeURIComponent(symbol);
     const include = includePools ? "&includePools=1" : "";
+    const pool = poolId ? `&poolId=${encodeURIComponent(poolId)}` : "";
     return this.fetchData<{ success: boolean; data: TokenSummary }>(
-      `/tokens/${safeSymbol}?priceSource=${priceSource}${include}`,
+      `/tokens/${safeSymbol}?priceSource=${priceSource}${include}${pool}`,
       init
     );
   }
@@ -200,12 +225,14 @@ export class TokenAPI {
     symbol: string,
     priceSource: PriceSource = "best",
     includePools = true,
-    init: RequestInit = {}
+    init: RequestInit = {},
+    poolId?: string | null
   ) {
     const safeSymbol = encodeURIComponent(symbol);
     const include = includePools ? "&includePools=1" : "";
+    const pool = poolId ? `&poolId=${encodeURIComponent(poolId)}` : "";
     return this.fetchData<TokenDetailResponse>(
-      `/tokens/${safeSymbol}?priceSource=${priceSource}${include}`,
+      `/tokens/${safeSymbol}?priceSource=${priceSource}${include}${pool}`,
       init
     );
   }
