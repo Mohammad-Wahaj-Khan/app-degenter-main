@@ -165,7 +165,9 @@ export default function TopTrades({ tokenId }: TopTradesProps) {
         now.getTime() - 7 * 24 * 60 * 60 * 1000
       );
       const res = await fetch(
-        `${API_BASE}/trades/token/${tokenId}?unit=zig&limit=${MAX_LIMIT}&startTime=${sevenDaysAgo.toISOString()}&endTime=${now.toISOString()}&tf=7d&sort=valueUsd:desc`,
+        `${API_BASE}/trades/token/${encodeURIComponent(
+          tokenId
+        )}?unit=zig&limit=${MAX_LIMIT}&startTime=${sevenDaysAgo.toISOString()}&endTime=${now.toISOString()}&tf=7d&sort=valueUsd:desc`,
         { cache: "no-store", headers: API_HEADERS }
       );
 

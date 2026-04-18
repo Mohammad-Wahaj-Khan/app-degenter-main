@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
 import { Zap, Layers, BarChart3, Users, ChevronRight } from "lucide-react";
+import { storeTokenRoute } from "@/lib/token-routing";
 
 const API_BASE = (
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "https://main-api.degenter.io"
@@ -35,7 +36,7 @@ const TokenSparkline = ({ tokenId, color }: { tokenId: string; color: string }) 
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const res = await fetch(`${API_BASE}/tokens/${tokenId}/ohlcv`);
+        const res = await fetch(`${API_BASE}/tokens/${encodeURIComponent(tokenId)}/ohlcv`);
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
           // Map API "close" prices to the chart format
@@ -109,8 +110,8 @@ const shouldExcludeToken = (token: any) => {
 
 const normalizeToken = (token: any): MemeTokenRow => {
   const symbol = token.symbol ?? token.tokenId ?? "N/A";
-  const tokenId = (token.tokenId ?? token.denom ?? symbol).toString(); // Fallback for API calls
   const denom = (token.denom ?? token.tokenId ?? symbol).toString();
+  const tokenId = denom; // API fetch key should stay denom-first, including ibc/... denoms.
   
   return {
     symbol: symbol.toString().toUpperCase(),
@@ -262,7 +263,13 @@ const MemesToken = () => {
                   <div>
                     <button
                       type="button"
-                      onClick={() => router.push(`/token/${token.denom}`)}
+                      onClick={() =>
+                        router.push(
+                          `/token/${encodeURIComponent(
+                            storeTokenRoute(token.denom, token.symbol, token.tokenId)
+                          )}`
+                        )
+                      }
                       className="text-sm font-black text-white  transition-colors text-left"
                     >
                       {token.symbol}

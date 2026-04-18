@@ -456,7 +456,9 @@ const FindGemsMain = () => {
     const change = changePct[treemapWindow] || 0;
     const isPos = change >= 0;
     const intensity = getIntensityColor(change);
-    const tokenPath = encodeURIComponent(token.tokenId || token.symbol);
+    const tokenPath = encodeURIComponent(
+      token.tokenId?.startsWith('ibc/') ? token.symbol : token.tokenId || token.symbol
+    );
     const allowEntranceAnimation = hasRenderedInitialCards;
 
     return (

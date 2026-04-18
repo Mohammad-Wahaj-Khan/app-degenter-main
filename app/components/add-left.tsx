@@ -21,6 +21,15 @@ const API_BASE = API_BASE_URL.replace(/\/+$/, "");
 const normalizePairValue = (value?: string | null) =>
   (value ?? "").trim().toLowerCase();
 
+const normalizeTokenValue = (value?: string | null) => {
+  const raw = (value ?? "").trim().toLowerCase();
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+};
+
 const isZigAsset = (value?: string | null) => {
   const normalized = normalizePairValue(value);
   return normalized === "zig" || normalized === "uzig";
@@ -162,6 +171,13 @@ async function fetchTokenBySymbol(
     if (!t) {
       console.error("No data in API response");
       return null;
+    }
+
+    if (
+      t.denom &&
+      normalizeTokenValue(t.denom) !== normalizeTokenValue(symbol)
+    ) {
+      return fetchTokenBySymbol(t.denom, options);
     }
 
     // Extract Twitter data from response
@@ -344,9 +360,15 @@ export default function AddLeft({
   const effectiveSelectedPair = selectedPair ?? selectedPairFromRoute;
   const summaryTokenKey =
     token?.denom ||
-    token?.symbol ||
-    token?.display ||
+    (!isZigAsset(effectiveSelectedPair?.baseDenom)
+      ? effectiveSelectedPair?.baseDenom
+      : null) ||
+    (!isZigAsset(effectiveSelectedPair?.quoteDenom)
+      ? effectiveSelectedPair?.quoteDenom
+      : null) ||
     resolvedTokenKey ||
+    token?.display ||
+    token?.symbol ||
     tokenKey;
   const selectedPoolId = effectiveSelectedPair?.poolId ?? null;
   const shouldUsePoolPricing =

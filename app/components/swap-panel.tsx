@@ -317,7 +317,7 @@ export default function SwapPanel({
                 Failed to load token
               </div>
             ) : token ? (
-              <AllSpcPairs tokenKey={tokenSymbol} />
+              <AllSpcPairs tokenKey={token?.pairContract || tokenSymbol} />
             ) : (
               <div className="text-center text-neutral-400 py-6">
                 No token data.
@@ -383,7 +383,7 @@ export default function SwapPanel({
       </div>
 
       {/* Token Info Section (existing AddLeft panel) */}
-      <AddLeft />
+      <AddLeft selectedPair={selectedPair} />
     </div>
   );
 }
