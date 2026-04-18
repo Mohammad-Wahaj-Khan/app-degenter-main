@@ -87,6 +87,14 @@ type ApiTrade = {
   symbol?: string;
 };
 
+const resolveChartTokenRef = (token: Pick<TokenOption, "denom" | "symbol" | "tokenKey">) => {
+  const denom = token.denom?.trim();
+  if (denom && !denom.toLowerCase().startsWith("ibc")) {
+    return denom;
+  }
+  return token.symbol || token.tokenKey;
+};
+
 const baseAmountToDisplay = (amount: unknown, denom?: string) => {
   const n = Number(amount);
   if (!Number.isFinite(n)) return undefined;
@@ -153,6 +161,12 @@ const typeGradient: Record<WidgetType, string> = {
   "recent-trades": "from-emerald-500/20 via-teal-500/20 to-cyan-500/20",
   "token-stats": "from-amber-500/20 via-orange-500/20 to-red-500/20",
 };
+
+const quickOpenOptions: Array<{ type: WidgetType; label: string; description: string }> = [
+  { type: "recent-trades", label: "Trades", description: "Open live trades for this token" },
+  { type: "charts", label: "Candles", description: "Open the candle chart for this token" },
+  { type: "token-stats", label: "Summary", description: "Open the token summary widget" },
+];
 
 const normalizeTokenRef = (v?: string) =>
   (v ?? "").replace(/^ibc\/\w+\//, "").trim().toLowerCase();
@@ -1553,7 +1567,7 @@ const ResizableWidget = ({
             <div className="h-full min-h-0">
               <TradingChart
                 key={`chart-${slot.token.id}-${slot.id}`}
-                token={slot.token.tokenKey}
+                token={resolveChartTokenRef(slot.token)}
                 denom={slot.token.denom}
                 compact
               />
@@ -1590,6 +1604,143 @@ const ResizableWidget = ({
   );
 };
 
+// Animated Token Logo Loop Component
+const TokenLogoLoop = ({ tokens, onTokenClick }: { tokens: TokenOption[]; onTokenClick: (token: TokenOption) => void }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const sequenceRef = useRef<HTMLDivElement>(null);
+  const offsetRef = useRef(0);
+  const lastTimestampRef = useRef<number | null>(null);
+  const [sequenceWidth, setSequenceWidth] = useState(0);
+  const [isHovered, setIsHovered] = useState(false);
+
+  useEffect(() => {
+    const measure = () => {
+      setSequenceWidth(sequenceRef.current?.scrollWidth ?? 0);
+    };
+
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [tokens]);
+
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track || sequenceWidth <= 0) return;
+
+    let frameId: number;
+    const speed = isHovered ? 0 : 48;
+
+    const animate = (timestamp: number) => {
+      if (lastTimestampRef.current == null) {
+        lastTimestampRef.current = timestamp;
+      }
+
+      const deltaSeconds = (timestamp - lastTimestampRef.current) / 1000;
+      lastTimestampRef.current = timestamp;
+
+      offsetRef.current = (offsetRef.current - speed * deltaSeconds + sequenceWidth) % sequenceWidth;
+      track.style.transform = `translate3d(${-offsetRef.current}px, 0, 0)`;
+
+      frameId = window.requestAnimationFrame(animate);
+    };
+
+    frameId = window.requestAnimationFrame(animate);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      lastTimestampRef.current = null;
+    };
+  }, [isHovered, sequenceWidth]);
+
+  return (
+    <div className="relative overflow-hidden border-b border-white/10 bg-black/30 backdrop-blur-sm">
+      <div
+        ref={containerRef}
+        className="overflow-hidden"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <div ref={trackRef} className="flex w-max will-change-transform">
+          {[0, 1].map((copyIndex) => (
+            <div
+              key={copyIndex}
+              ref={copyIndex === 0 ? sequenceRef : undefined}
+              className="flex items-center gap-6 px-4 py-3"
+            >
+              {tokens.map((token) => (
+                <motion.button
+                  key={`${copyIndex}-${token.id}`}
+                  onClick={() => onTokenClick(token)}
+                  whileHover={{ scale: 1.1, y: -2 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="group flex shrink-0 cursor-pointer flex-col items-center gap-1.5 rounded-xl p-2 transition-all hover:bg-white/5"
+                  draggable
+                  onDragStartCapture={(e: React.DragEvent<HTMLButtonElement>) => {
+                    e.dataTransfer.setData("text/plain", JSON.stringify(token));
+                    e.dataTransfer.effectAllowed = "copy";
+                  }}
+                >
+                  <div className="relative">
+                    <div className="absolute inset-0 rounded-full bg-gradient-to-r from-emerald-500/0 to-emerald-500/0 opacity-0 blur-xl transition-all duration-300 group-hover:opacity-100 group-hover:from-emerald-500/30 group-hover:to-emerald-500/10" />
+                    <div className="relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 p-0.5 shadow-lg transition-all group-hover:border-emerald-500/30 group-hover:shadow-emerald-500/20">
+                      {token.imageUri ? (
+                        <img
+                          src={token.imageUri}
+                          alt={token.symbol}
+                          className="h-full w-full rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-zinc-800 to-zinc-900 text-xs font-bold text-white">
+                          {token.symbol.slice(0, 2)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-[8px] font-bold text-white opacity-0 transition-all group-hover:opacity-100">
+                      +
+                    </div>
+                  </div>
+                  <span className="max-w-[64px] truncate text-[10px] font-medium text-zinc-400 transition-all group-hover:text-white">
+                    {token.symbol}
+                  </span>
+                </motion.button>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+      
+      <div className="pointer-events-none absolute left-0 top-0 h-full w-12 bg-gradient-to-r from-black/80 to-transparent" />
+      <div className="pointer-events-none absolute right-0 top-0 h-full w-12 bg-gradient-to-l from-black/80 to-transparent" />
+    </div>
+  );
+};
+
+// Animated Modal Component
+const AnimatedModal = ({ isOpen, onClose, children }: { isOpen: boolean; onClose: () => void; children: ReactNode }) => {
+  if (!isOpen) return null;
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0, y: 30 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.9, opacity: 0, y: 30 }}
+        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+        className="relative w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl border border-white/10 bg-[#0a0c10] shadow-2xl flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </motion.div>
+    </motion.div>
+  );
+};
+
 export default function Multicharts() {
   const [slots, setSlots] = useState<SlotItem[]>([]);
   const [cacheReady, setCacheReady] = useState(false);
@@ -1597,14 +1748,15 @@ export default function Multicharts() {
   const [loadingTokens, setLoadingTokens] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedType, setSelectedType] = useState<WidgetType | null>(null);
+  const [selectedTokenForModal, setSelectedTokenForModal] = useState<TokenOption | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   
   const canvasRef = useRef<HTMLDivElement>(null);
   const canvasScrollRef = useRef<HTMLDivElement>(null);
   const cacheSaveTimer = useRef<number | null>(null);
-  const prevSlotCountRef = useRef(0);
   const [canvasHeight, setCanvasHeight] = useState(800);
   const [canvasWidth, setCanvasWidth] = useState(1200);
+  const [showTokenBar, setShowTokenBar] = useState(true);
 
   const leftCount = useMemo(() => MAX_SLOTS - slots.length, [slots.length]);
   const scrollCanvasToEdge = (edge: "start" | "end") => {
@@ -1694,21 +1846,12 @@ export default function Multicharts() {
     setCanvasWidth(Math.max(1200, maxX + 40));
   }, [slots]);
 
-  useEffect(() => {
-    if (!canvasScrollRef.current) return;
-    const container = canvasScrollRef.current;
-    if (slots.length > prevSlotCountRef.current) {
-      container.scrollTo({ left: container.scrollWidth, behavior: "smooth" });
-    }
-    prevSlotCountRef.current = slots.length;
-  }, [slots.length]);
-
   // Fetch tokens
   useEffect(() => {
     const fetchTokens = async () => {
       try {
         setLoadingTokens(true);
-        const res = await fetch(`${API_BASE}/tokens?bucket=24h&priceSource=best&sort=volume&dir=desc&includeChange=1`, {
+        const res = await fetch(`${API_BASE}/tokens?bucket=24h&priceSource=best&dir=desc&includeChange=1&limit=100&offset=0&sort=volume`, {
           headers: API_HEADERS,
           cache: "no-store",
         });
@@ -1729,21 +1872,24 @@ export default function Multicharts() {
               : item?.token?.tokenId
               ? String(item.token.tokenId)
               : undefined,
-            tokenKey:
-              item?.symbol ||
-              item?.token?.symbol ||
-              item?.denom ||
-              item?.token?.denom ||
-              item?.name ||
-              "UNKNOWN",
             denom: item?.denom || item?.token?.denom,
             symbol: item?.symbol || item?.token?.symbol || item?.name || "UNKNOWN",
+            tokenKey:
+              (() => {
+                const denom = item?.denom || item?.token?.denom;
+                const symbol = item?.symbol || item?.token?.symbol || item?.name || "UNKNOWN";
+                return denom && !String(denom).toLowerCase().startsWith("ibc")
+                  ? String(denom)
+                  : String(symbol);
+              })(),
             name: item?.name || item?.token?.name || item?.symbol || "Unknown",
             imageUri: item?.imageUri || item?.token?.imageUri || item?.icon || item?.token?.icon,
           }))
           .filter((item: TokenOption) => item.id && item.tokenKey);
 
         setTokens(mapped);
+      } catch (error) {
+        console.error("Failed to fetch tokens:", error);
       } finally {
         setLoadingTokens(false);
       }
@@ -1795,24 +1941,43 @@ export default function Multicharts() {
     return { x: bestX, y: bestY };
   };
 
-  const addToSlot = (token: TokenOption) => {
-    if (!selectedType || slots.length >= MAX_SLOTS) return;
-    
-    const position = findNextPosition();
+  const createSlot = (
+    token: TokenOption,
+    type: WidgetType,
+    position?: { x: number; y: number }
+  ) => {
+    if (slots.length >= MAX_SLOTS) return;
+
+    const nextPosition = position ?? findNextPosition();
     const newSlot: SlotItem = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       token,
-      type: selectedType,
+      type,
       width: 400,
       height: 320,
-      x: position.x,
-      y: position.y,
+      x: nextPosition.x,
+      y: nextPosition.y,
     };
-    
+
     setSlots((prev) => [...prev, newSlot]);
+  };
+
+  const closeModal = () => {
     setIsModalOpen(false);
     setSelectedType(null);
+    setSelectedTokenForModal(null);
     setSearchQuery("");
+  };
+
+  const openWidgetForToken = (token: TokenOption, type: WidgetType) => {
+    createSlot(token, type);
+    closeModal();
+  };
+
+  const addToSlot = (token: TokenOption) => {
+    if (!selectedType || slots.length >= MAX_SLOTS) return;
+
+    openWidgetForToken(token, selectedType);
   };
 
   const updateSlot = (slotId: string, updates: Partial<SlotItem>) => {
@@ -1834,19 +1999,67 @@ export default function Multicharts() {
     );
   }, [tokens, searchQuery]);
 
+  const handleTokenClick = (token: TokenOption) => {
+    setSelectedTokenForModal(token);
+    setIsModalOpen(true);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    try {
+      const tokenData = JSON.parse(e.dataTransfer.getData("text/plain"));
+      if (tokenData && tokenData.id) {
+        const canvasRect = canvasRef.current?.getBoundingClientRect();
+        const scrollLeft = canvasScrollRef.current?.scrollLeft ?? 0;
+        const scrollTop = canvasScrollRef.current?.scrollTop ?? 0;
+        const rawX = canvasRect ? e.clientX - canvasRect.left + scrollLeft - 200 : undefined;
+        const rawY = canvasRect ? e.clientY - canvasRect.top + scrollTop - 40 : undefined;
+        const dropPosition =
+          rawX != null && rawY != null
+            ? {
+                x: Math.max(20, Math.round(rawX / GRID_SIZE) * GRID_SIZE),
+                y: Math.max(20, Math.round(rawY / GRID_SIZE) * GRID_SIZE),
+              }
+            : undefined;
+
+        createSlot(tokenData, "charts", dropPosition);
+      }
+    } catch (error) {
+      console.error("Failed to parse drop data:", error);
+    }
+  };
+
   return (
-    <section className="min-h-screen w-full px-8 pb-8 pt-4 ">
+    <section className="min-h-screen w-full pb-8 pt-4" onDragOver={handleDragOver} onDrop={handleDrop}>
       {/* Animated Background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-1/2 -left-1/2 h-full w-full rounded-full bg-blue-500/5 blur-3xl" />
         <div className="absolute -bottom-1/2 -right-1/2 h-full w-full rounded-full bg-purple-500/5 blur-3xl" />
       </div>
 
+      {/* Animated Token Bar */}
+      {tokens.length > 0 && showTokenBar && (
+        <div className="relative mb-4">
+          <TokenLogoLoop tokens={tokens.slice(0, 30)} onTokenClick={handleTokenClick} />
+          <button
+            onClick={() => setShowTokenBar(false)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-1 text-zinc-400 hover:bg-white/10 hover:text-white transition-all z-10"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <motion.div 
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+        className="relative mb-4 flex flex-col gap-4 px-8 sm:flex-row sm:items-center sm:justify-between"
       >
         <div>
           <div className="flex items-center gap-2">
@@ -1856,15 +2069,23 @@ export default function Multicharts() {
             </h1>
           </div>
           <p className="mt-1 text-sm text-zinc-500">
-            Drag to move, drag corner to resize. Auto-snaps to grid.
+            Drag tokens from the bar, or click + to add widgets. Drag to move, drag corner to resize.
           </p>
         </div>
         
         <div className="flex items-center gap-2">
+          {!showTokenBar && tokens.length > 0 && (
+            <button
+              onClick={() => setShowTokenBar(true)}
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-400 transition-all hover:border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-400"
+            >
+              Show Token Bar
+            </button>
+          )}
           <button
             type="button"
             onClick={() => scrollCanvasToEdge("start")}
-            className=" rounded-xl border border-white/10 bg-white/5 text-zinc-400 transition-all hover:border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-400"
+            className="rounded-xl border border-white/10 bg-white/5 p-2 text-zinc-400 transition-all hover:border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-400"
             title="Jump to the first widgets"
           >
             <ChevronLeft size={20} />
@@ -1872,7 +2093,7 @@ export default function Multicharts() {
           <button
             type="button"
             onClick={() => scrollCanvasToEdge("end")}
-            className=" rounded-xl border border-white/10 bg-white/5 text-zinc-400 transition-all hover:border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-400"
+            className="rounded-xl border border-white/10 bg-white/5 p-2 text-zinc-400 transition-all hover:border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-400"
             title="Jump to the latest widgets"
           >
             <ChevronRight size={20} />
@@ -1898,7 +2119,7 @@ export default function Multicharts() {
       {/* Canvas Area */}
       <div
         ref={canvasScrollRef}
-        className="relative overflow-x-auto scroll-smooth"
+        className="relative overflow-x-auto scroll-smooth px-8"
       >
         <div 
           ref={canvasRef}
@@ -1941,196 +2162,227 @@ export default function Multicharts() {
               </div>
               <h3 className="text-xl font-bold text-white">Your canvas is empty</h3>
               <p className="mt-2 max-w-md text-center text-sm text-zinc-500">
-                Click the + button to add widgets. Drag to move them around, drag the bottom-right corner to resize.
+                Drag any token from the bar above, or click the + button to add widgets.
               </p>
             </motion.div>
           )}
         </div>
       </div>
 
-      {/* Modal */}
-      <AnimatePresence>
-        {isModalOpen && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4"
-          >
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="relative w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl border border-white/10 bg-[#0a0c10] shadow-2xl flex flex-col"
+      {/* Animated Modal */}
+      <AnimatedModal isOpen={isModalOpen} onClose={closeModal}>
+        {/* Modal Header */}
+        <div className="relative border-b border-white/5 p-6 flex-shrink-0">
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10 opacity-50" />
+          <div className="relative flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5">
+                <Plus className="h-5 w-5 text-zinc-400" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white">
+                  {selectedTokenForModal ? `Open ${selectedTokenForModal.symbol}` : "Create Widget"}
+                </h2>
+                <p className="text-sm text-zinc-500">
+                  {selectedTokenForModal ? "Choose what to open for this token" : "Configure your trading view"}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={closeModal}
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-zinc-400 transition-all hover:border-white/20 hover:bg-white/10 hover:text-white"
             >
-              {/* Modal Header */}
-              <div className="relative border-b border-white/5 p-6 flex-shrink-0">
-                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10 opacity-50" />
-                <div className="relative flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5">
-                      <Plus className="h-5 w-5 text-zinc-400" />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-bold text-white">Create Widget</h2>
-                      <p className="text-sm text-zinc-500">Configure your trading view</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setIsModalOpen(false);
-                      setSelectedType(null);
-                      setSearchQuery("");
-                    }}
-                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-zinc-400 transition-all hover:border-white/20 hover:bg-white/10 hover:text-white"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-              </div>
+              <X size={18} />
+            </button>
+          </div>
+        </div>
 
-              <div className="p-6 overflow-y-auto">
-                {/* Type Selection */}
-                <div className="mb-8">
-                  <label className="mb-4 block text-xs font-bold uppercase tracking-wider text-zinc-500">
-                    1. Select Widget Type
-                  </label>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    {(["charts", "recent-trades", "token-stats"] as WidgetType[]).map(
-                      (type) => (
-                        <button
-                          key={type}
-                          onClick={() => setSelectedType(type)}
-                          className={`group relative flex flex-col items-center gap-3 rounded-2xl border p-5 transition-all duration-300 ${
-                            selectedType === type
-                              ? "border-emerald-500/50 bg-emerald-500/10 shadow-lg shadow-emerald-500/10"
-                              : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]"
-                          }`}
-                        >
-                          <div className={`flex h-14 w-14 items-center justify-center rounded-xl border transition-all duration-300 ${
-                            selectedType === type 
-                              ? "border-emerald-500/30 bg-emerald-500/20 text-emerald-400 scale-110" 
-                              : "border-white/10 bg-white/5 text-zinc-500 group-hover:scale-105"
-                          }`}>
-                            {typeIcon[type]}
-                          </div>
-                          <span className={`text-sm font-semibold ${
-                            selectedType === type ? "text-emerald-400" : "text-zinc-300"
-                          }`}>
-                            {typeLabel[type]}
-                          </span>
-                          {selectedType === type && (
-                            <motion.div 
-                              layoutId="selected-ring"
-                              className="absolute inset-0 rounded-2xl ring-2 ring-emerald-500/50"
-                              transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                            />
-                          )}
-                        </button>
-                      )
-                    )}
-                  </div>
-                </div>
-
-                {/* Token Selection */}
-                <AnimatePresence>
-                  {selectedType && (
-                    <motion.div 
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="space-y-4 overflow-hidden"
-                    >
-                      <div className="flex items-center justify-between">
-                        <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500">
-                          2. Select Token
-                        </label>
-                        <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-medium text-zinc-500">
-                          {filteredTokens.length} available
-                        </span>
-                      </div>
-                      
-                      {/* Search */}
-                      <div className="relative">
-                        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500">
-                          <Search size={18} />
-                        </div>
-                        <input
-                          type="text"
-                          placeholder="Search by name or symbol..."
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="w-full rounded-xl border border-white/10 bg-white/[0.03] py-3.5 pl-12 pr-4 text-sm text-white placeholder-zinc-600 outline-none transition-all focus:border-emerald-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-emerald-500/20"
-                          autoFocus
-                        />
-                        {searchQuery && (
-                          <button
-                            onClick={() => setSearchQuery("")}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-zinc-600 hover:bg-white/10 hover:text-zinc-400"
-                          >
-                            <X size={14} />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Token Grid */}
-                      <div className="grid max-h-[320px] grid-cols-2 gap-2 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-800 sm:grid-cols-3 md:grid-cols-4">
-                        {loadingTokens && (
-                          <div className="col-span-full flex h-40 items-center justify-center">
-                            <div className="flex flex-col items-center gap-3">
-                              <RefreshCw size={24} className="animate-spin text-zinc-600" />
-                              <span className="text-sm text-zinc-500">Loading tokens...</span>
-                            </div>
-                          </div>
-                        )}
-                        {!loadingTokens && filteredTokens.length === 0 && (
-                          <div className="col-span-full py-12 text-center">
-                            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-zinc-800/50">
-                              <Search size={20} className="text-zinc-600" />
-                            </div>
-                            <p className="text-sm text-zinc-500">No tokens found</p>
-                            <p className="mt-1 text-xs text-zinc-600">Try a different search term</p>
-                          </div>
-                        )}
-                        {!loadingTokens &&
-                          filteredTokens.map((token, idx) => (
-                            <motion.button
-                              key={token.id}
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ delay: idx * 0.01 }}
-                              onClick={() => addToSlot(token)}
-                              className="group flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-left transition-all hover:border-emerald-500/30 hover:bg-emerald-500/[0.05]"
-                            >
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/5">
-                                {token.imageUri ? (
-                                  <img src={token.imageUri} alt={token.symbol} className="h-full w-full object-cover" />
-                                ) : (
-                                  <span className="text-xs font-bold text-zinc-600">{token.symbol.slice(0, 2)}</span>
-                                )}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center justify-between">
-                                  <span className="truncate font-bold text-white">
-                                    {token.symbol}
-                                  </span>
-                                  <ArrowUpRight size={14} className="text-zinc-600 opacity-0 transition-all group-hover:text-emerald-400 group-hover:opacity-100" />
-                                </div>
-                                <span className="line-clamp-1 text-xs text-zinc-500">
-                                  {token.name}
-                                </span>
-                              </div>
-                            </motion.button>
-                          ))}
-                      </div>
-                    </motion.div>
+        <div className="p-6 overflow-y-auto">
+          {selectedTokenForModal ? (
+            <div className="space-y-6">
+              <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/5">
+                  {selectedTokenForModal.imageUri ? (
+                    <img
+                      src={selectedTokenForModal.imageUri}
+                      alt={selectedTokenForModal.symbol}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-sm font-bold text-zinc-300">
+                      {selectedTokenForModal.symbol.slice(0, 2)}
+                    </span>
                   )}
-                </AnimatePresence>
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-lg font-bold text-white">{selectedTokenForModal.symbol}</p>
+                  <p className="truncate text-sm text-zinc-500">{selectedTokenForModal.name}</p>
+                </div>
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
+              <div>
+                <label className="mb-4 block text-xs font-bold uppercase tracking-wider text-zinc-500">
+                  Select What To Open
+                </label>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  {quickOpenOptions.map((option) => (
+                    <button
+                      key={option.type}
+                      onClick={() => openWidgetForToken(selectedTokenForModal, option.type)}
+                      className="group flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-5 text-center transition-all duration-300 hover:border-emerald-500/30 hover:bg-emerald-500/[0.05]"
+                    >
+                      <div className={`flex h-14 w-14 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-br ${typeGradient[option.type]} text-zinc-200 transition-all duration-300 group-hover:scale-105`}>
+                        {typeIcon[option.type]}
+                      </div>
+                      <span className="text-sm font-semibold text-zinc-200">{option.label}</span>
+                      <span className="text-xs text-zinc-500">{option.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+          {/* Type Selection */}
+          <div className="mb-8">
+            <label className="mb-4 block text-xs font-bold uppercase tracking-wider text-zinc-500">
+              1. Select Widget Type
+            </label>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {(["charts", "recent-trades", "token-stats"] as WidgetType[]).map(
+                (type) => (
+                  <button
+                    key={type}
+                    onClick={() => setSelectedType(type)}
+                    className={`group relative flex flex-col items-center gap-3 rounded-2xl border p-5 transition-all duration-300 ${
+                      selectedType === type
+                        ? "border-emerald-500/50 bg-emerald-500/10 shadow-lg shadow-emerald-500/10"
+                        : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    <div className={`flex h-14 w-14 items-center justify-center rounded-xl border transition-all duration-300 ${
+                      selectedType === type 
+                        ? "border-emerald-500/30 bg-emerald-500/20 text-emerald-400 scale-110" 
+                        : "border-white/10 bg-white/5 text-zinc-500 group-hover:scale-105"
+                    }`}>
+                      {typeIcon[type]}
+                    </div>
+                    <span className={`text-sm font-semibold ${
+                      selectedType === type ? "text-emerald-400" : "text-zinc-300"
+                    }`}>
+                      {typeLabel[type]}
+                    </span>
+                    {selectedType === type && (
+                      <motion.div 
+                        layoutId="selected-ring"
+                        className="absolute inset-0 rounded-2xl ring-2 ring-emerald-500/50"
+                        transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                      />
+                    )}
+                  </button>
+                )
+              )}
+            </div>
+          </div>
+
+          {/* Token Selection */}
+          <AnimatePresence>
+            {selectedType && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="space-y-4 overflow-hidden"
+              >
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500">
+                    2. Select Token
+                  </label>
+                  <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-medium text-zinc-500">
+                    {filteredTokens.length} available
+                  </span>
+                </div>
+                
+                {/* Search */}
+                <div className="relative">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500">
+                    <Search size={18} />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search by name or symbol..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] py-3.5 pl-12 pr-4 text-sm text-white placeholder-zinc-600 outline-none transition-all focus:border-emerald-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-emerald-500/20"
+                    autoFocus
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-zinc-600 hover:bg-white/10 hover:text-zinc-400"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Token Grid */}
+                <div className="grid max-h-[320px] grid-cols-2 gap-2 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-800 sm:grid-cols-3 md:grid-cols-4">
+                  {loadingTokens && (
+                    <div className="col-span-full flex h-40 items-center justify-center">
+                      <div className="flex flex-col items-center gap-3">
+                        <RefreshCw size={24} className="animate-spin text-zinc-600" />
+                        <span className="text-sm text-zinc-500">Loading tokens...</span>
+                      </div>
+                    </div>
+                  )}
+                  {!loadingTokens && filteredTokens.length === 0 && (
+                    <div className="col-span-full py-12 text-center">
+                      <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-zinc-800/50">
+                        <Search size={20} className="text-zinc-600" />
+                      </div>
+                      <p className="text-sm text-zinc-500">No tokens found</p>
+                      <p className="mt-1 text-xs text-zinc-600">Try a different search term</p>
+                    </div>
+                  )}
+                  {!loadingTokens &&
+                    filteredTokens.map((token, idx) => (
+                      <motion.button
+                        key={token.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.01 }}
+                        onClick={() => addToSlot(token)}
+                        className="group flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-left transition-all hover:border-emerald-500/30 hover:bg-emerald-500/[0.05]"
+                      >
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/5">
+                          {token.imageUri ? (
+                            <img src={token.imageUri} alt={token.symbol} className="h-full w-full object-cover" />
+                          ) : (
+                            <span className="text-xs font-bold text-zinc-600">{token.symbol.slice(0, 2)}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="truncate font-bold text-white">
+                              {token.symbol}
+                            </span>
+                            <ArrowUpRight size={14} className="text-zinc-600 opacity-0 transition-all group-hover:text-emerald-400 group-hover:opacity-100" />
+                          </div>
+                          <span className="line-clamp-1 text-xs text-zinc-500">
+                            {token.name}
+                          </span>
+                        </div>
+                      </motion.button>
+                    ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+            </>
+          )}
+        </div>
+      </AnimatedModal>
     </section>
   );
 }
