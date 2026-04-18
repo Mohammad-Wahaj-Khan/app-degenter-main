@@ -3,12 +3,14 @@
 import { useEffect, useState, useRef } from "react";
 import { ChevronDown } from "lucide-react";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
+import { isIbcDenom } from "@/lib/token-routing";
 
 const API_BASE = API_BASE_URL;
 
 const PAIR_CONTRACT_POOL_IDS: Record<string, string> = {
   zig1h72z8ptvcdqvuvy2lqanupwtextjmjmktj2ejgne2padxk0z8zds48shzq: "5",
   zig1jv7v8an78vwyfx409nvrguktz8dl97hg7v0qs59pnc9krlf4en8szqsq8h: "10",
+  zig1f2jt3f9gzajp5uupeq6xm20h90uzy6l8klvrx52ujaznc8xu8d7sfnrd87: "12",
 };
 
 const normalizePairValue = (value?: string | null) =>
@@ -46,6 +48,7 @@ const isSelectedPairWithZig = (
 
 // Helper function to extract token ID from full denom
 const extractTokenId = (denom: string): string => {
+  if (isIbcDenom(denom)) return denom;
   const parts = denom.split('.');
   const lastPart = parts[parts.length - 1];
   
@@ -60,10 +63,14 @@ const getPoolIdFromPool = (pool: any): string | null => {
   const candidates = [
     pool?.poolId,
     pool?.pool_id,
+    pool?.poolID,
     pool?.poolIdNumber,
     pool?.id,
   ];
-  const value = candidates.find((candidate) => candidate != null && candidate !== "");
+  const value = candidates.find((candidate) => {
+    const normalized = String(candidate ?? "").trim();
+    return normalized !== "" && /^[0-9]+$/.test(normalized);
+  });
   return value == null ? null : String(value);
 };
 
@@ -72,6 +79,9 @@ const getKnownPoolIdForPairContract = (pairContract?: string | null) => {
   return normalized ? PAIR_CONTRACT_POOL_IDS[normalized] ?? null : null;
 };
 
+const buildPoolsLookupUrl = (tokenRef: string) =>
+  `${API_BASE}/tokens/${encodeURIComponent(tokenRef)}/pools?includeAllSides=1`;
+
 const isMatchingPool = (
   pool: any,
   baseDenom?: string | null,
@@ -79,7 +89,9 @@ const isMatchingPool = (
   pairContract?: string | null
 ) => {
   const selectedPairContract = normalizeDenom(pairContract);
-  const poolPairContract = normalizeDenom(pool?.pairContract ?? pool?.pair_contract);
+  const poolPairContract = normalizeDenom(
+    pool?.pairContract ?? pool?.pair_contract ?? pool?.contract_address
+  );
   if (selectedPairContract && poolPairContract === selectedPairContract) return true;
 
   const poolBase = normalizeDenom(pool?.base?.denom);
@@ -189,7 +201,10 @@ export default function TokenStats({
     !selectedPairWithZig &&
     Boolean(selectedPair?.poolId || hasNonZigPairDenoms || hasPairContract);
   // IMPORTANT: Always use the poolId from selectedPair, never from token data
-  const activePoolId = shouldUsePoolPricing ? (selectedPair?.poolId ?? null) : null;
+  const selectedKnownPoolId = getKnownPoolIdForPairContract(selectedPairContract);
+  const activePoolId = shouldUsePoolPricing
+    ? selectedKnownPoolId ?? selectedPair?.poolId ?? null
+    : null;
 
   const resolveTokenId = (): string | null => {
     // For selected pairs, use the token symbol/denom (like "stzig"), not numeric ID.
@@ -209,25 +224,22 @@ export default function TokenStats({
       return selectedPair.quoteSymbol.toLowerCase();
     }
 
-    if (shouldUsePoolPricing && tokenKey && tokenKey.trim() !== "") {
-      return extractTokenId(tokenKey);
-    }
-    
-    // For non-pool pricing, we can use numeric tokenId or symbol
-    if (tokenId && String(tokenId).trim() !== "" && !shouldUsePoolPricing) {
-      return String(tokenId);
-    }
-
     if (tokenKey && tokenKey.trim() !== "") {
       return extractTokenId(tokenKey);
     }
-    
+
     if (summaryData?.token?.denom) {
       return extractTokenId(summaryData.token.denom);
     }
     
     if (summaryData?.token?.symbol) {
       return summaryData.token.symbol.toLowerCase();
+    }
+
+    // Numeric ids are a last resort. Denom/symbol refs keep IBC tokens on
+    // their real fetch key while the route can still show the clean symbol.
+    if (tokenId && String(tokenId).trim() !== "" && !shouldUsePoolPricing) {
+      return String(tokenId);
     }
     
     return null;
@@ -270,16 +282,75 @@ export default function TokenStats({
         ...(Array.isArray(detail?.pools) ? detail.pools : []),
       ];
 
-      const match = candidates.find((candidate: any) => {
-        const candidatePairContract = normalizeDenom(
-          candidate?.pairContract ?? candidate?.pair_contract
-        );
-        return candidatePairContract === normalizedSelectedPairContract;
-      });
+        const match = candidates.find((candidate: any) => {
+          const candidatePairContract = normalizeDenom(
+            candidate?.pairContract ??
+              candidate?.pair_contract ??
+              candidate?.contract_address
+          );
+          return candidatePairContract === normalizedSelectedPairContract;
+        });
 
       return getPoolIdFromPool(match);
     } catch (err) {
       console.error("Failed to resolve pool id from token details:", err);
+      return null;
+    }
+  };
+
+  const resolvePoolIdFromTokenId = async (): Promise<string | null> => {
+    if (tokenId == null || String(tokenId).trim() === "") return null;
+    const tokenIdentity = String(tokenId).trim();
+    try {
+      const response = await fetch(
+        `${API_BASE}/tokens/${encodeURIComponent(
+          tokenIdentity
+        )}?priceSource=best&includePools=1`,
+        { headers: API_HEADERS }
+      );
+      if (!response.ok) return null;
+      const json = await response.json();
+      const detail = json?.data ?? {};
+      const directPoolId =
+        getPoolIdFromPool(detail) ||
+        getPoolIdFromPool(detail?.price) ||
+        (detail?.poolId != null ? String(detail.poolId) : null) ||
+        (detail?.pool_id != null ? String(detail.pool_id) : null) ||
+        (detail?.price?.poolId != null ? String(detail.price.poolId) : null) ||
+        (detail?.price?.pool_id != null ? String(detail.price.pool_id) : null);
+      if (directPoolId) {
+        console.info("[TokenStats] tokenId direct poolId", {
+          tokenId: tokenIdentity,
+          directPoolId,
+          pairContract: detail?.pairContract ?? detail?.price?.pairContract,
+        });
+        return directPoolId;
+      }
+      const candidates = [
+        detail,
+        detail?.price,
+        ...(Array.isArray(detail?.poolsDetailed) ? detail.poolsDetailed : []),
+        ...(Array.isArray(detail?.pools) ? detail.pools : []),
+      ];
+      const match = candidates.find((candidate: any) =>
+        isMatchingPool(
+          candidate,
+          selectedBaseDenom,
+          selectedQuoteDenom,
+          selectedPairContract
+        )
+      );
+      const resolved = getPoolIdFromPool(match);
+      console.info("[TokenStats] tokenId pool lookup", {
+        tokenId: tokenIdentity,
+        resolved,
+        selectedPairContract,
+        selectedBaseDenom,
+        selectedQuoteDenom,
+      });
+      return resolved;
+    } catch (err) {
+      console.error("[TokenStats] Failed tokenId pool lookup", err);
       return null;
     }
   };
@@ -291,6 +362,8 @@ export default function TokenStats({
     if (activePoolId) return activePoolId;
     const knownPoolId = getKnownPoolIdForPairContract(selectedPairContract);
     if (knownPoolId) return knownPoolId;
+    const fromTokenId = await resolvePoolIdFromTokenId();
+    if (fromTokenId) return fromTokenId;
     if (!selectedBaseDenom && !selectedQuoteDenom && !selectedPairContract) {
       return null;
     }
@@ -298,19 +371,39 @@ export default function TokenStats({
     const poolSources = [
       selectedBaseDenom,
       selectedQuoteDenom,
-      selectedPairContract,
     ].filter((value): value is string => Boolean(value));
     for (const sourceDenom of poolSources) {
       try {
         const response = await fetch(
-          `${API_BASE}/tokens/${encodeURIComponent(
-            sourceDenom
-          )}/pools?dominant=base&bucket=24h&limit=100`,
+          buildPoolsLookupUrl(sourceDenom),
           { headers: API_HEADERS }
         );
         if (!response.ok) continue;
         const json = await response.json();
         const pools = Array.isArray(json?.data) ? json.data : [];
+        console.info("[TokenStats] pool lookup candidates", {
+          sourceDenom,
+          count: pools.length,
+          selectedPairContract,
+          selectedBaseDenom,
+          selectedQuoteDenom,
+            poolCandidates: pools.slice(0, 10).map((pool: any) => ({
+              poolId:
+                pool?.poolId ??
+                pool?.pool_id ??
+                pool?.poolID ??
+                pool?.poolIdNumber ??
+                pool?.id,
+              pairContract:
+                pool?.pairContract ??
+                pool?.pair_contract ??
+                pool?.contract_address,
+              baseDenom: pool?.base?.denom,
+              quoteDenom: pool?.quote?.denom,
+              baseSymbol: pool?.base?.symbol,
+            quoteSymbol: pool?.quote?.symbol,
+          })),
+        });
         const match = pools.find((pool: any) =>
           isMatchingPool(
             pool,
@@ -345,8 +438,26 @@ export default function TokenStats({
       }
 
       const poolId = await resolveSelectedPairPoolId(fetchTarget);
+      console.info("[TokenStats] fetch context", {
+        fetchTarget,
+        poolId,
+        shouldUsePoolPricing,
+        selectedPairWithZig,
+        selectedPair,
+        tokenId,
+        tokenKey,
+        summaryDenom: summaryData?.token?.denom,
+        summarySymbol: summaryData?.token?.symbol,
+      });
       if (shouldUsePoolPricing && !poolId) {
-        console.error("Unable to resolve pool id for selected non-ZIG pair:", selectedPair);
+        console.error("[TokenStats] Unable to resolve pool id for selected non-ZIG pair", {
+          selectedPair,
+          fetchTarget,
+          selectedBaseDenom,
+          selectedQuoteDenom,
+          selectedPairContract,
+          activePoolId,
+        });
         if (lastGoodDataRef.current) {
           setData(lastGoodDataRef.current);
         }
@@ -355,6 +466,7 @@ export default function TokenStats({
       
       // Build the URL with proper parameters
       const tokenUrl = buildTokenDetailsUrl(fetchTarget, poolId);
+      console.info("[TokenStats] request", { tokenUrl });
       
       // console.log("========== TOKEN STATS FETCH ==========");
       // console.log("Fetching token stats from:", tokenUrl);
@@ -370,6 +482,19 @@ export default function TokenStats({
 
       if (statsResponse.ok) {
         const json = await statsResponse.json();
+        console.info("[TokenStats] response", {
+          status: statsResponse.status,
+          success: json?.success,
+          hasData: Boolean(json?.data),
+          responsePoolId:
+            json?.data?.poolId ??
+            json?.data?.pool_id ??
+            json?.data?.poolID ??
+            json?.data?.price?.poolId ??
+            json?.data?.price?.pool_id,
+          symbol: json?.data?.token?.symbol ?? json?.data?.symbol,
+          denom: json?.data?.token?.denom,
+        });
         if (json?.success && json?.data) {
           const tokenData = json.data;
           
@@ -389,21 +514,24 @@ export default function TokenStats({
           //   priceSource: tokenData.priceSource,
           // });
         } else {
-          console.error("API returned success=false:", json);
+          console.error("[TokenStats] API returned empty or success=false", json);
           // Fallback to cached data if available
           if (lastGoodDataRef.current) {
             setData(lastGoodDataRef.current);
           }
         }
       } else {
-        console.error("Failed to fetch token stats:", statsResponse.status);
+        console.error("[TokenStats] Failed to fetch token stats", {
+          status: statsResponse.status,
+          url: tokenUrl,
+        });
         // Fallback to cached data if available
         if (lastGoodDataRef.current) {
           setData(lastGoodDataRef.current);
         }
       }
     } catch (err) {
-      console.error("Error fetching token stats:", err);
+      console.error("[TokenStats] Error fetching token stats", err);
       if (!isPolling && lastGoodDataRef.current) {
         setData(lastGoodDataRef.current);
       }
@@ -491,6 +619,19 @@ export default function TokenStats({
   }
 
   if (!data) {
+    console.warn("[TokenStats] rendering no-data state", {
+      tokenId,
+      tokenKey,
+      selectedPair,
+      shouldUsePoolPricing,
+      selectedPairWithZig,
+      activePoolId,
+      selectedBaseDenom,
+      selectedQuoteDenom,
+      selectedPairContract,
+      summaryHasData: Boolean(summaryData),
+      lastGoodHasData: Boolean(lastGoodDataRef.current),
+    });
     if (!tokenKey && !tokenId && !selectedPair) {
       return (
         <div className="bg-black/50 border border-gray-700 rounded-lg p-6 text-center text-gray-400">

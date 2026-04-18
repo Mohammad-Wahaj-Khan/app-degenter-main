@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
+import { storeTokenRoute } from "@/lib/token-routing";
 
 const API_BASE = API_BASE_URL.replace(/\/+$/, "");
 
@@ -69,20 +70,24 @@ export default function AllSpcPairs({
                 className="p-4 flex flex-col sm:flex-column rounded-b-lg sm:items-start sm:justify-between cursor-pointer hover:bg-white/5 transition-colors"
                 onClick={() => {
                   const baseDenom = p?.base?.denom;
+                  const baseSymbol = p?.base?.symbol;
                   const quoteDenom = p?.quote?.denom;
+                  const quoteSymbol = p?.quote?.symbol;
+                  const baseRouteRef = storeTokenRoute(baseDenom, baseSymbol);
                   const quoteSym = String(p?.quote?.symbol || "").toLowerCase();
                   const quoteDen = String(quoteDenom || "").toLowerCase();
-                  if (baseDenom) {
+                  if (baseRouteRef) {
                     if (quoteSym === "zig" || quoteDen === "uzig") {
-                      router.push(`/token/${encodeURIComponent(baseDenom)}`);
+                      router.push(`/token/${encodeURIComponent(baseRouteRef)}`);
                       return;
                     }
                   }
-                  if (baseDenom && quoteDenom) {
+                  if (baseRouteRef && quoteDenom) {
+                    const quoteRouteRef = storeTokenRoute(quoteDenom, quoteSymbol);
                     router.push(
                       `/token/${encodeURIComponent(
-                        baseDenom
-                      )}/${encodeURIComponent(quoteDenom)}`
+                        baseRouteRef
+                      )}/${encodeURIComponent(quoteRouteRef)}`
                     );
                   }
                 }}

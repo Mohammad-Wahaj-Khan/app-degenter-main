@@ -9,6 +9,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ChevronFirst, ChevronLeft, ChevronRight } from "lucide-react";
 import { tokenAPI } from "@/lib/api";
+import { storeTokenRoute } from "@/lib/token-routing";
 import { isTokenNew } from "@/lib/tokenUtils";
 import NewTokenBadge from "./NewTokenBadge";
 import type { DashboardToken } from "@/types/dashboard";
@@ -436,11 +437,10 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
                         <div className="flex flex-col">
                           <div className="flex items-center gap-2">
                             <Link
-                              href={`/token/${
-                                token.denom.startsWith("ibc/")
-                                  ? token.symbol
-                                  : token.denom
-                              }`}
+                              href={`/token/${storeTokenRoute(
+                                token.denom,
+                                token.symbol
+                              )}`}
                             >
                             <span className="text-white font-normal">
                               {isStakedZig(token)

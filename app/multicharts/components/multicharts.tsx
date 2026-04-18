@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type MouseEvent as ReactMouseEvent } from "react";
+import dynamic from "next/dynamic";
 import {
   Activity,
   BarChart3,
@@ -20,12 +21,27 @@ import {
   Maximize2,
   ChevronLeft,
   ChevronRight,
+  Gem,
+  Wallet,
+  Coins,
+  Radar,
+  ExternalLink,
+  Crown,
 } from "lucide-react";
 import TradingChart from "@/app/components/tradingchart";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
+import { storeTokenRoute } from "@/lib/token-routing";
 import { motion, AnimatePresence } from "framer-motion";
+import { createChart, ColorType, UTCTimestamp } from "lightweight-charts";
 
-type WidgetType = "charts" | "recent-trades" | "token-stats";
+type TokenWidgetType = "charts" | "recent-trades" | "token-stats" | "find-gems";
+type AppWidgetType =
+  | "findgems"
+  | "portfolio"
+  | "wallet-details"
+  | "create-token"
+  | "wallet-tracker";
+type WidgetType = TokenWidgetType | AppWidgetType;
 
 type TokenOption = {
   id: string;
@@ -37,9 +53,38 @@ type TokenOption = {
   imageUri?: string;
 };
 
+type FindGemsCandle = {
+  ts_sec: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number;
+  trades?: number;
+};
+
+type FindGemsCardToken = {
+  rank: number;
+  symbol: string;
+  name: string;
+  priceUsd: number;
+  holders: number;
+  mcapUsd: number | null;
+  volUsd: number;
+  imageUri: string;
+  change24hPct?: number;
+  tokenId?: string;
+  changePct: {
+    "30m"?: number;
+    "4h"?: number;
+    "24h"?: number;
+  };
+  candles: FindGemsCandle[];
+};
+
 type SlotItem = {
   id: string;
-  token: TokenOption;
+  token?: TokenOption;
   type: WidgetType;
   width: number;
   height: number;
@@ -89,10 +134,7 @@ type ApiTrade = {
 
 const resolveChartTokenRef = (token: Pick<TokenOption, "denom" | "symbol" | "tokenKey">) => {
   const denom = token.denom?.trim();
-  if (denom && !denom.toLowerCase().startsWith("ibc")) {
-    return denom;
-  }
-  return token.symbol || token.tokenKey;
+  return denom || token.tokenKey || token.symbol;
 };
 
 const baseAmountToDisplay = (amount: unknown, denom?: string) => {
@@ -148,25 +190,166 @@ const typeLabel: Record<WidgetType, string> = {
   charts: "Live Chart",
   "recent-trades": "Live Trades",
   "token-stats": "Token Stats",
+  "find-gems": "FindGems Format",
+  findgems: "FindGems",
+  portfolio: "Portfolio",
+  "wallet-details": "Wallet Details",
+  "create-token": "Create Token",
+  "wallet-tracker": "Wallet Tracker",
 };
 
 const typeIcon: Record<WidgetType, ReactNode> = {
   charts: <BarChart3 size={14} />,
   "recent-trades": <Waves size={14} />,
   "token-stats": <Activity size={14} />,
+  "find-gems": <Gem size={14} />,
+  findgems: <Gem size={14} />,
+  portfolio: <Wallet size={14} />,
+  "wallet-details": <Search size={14} />,
+  "create-token": <Coins size={14} />,
+  "wallet-tracker": <Radar size={14} />,
 };
 
 const typeGradient: Record<WidgetType, string> = {
   charts: "from-blue-500/20 via-purple-500/20 to-pink-500/20",
   "recent-trades": "from-emerald-500/20 via-teal-500/20 to-cyan-500/20",
   "token-stats": "from-amber-500/20 via-orange-500/20 to-red-500/20",
+  "find-gems": "from-fuchsia-500/20 via-emerald-500/20 to-yellow-500/20",
+  findgems: "from-fuchsia-500/20 via-emerald-500/20 to-yellow-500/20",
+  portfolio: "from-emerald-500/20 via-sky-500/20 to-white/10",
+  "wallet-details": "from-cyan-500/20 via-zinc-500/20 to-emerald-500/20",
+  "create-token": "from-orange-500/20 via-emerald-500/20 to-zinc-500/20",
+  "wallet-tracker": "from-teal-500/20 via-lime-500/20 to-zinc-500/20",
 };
 
-const quickOpenOptions: Array<{ type: WidgetType; label: string; description: string }> = [
+const quickOpenOptions: Array<{ type: TokenWidgetType; label: string; description: string }> = [
   { type: "recent-trades", label: "Trades", description: "Open live trades for this token" },
   { type: "charts", label: "Candles", description: "Open the candle chart for this token" },
   { type: "token-stats", label: "Summary", description: "Open the token summary widget" },
+  { type: "find-gems", label: "FindGems", description: "Show this token in discovery format" },
 ];
+
+const tokenWidgetTypes: TokenWidgetType[] = [
+  "charts",
+  "recent-trades",
+  "token-stats",
+  "find-gems",
+];
+
+const isTokenWidgetType = (type: WidgetType): type is TokenWidgetType =>
+  tokenWidgetTypes.includes(type as TokenWidgetType);
+
+const appWidgetOptions: Array<{
+  type: AppWidgetType;
+  label: string;
+  description: string;
+}> = [
+  {
+    type: "findgems",
+    label: "FindGems",
+    description: "Open the full FindGems discovery board.",
+  },
+  {
+    type: "portfolio",
+    label: "Portfolio",
+    description: "Open wallet holdings, PNL, and activities.",
+  },
+  {
+    type: "wallet-details",
+    label: "Wallet Details",
+    description: "Enter an address and jump into its portfolio or profile.",
+  },
+  {
+    type: "create-token",
+    label: "Create Token",
+    description: "Launch a new token from the canvas.",
+  },
+  {
+    type: "wallet-tracker",
+    label: "Wallet Tracker",
+    description: "Search and track top wallets.",
+  },
+];
+
+const appWidgetRoutes: Record<AppWidgetType, string> = {
+  findgems: "/findgems",
+  portfolio: "/portfolio",
+  "wallet-details": "/portfolio",
+  "create-token": "/createtoken",
+  "wallet-tracker": "/wallet-tracker",
+};
+
+const isWidgetType = (value: unknown): value is WidgetType =>
+  typeof value === "string" &&
+  (isTokenWidgetType(value as WidgetType) ||
+    appWidgetOptions.some((option) => option.type === value));
+
+const CanvasWidgetLoading = ({ label }: { label: string }) => (
+  <div className="flex h-full items-center justify-center">
+    <div className="flex items-center gap-2 text-zinc-400">
+      <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-700 border-t-emerald-400" />
+      <span className="text-xs">Loading {label}...</span>
+    </div>
+  </div>
+);
+
+const CanvasCreateToken = dynamic(
+  () => import("@/app/createtoken/components/launchToken"),
+  {
+    ssr: false,
+    loading: () => <CanvasWidgetLoading label="Create Token" />,
+  }
+);
+
+const CanvasFindGems = dynamic(() => import("@/app/findgems/components/findgems"), {
+  ssr: false,
+  loading: () => <CanvasWidgetLoading label="FindGems" />,
+});
+
+const CanvasWalletTrackerPage = dynamic(() => import("@/app/wallet-tracker/page"), {
+  ssr: false,
+  loading: () => <CanvasWidgetLoading label="Wallet Tracker" />,
+});
+
+const CanvasWalletAnalyzerSidebar = dynamic(
+  () => import("@/app/portfolio/WalletAnalyzerPNL/components/WalletAnalyzesSideBar"),
+  {
+    ssr: false,
+    loading: () => <CanvasWidgetLoading label="Wallet Sidebar" />,
+  }
+);
+
+const CanvasWalletAnalyzerBoxes = dynamic(
+  () => import("@/app/portfolio/WalletAnalyzerPNL/components/WalletAnalyzerBoxes"),
+  {
+    ssr: false,
+    loading: () => <CanvasWidgetLoading label="Wallet Analyzer" />,
+  }
+);
+
+const CanvasWalletAnalyzerTable = dynamic(
+  () => import("@/app/portfolio/WalletAnalyzerPNL/components/WalletAnalyzerTable"),
+  {
+    ssr: false,
+    loading: () => <CanvasWidgetLoading label="Wallet Table" />,
+  }
+);
+
+const CanvasWalletAnalyzerPortfolio = dynamic(
+  () => import("@/app/portfolio/WalletAnalyzerPortfolio/components/WalletAnalyzerPortfolio"),
+  {
+    ssr: false,
+    loading: () => <CanvasWidgetLoading label="Portfolio" />,
+  }
+);
+
+const CanvasWalletAnalyzerActivities = dynamic(
+  () => import("@/app/portfolio/WalletAnalyzerActivities/components/WalletAnalyzerActivities"),
+  {
+    ssr: false,
+    loading: () => <CanvasWidgetLoading label="Activities" />,
+  }
+);
 
 const normalizeTokenRef = (v?: string) =>
   (v ?? "").replace(/^ibc\/\w+\//, "").trim().toLowerCase();
@@ -179,6 +362,31 @@ const compactUsd = (v?: number) =>
         maximumFractionDigits: v && v < 1 ? 6 : 2,
       }).format(Number(v))
     : "—";
+
+const formatFindGemsPercent = (value: number) =>
+  `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+
+const formatFindGemsPrice = (value: number) => {
+  if (!Number.isFinite(value)) return "—";
+  if (value >= 100) return `$${value.toFixed(2)}`;
+  if (value >= 1) return `$${value.toFixed(4)}`;
+  if (value >= 0.01) return `$${value.toFixed(6)}`;
+  return `$${value.toFixed(8)}`;
+};
+
+const getFindGemsIntensityColor = (change: number) => {
+  const absChange = Math.abs(change);
+  if (change >= 0) {
+    if (absChange > 20) return "from-emerald-600 to-emerald-400";
+    if (absChange > 10) return "from-emerald-700 to-emerald-500";
+    if (absChange > 5) return "from-emerald-800 to-emerald-600";
+    return "from-emerald-900 to-emerald-700";
+  }
+  if (absChange > 20) return "from-rose-600 to-rose-400";
+  if (absChange > 10) return "from-rose-700 to-rose-500";
+  if (absChange > 5) return "from-rose-800 to-rose-600";
+  return "from-rose-900 to-rose-700";
+};
 
 const shortNum = (num?: number) => {
   if (num == null || !Number.isFinite(num)) return "—";
@@ -710,6 +918,184 @@ const StatCard = ({ label, value, subValue, trend, delay = 0 }: {
   </motion.div>
 );
 
+const FindGemsSparkline = ({
+  data,
+  isPositive,
+  width = 120,
+  height = 32,
+  opacity = 0.8,
+  strokeWidth = 1.5,
+  showArea = true,
+}: {
+  data: FindGemsCandle[];
+  isPositive: boolean;
+  width?: number;
+  height?: number;
+  opacity?: number;
+  strokeWidth?: number;
+  showArea?: boolean;
+}) => {
+  const gradientId = useMemo(
+    () => `findgems-gradient-${Math.random().toString(36).slice(2, 9)}`,
+    []
+  );
+
+  if (!data.length) {
+    const midY = height / 2;
+    const stroke = isPositive ? "#10b981" : "#ef4444";
+    return (
+      <svg
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        className="block"
+        style={{ opacity: opacity * 0.6 }}
+      >
+        <line
+          x1="2"
+          y1={midY}
+          x2={width - 2}
+          y2={midY}
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+
+  const pad = 2;
+  const closes = data.map((d) => d.close);
+  const min = Math.min(...closes);
+  const max = Math.max(...closes);
+  const range = max - min || 1;
+  const step = (width - pad * 2) / (closes.length - 1 || 1);
+  const points = closes.map((v, i) => {
+    const x = pad + i * step;
+    const y = pad + (1 - (v - min) / range) * (height - pad * 2);
+    return `${x},${y}`;
+  });
+  const stroke = isPositive ? "#10b981" : "#ef4444";
+
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      className="block"
+      style={{ opacity }}
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor={stroke} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={stroke} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {showArea && (
+        <polygon
+          points={`${pad},${height - pad} ${points.join(" ")} ${
+            width - pad
+          },${height - pad}`}
+          fill={`url(#${gradientId})`}
+        />
+      )}
+      <polyline
+        points={points.join(" ")}
+        fill="none"
+        stroke={stroke}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+};
+
+const FindGemsTradingViewChart = ({
+  data,
+  currentPrice,
+  height = 200,
+}: {
+  data: FindGemsCandle[];
+  currentPrice?: number;
+  height?: number;
+}) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current || !data.length) return;
+    const container = containerRef.current;
+    const chart = createChart(container, {
+      height,
+      width: container.clientWidth,
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: "rgba(255,255,255,0.75)",
+      },
+      grid: {
+        vertLines: { color: "rgba(255,255,255,0.06)" },
+        horzLines: { color: "rgba(255,255,255,0.06)" },
+      },
+      rightPriceScale: {
+        borderVisible: false,
+        scaleMargins: { top: 0.2, bottom: 0.2 },
+      },
+      timeScale: { borderVisible: false },
+      crosshair: { mode: 0 },
+    });
+
+    const series = chart.addCandlestickSeries({
+      upColor: "#10b981",
+      downColor: "#ef4444",
+      borderVisible: false,
+      wickUpColor: "#10b981",
+      wickDownColor: "#ef4444",
+      priceFormat: {
+        type: "price",
+        precision: currentPrice && currentPrice < 1 ? 8 : 6,
+        minMove: currentPrice && currentPrice < 1 ? 0.00000001 : 0.000001,
+      },
+    });
+
+    const slice = data.slice(-120);
+    const closes = slice.map((d) => d.close).filter((v) => Number.isFinite(v));
+    const medianClose = closes.length
+      ? closes.sort((a, b) => a - b)[Math.floor(closes.length / 2)]
+      : 0;
+    const needsScale =
+      currentPrice &&
+      medianClose > 0 &&
+      (medianClose / currentPrice > 10 || currentPrice / medianClose > 10);
+    const scale =
+      needsScale && currentPrice && medianClose ? currentPrice / medianClose : 1;
+
+    series.setData(
+      slice.map((d) => ({
+        time: d.ts_sec as UTCTimestamp,
+        open: d.open * scale,
+        high: d.high * scale,
+        low: d.low * scale,
+        close: d.close * scale,
+      }))
+    );
+
+    chart.timeScale().fitContent();
+
+    const handleResize = () => {
+      chart.applyOptions({ width: container.clientWidth, height });
+    };
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+      chart.remove();
+    };
+  }, [data, height, currentPrice]);
+
+  return <div ref={containerRef} className="h-full w-full" />;
+};
+
 function MultiTokenStats({ token }: { token: TokenOption }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -958,6 +1344,612 @@ function MultiTokenStats({ token }: { token: TokenOption }) {
   );
 }
 
+function FindGemsTokenWidget({ token }: { token: TokenOption }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setLoading(true);
+        const res = await fetch(
+          `${API_BASE}/tokens/${encodeURIComponent(
+            token.tokenKey
+          )}?priceSource=best&includePools=1`,
+          { headers: API_HEADERS, cache: "no-store" }
+        );
+        const json = await res.json();
+        if (!cancelled) setData(json?.data ?? null);
+      } catch {
+        if (!cancelled) setData(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [token.tokenKey]);
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="flex items-center gap-2 text-zinc-400">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-700 border-t-fuchsia-400" />
+          <span className="text-xs">Building FindGems view...</span>
+        </div>
+      </div>
+    );
+  }
+
+  const price = data?.price?.usd ?? data?.priceInUsd ?? data?.priceUsd;
+  const change24h =
+    data?.priceChange?.["24h"] ??
+    data?.price?.changePct?.["24h"] ??
+    data?.change24hPct;
+  const volume =
+    data?.volumeUSD?.["24h"] ?? data?.volume?.["24h"] ?? data?.volUsd;
+  const holders = data?.holder ?? data?.holders;
+  const liquidity = data?.liquidity;
+  const marketCap = data?.mcapDetail?.usd ?? data?.mcap?.usd ?? data?.mc ?? data?.mcapUsd;
+  const pools = Array.isArray(data?.pools) ? data.pools.length : data?.poolCount;
+  const change24hNumber = Number(change24h);
+  const positive = Number(change24h ?? 0) >= 0;
+  const scoreParts = [
+    Number(volume ?? 0) > 0,
+    Number(liquidity ?? 0) > 0,
+    Number(holders ?? 0) > 0,
+    Number(change24h ?? 0) > 0,
+  ].filter(Boolean).length;
+  const gemScore = Math.min(100, 48 + scoreParts * 13);
+  const tokenHref = `/token/${encodeURIComponent(
+    storeTokenRoute(token.denom, token.symbol, token.tokenKey)
+  )}`;
+
+  return (
+    <div className="h-full overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-800">
+      <div className="relative overflow-hidden rounded-xl border border-fuchsia-500/20 bg-gradient-to-br from-fuchsia-500/10 via-emerald-500/10 to-transparent p-4">
+        <div className="absolute -right-6 -top-6 h-28 w-28 rounded-full bg-fuchsia-500/10 blur-2xl" />
+        <div className="relative flex items-start gap-3">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-white/5">
+            {token.imageUri ? (
+              <img src={token.imageUri} alt={token.symbol} className="h-full w-full object-cover" />
+            ) : (
+              <span className="text-sm font-bold text-white">{token.symbol.slice(0, 2)}</span>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <p className="truncate text-xl font-black text-white">{token.symbol}</p>
+              <span className="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-fuchsia-300">
+                Gem Score {gemScore}
+              </span>
+            </div>
+            <p className="truncate text-xs text-zinc-500">{token.name}</p>
+          </div>
+        </div>
+
+        <div className="relative mt-4 grid grid-cols-2 gap-2">
+          <StatCard label="Price" value={compactUsd(price)} />
+          <StatCard
+            label="24h Move"
+            value={
+              Number.isFinite(change24hNumber)
+                ? `${change24hNumber > 0 ? "+" : ""}${change24hNumber.toFixed(2)}%`
+                : "—"
+            }
+            trend={positive ? "up" : "down"}
+          />
+          <StatCard label="Volume" value={`$${shortNum(volume)}`} />
+          <StatCard label="Liquidity" value={`$${shortNum(liquidity)}`} />
+          <StatCard label="Market Cap" value={`$${shortNum(marketCap)}`} />
+          <StatCard label="Holders" value={shortNum(holders)} />
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {[
+          { label: "Momentum", value: positive ? "Heating up" : "Cooling off" },
+          { label: "Discovery", value: Number(volume ?? 0) > 0 ? "Active tape" : "Quiet tape" },
+          { label: "Pools", value: pools != null ? String(pools) : "Best route" },
+        ].map((item) => (
+          <div key={item.label} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">{item.label}</p>
+            <p className="mt-1 text-sm font-semibold text-zinc-100">{item.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">FindGems Idea</p>
+        <p className="mt-2 text-sm leading-relaxed text-zinc-300">
+          Use this format when you want a discovery-first read: price, momentum,
+          volume, liquidity, and holders in one fast card before opening the full
+          token page.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <a
+            href={tokenHref}
+            className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/20"
+          >
+            Open Token <ExternalLink size={12} />
+          </a>
+          <a
+            href="/findgems"
+            className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
+          >
+            Full FindGems <ExternalLink size={12} />
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FindGemsHeatmapWidget({ token }: { token: TokenOption }) {
+  const [cardToken, setCardToken] = useState<FindGemsCardToken | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const normalizeCandle = (candle: any): FindGemsCandle => ({
+      ts_sec: Math.floor(new Date(candle?.ts ?? candle?.time ?? Date.now()).getTime() / 1000),
+      open: Number(candle?.o ?? candle?.open ?? 0),
+      high: Number(candle?.h ?? candle?.high ?? 0),
+      low: Number(candle?.l ?? candle?.low ?? 0),
+      close: Number(candle?.c ?? candle?.close ?? 0),
+      volume: candle?.v ?? candle?.volume,
+      trades: candle?.trades,
+    });
+
+    const mapDetailsToCard = (detail: any): FindGemsCardToken => {
+      const tokenData = detail?.token ?? detail ?? {};
+      const changePct = detail?.priceChange ?? detail?.price?.changePct ?? {};
+      const rawCandles =
+        detail?.candles1d ?? detail?.candles ?? detail?.ohlcv ?? tokenData?.candles1d ?? [];
+
+      return {
+        rank: 1,
+        symbol: tokenData?.symbol ?? token.symbol,
+        name: tokenData?.name ?? token.name,
+        priceUsd: Number(
+          detail?.price?.usd ?? detail?.priceInUsd ?? detail?.priceUsd ?? tokenData?.priceUsd ?? 0
+        ),
+        holders: Number(detail?.holder ?? detail?.holders ?? tokenData?.holders ?? 0),
+        mcapUsd:
+          detail?.mcapDetail?.usd ??
+          detail?.mcap?.usd ??
+          detail?.mc ??
+          detail?.mcapUsd ??
+          tokenData?.mcapUsd ??
+          null,
+        volUsd: Number(
+          detail?.volumeUSD?.["24h"] ??
+            detail?.volume?.["24h"] ??
+            detail?.volUsd ??
+            tokenData?.volUsd ??
+            0
+        ),
+        imageUri: tokenData?.imageUri ?? token.imageUri ?? "",
+        change24hPct: changePct?.["24h"] ?? detail?.change24hPct,
+        tokenId: tokenData?.tokenId ? String(tokenData.tokenId) : token.tokenId,
+        changePct: {
+          "30m": Number(changePct?.["30m"] ?? 0),
+          "4h": Number(changePct?.["4h"] ?? 0),
+          "24h": Number(changePct?.["24h"] ?? detail?.change24hPct ?? 0),
+        },
+        candles: Array.isArray(rawCandles)
+          ? rawCandles.map(normalizeCandle).filter((c) => Number.isFinite(c.close) && c.close > 0)
+          : [],
+      };
+    };
+
+    const mapMoverToCard = (item: any, index: number): FindGemsCardToken => ({
+      rank: index + 1,
+      symbol: item?.symbol || token.symbol,
+      name: item?.name || token.name,
+      priceUsd: Number(item?.priceUsd || 0),
+      holders: Number(item?.holders || 0),
+      mcapUsd: item?.mcapUsd ?? null,
+      volUsd: Number(item?.volUsd || 0),
+      imageUri: item?.imageUri || token.imageUri || "",
+      change24hPct: item?.change24hPct ?? item?.changePct?.["24h"],
+      tokenId: item?.tokenId ? String(item.tokenId) : token.tokenId,
+      changePct: item?.changePct || {},
+      candles: Array.isArray(item?.candles1d)
+        ? item.candles1d
+            .map(normalizeCandle)
+            .filter((c: FindGemsCandle) => Number.isFinite(c.close) && c.close > 0)
+        : [],
+    });
+
+    const load = async () => {
+      try {
+        setLoading(true);
+        const [detailsRes, moversRes] = await Promise.all([
+          fetch(
+            `${API_BASE}/tokens/${encodeURIComponent(
+              token.tokenKey
+            )}?priceSource=best&includePools=1`,
+            { headers: API_HEADERS, cache: "no-store" }
+          ),
+          fetch(
+            `${API_BASE}/tokens/movers?chartTf=24h&includeCandles=1&sparkLimit=30`,
+            { headers: API_HEADERS, cache: "no-store" }
+          ),
+        ]);
+
+        const detailsJson = await detailsRes.json();
+        const moversJson = await moversRes.json();
+        const movers = [
+          ...(Array.isArray(moversJson?.data?.gainers) ? moversJson.data.gainers : []),
+          ...(Array.isArray(moversJson?.data?.losers) ? moversJson.data.losers : []),
+        ];
+        const tokenRefs = new Set(
+          [token.tokenId, token.tokenKey, token.symbol, token.denom]
+            .map((value) => normalizeTokenRef(value))
+            .filter(Boolean)
+        );
+        const moverIndex = movers.findIndex((item) =>
+          [item?.tokenId, item?.symbol, item?.denom, item?.token?.denom]
+            .map((value) => normalizeTokenRef(String(value ?? "")))
+            .some((value) => tokenRefs.has(value))
+        );
+        const detailCard = mapDetailsToCard(detailsJson?.data ?? null);
+        const moverCard =
+          moverIndex >= 0 ? mapMoverToCard(movers[moverIndex], moverIndex) : null;
+
+        if (!cancelled) {
+          setCardToken({
+            ...detailCard,
+            ...(moverCard ?? {}),
+            candles: moverCard?.candles?.length ? moverCard.candles : detailCard.candles,
+            changePct: {
+              ...detailCard.changePct,
+              ...(moverCard?.changePct ?? {}),
+            },
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setCardToken({
+            rank: 1,
+            symbol: token.symbol,
+            name: token.name,
+            priceUsd: 0,
+            holders: 0,
+            mcapUsd: null,
+            volUsd: 0,
+            imageUri: token.imageUri ?? "",
+            tokenId: token.tokenId,
+            changePct: { "24h": 0 },
+            candles: [],
+          });
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [token.denom, token.imageUri, token.name, token.symbol, token.tokenId, token.tokenKey]);
+
+  if (loading || !cardToken) {
+    return (
+      <div className="relative h-full min-h-[220px] w-full overflow-hidden rounded-2xl">
+        <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-emerald-800 to-emerald-600 opacity-75" />
+        <div className="absolute inset-0 animate-pulse rounded-2xl bg-black/20" />
+        <div className="relative flex h-full flex-col justify-between p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-full bg-white/20 ring-2 ring-white/10" />
+              <div className="h-4 w-14 rounded-full bg-white/20" />
+            </div>
+          </div>
+          <div className="space-y-3">
+            <div className="h-7 w-20 rounded-full bg-white/20" />
+            <div className="h-8 w-full rounded-2xl bg-white/10" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const change = Number(cardToken.changePct?.["24h"] ?? cardToken.change24hPct ?? 0);
+  const isPos = change >= 0;
+  const intensity = getFindGemsIntensityColor(change);
+  const tokenPath = encodeURIComponent(
+    storeTokenRoute(token.denom, cardToken.symbol || token.symbol, cardToken.tokenId)
+  );
+
+  return (
+    <motion.div
+      key={`${cardToken.tokenId || cardToken.symbol}-24h`}
+      layout
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.2 }}
+      className="relative group h-full min-h-[220px] cursor-pointer rounded-2xl transition-all duration-500 [perspective:1200px]"
+    >
+      <div className="relative h-full w-full overflow-hidden rounded-2xl">
+        <div className="relative h-full w-full transition-transform duration-700 [transform-style:preserve-3d] group-hover:[transform:rotateY(180deg)]">
+          <div className="absolute inset-0 rounded-2xl [backface-visibility:hidden]">
+            <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${intensity} opacity-90 transition-opacity group-hover:opacity-100`} />
+            <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full transition-transform duration-1000 group-hover:translate-x-full" />
+
+            <div className="relative flex h-full flex-col justify-between p-4">
+              <div className="flex items-start justify-between">
+                <a href={`/token/${tokenPath}`} className="flex min-w-0 items-center gap-2">
+                  {cardToken.imageUri ? (
+                    <img
+                      src={cardToken.imageUri}
+                      className="h-8 w-8 rounded-full ring-2 ring-white/20"
+                      alt={cardToken.symbol}
+                    />
+                  ) : (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white ring-2 ring-white/20">
+                      {cardToken.symbol.slice(0, 2)}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <span className="block truncate text-lg font-bold text-white">
+                      {cardToken.symbol}
+                    </span>
+                  </div>
+                </a>
+
+                {cardToken.rank <= 3 && (
+                  <div className="flex items-center gap-1 rounded-full border border-yellow-400/30 bg-yellow-400/20 px-2 py-1">
+                    <Crown size={14} className="text-yellow-300" />
+                    <span className="text-xs font-bold text-yellow-300">#{cardToken.rank}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-auto">
+                <div className="text-2xl font-bold text-white drop-shadow-lg">
+                  {formatFindGemsPercent(change)}
+                </div>
+
+                <div className="mt-2 h-8">
+                  {cardToken.candles.length ? (
+                    <FindGemsSparkline
+                      data={cardToken.candles}
+                      isPositive={isPos}
+                      width={120}
+                      height={32}
+                      opacity={0.8}
+                      showArea
+                    />
+                  ) : (
+                    <div className="flex h-full items-center text-xs text-white/40">No data</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="absolute inset-0 rounded-2xl [backface-visibility:hidden] [transform:rotateY(180deg)]">
+            <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${intensity} opacity-95`} />
+            <div className="absolute inset-0 rounded-2xl bg-black/35" />
+
+            <div className="relative grid h-full grid-rows-[auto_1fr] gap-2 p-3">
+              <div className="relative flex items-start justify-between gap-2">
+                <a href={`/token/${tokenPath}`} className="flex min-w-0 items-center gap-2">
+                  {cardToken.imageUri ? (
+                    <img
+                      src={cardToken.imageUri}
+                      className="h-8 w-8 rounded-full ring-2 ring-white/20"
+                      alt={cardToken.symbol}
+                    />
+                  ) : (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white ring-2 ring-white/20">
+                      {cardToken.symbol.slice(0, 2)}
+                    </div>
+                  )}
+                  <div className="truncate font-bold text-white">{cardToken.symbol}</div>
+                </a>
+                <div className="text-right">
+                  <div className="text-[9px] text-white/60">24H</div>
+                  <div className="text-[11px] font-semibold text-white/90">
+                    {formatFindGemsPrice(cardToken.priceUsd)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="min-h-0">
+                {cardToken.candles.length ? (
+                  <div className="h-full min-h-[76px] w-full overflow-hidden">
+                    <FindGemsTradingViewChart
+                      data={cardToken.candles}
+                      height={110}
+                      currentPrice={cardToken.priceUsd}
+                    />
+                  </div>
+                ) : (
+                  <div className="text-sm text-white/60">No trading data</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function AppLauncherWidget({ type }: { type: AppWidgetType }) {
+  const [address, setAddress] = useState("");
+  const option = appWidgetOptions.find((item) => item.type === type);
+  const href = appWidgetRoutes[type];
+  const isWalletDetails = type === "wallet-details";
+  const cleanedAddress = address.trim();
+  const portfolioHref = cleanedAddress
+    ? `/portfolio?address=${encodeURIComponent(cleanedAddress)}`
+    : "/portfolio";
+  const profileHref = cleanedAddress
+    ? `/profile?handle=${encodeURIComponent(cleanedAddress)}`
+    : "/profile";
+
+  return (
+    <div className="flex h-full flex-col justify-between overflow-hidden">
+      <div>
+        <div className={`mb-4 flex h-14 w-14 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-br ${typeGradient[type]} text-zinc-100`}>
+          {typeIcon[type]}
+        </div>
+        <p className="text-xl font-black text-white">{option?.label ?? typeLabel[type]}</p>
+        <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+          {option?.description ?? "Open this Degenter tool from your canvas."}
+        </p>
+      </div>
+
+      {isWalletDetails && (
+        <div className="my-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+          <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+            Wallet Address
+          </label>
+          <input
+            value={address}
+            onChange={(event) => setAddress(event.target.value)}
+            placeholder="zig1..."
+            className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-500/40"
+          />
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <a
+              href={portfolioHref}
+              className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-center text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/20"
+            >
+              Portfolio
+            </a>
+            <a
+              href={profileHref}
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-center text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
+            >
+              Profile
+            </a>
+          </div>
+        </div>
+      )}
+
+      {!isWalletDetails && (
+        <a
+          href={href}
+          className="mt-4 inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-300 transition hover:bg-emerald-500/20"
+        >
+          Open {option?.label ?? typeLabel[type]}
+          <ExternalLink size={14} />
+        </a>
+      )}
+    </div>
+  );
+}
+
+function EmbeddedRouteFrame({ src, title }: { src: string; title: string }) {
+  return (
+    <iframe
+      title={title}
+      src={src}
+      className="h-full w-full rounded-lg border-0 bg-black"
+    />
+  );
+}
+
+type CanvasPortfolioTab = "trading" | "portfolio" | "activities";
+type CanvasTradingTimeframe = "24h" | "7d" | "10d" | "1M";
+
+function CanvasPortfolioWidget({ initialAddress = "" }: { initialAddress?: string }) {
+  const [address, setAddress] = useState(initialAddress);
+  const [activeTab, setActiveTab] = useState<CanvasPortfolioTab>("trading");
+  const [timeframe, setTimeframe] = useState<CanvasTradingTimeframe>("1M");
+  const addressOverride = address.trim() || undefined;
+
+  return (
+    <div className="h-full overflow-y-auto bg-black p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-800">
+      <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+        <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+          Wallet Address
+        </label>
+        <input
+          value={address}
+          onChange={(event) => setAddress(event.target.value)}
+          placeholder="zig1..."
+          className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-500/40"
+        />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(280px,360px),1fr]">
+        <CanvasWalletAnalyzerSidebar addressOverride={addressOverride} />
+        <div className="min-w-0">
+          <CanvasWalletAnalyzerBoxes
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            addressOverride={addressOverride}
+            timeframe={timeframe}
+            onTimeframeChange={setTimeframe}
+          />
+          {activeTab === "portfolio" && (
+            <CanvasWalletAnalyzerPortfolio addressOverride={addressOverride} />
+          )}
+          {activeTab === "activities" && (
+            <CanvasWalletAnalyzerActivities addressOverride={addressOverride} />
+          )}
+        </div>
+      </div>
+
+      {activeTab === "trading" && (
+        <div className="mt-4">
+          <CanvasWalletAnalyzerTable
+            addressOverride={addressOverride}
+            timeframe={timeframe}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AppToolWidget({ type }: { type: AppWidgetType }) {
+  if (type === "create-token") {
+    return (
+      <div className="h-full overflow-y-auto bg-black scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-800">
+        <CanvasCreateToken />
+      </div>
+    );
+  }
+
+  if (type === "findgems") {
+    return (
+      <div className="h-full overflow-y-auto bg-black scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-800">
+        <CanvasFindGems />
+      </div>
+    );
+  }
+
+  if (type === "portfolio") {
+    return <CanvasPortfolioWidget />;
+  }
+
+  if (type === "wallet-details") {
+    return <CanvasPortfolioWidget />;
+  }
+
+  if (type === "wallet-tracker") {
+    return (
+      <div className="h-full overflow-y-auto bg-black scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-800">
+        <CanvasWalletTrackerPage />
+      </div>
+    );
+  }
+
+  return null;
+}
+
 // Enhanced Trade Row Component
 const TradeRow = ({
   trade,
@@ -1097,7 +2089,7 @@ function MultiRecentTrades({ token }: { token: TokenOption }) {
     () => buildTradeSubscriptionRefs(token),
     [token.tokenKey, token.tokenId, token.denom, token.id]
   );
-  const subscriptionId = token.tokenId || token.id;
+  const subscriptionId = token.denom || token.tokenKey || token.tokenId || token.id;
 
   const highlightTimers = useRef<Map<string, number>>(new Map());
   const [highlightedTradeIds, setHighlightedTradeIds] = useState<Record<string, boolean>>(
@@ -1337,6 +2329,8 @@ const ResizableWidget = ({
   const dragContainerBounds = useRef<DOMRect | null>(null);
 
   const isChart = slot.type === "charts";
+  const headerLabel = slot.token?.symbol ?? typeLabel[slot.type];
+  const headerSubLabel = slot.token?.name ?? typeLabel[slot.type];
 
   // Snap to grid helper
   const snapToGrid = (value: number) => Math.round(value / GRID_SIZE) * GRID_SIZE;
@@ -1538,16 +2532,16 @@ const ResizableWidget = ({
           <div className="flex items-center gap-2">
             <GripVertical size={14} className="text-zinc-600" />
             <div className={`flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-gradient-to-br ${typeGradient[slot.type]}`}>
-              {slot.token.imageUri ? (
-                <img src={slot.token.imageUri} alt={slot.token.symbol} className="h-full w-full object-cover" />
+              {slot.token?.imageUri ? (
+                <img src={slot.token.imageUri} alt={headerLabel} className="h-full w-full object-cover" />
               ) : (
                 <span className="text-white text-xs">{typeIcon[slot.type]}</span>
               )}
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-bold text-white truncate">{slot.token.symbol}</p>
+              <p className="text-sm font-bold text-white truncate">{headerLabel}</p>
               <p className="text-[9px] font-medium uppercase tracking-wider text-zinc-500">
-                {typeLabel[slot.type]} • {Math.round(displayWidth)}×{Math.round(displayHeight)}
+                {headerSubLabel} • {Math.round(displayWidth)}×{Math.round(displayHeight)}
               </p>
             </div>
           </div>
@@ -1565,19 +2559,27 @@ const ResizableWidget = ({
         <div className={`relative z-10 min-h-0 flex-1 overflow-hidden ${isChart ? 'p-0' : 'p-3'}`}>
           {slot.type === "charts" && (
             <div className="h-full min-h-0">
-              <TradingChart
-                key={`chart-${slot.token.id}-${slot.id}`}
-                token={resolveChartTokenRef(slot.token)}
-                denom={slot.token.denom}
-                compact
-              />
+              {slot.token && (
+                <TradingChart
+                  key={`chart-${slot.token.id}-${slot.id}`}
+                  token={resolveChartTokenRef(slot.token)}
+                  denom={slot.token.denom}
+                  compact
+                />
+              )}
             </div>
           )}
-          {slot.type === "recent-trades" && (
+          {slot.type === "recent-trades" && slot.token && (
             <MultiRecentTrades token={slot.token} />
           )}
-          {slot.type === "token-stats" && (
+          {slot.type === "token-stats" && slot.token && (
             <MultiTokenStats token={slot.token} />
+          )}
+          {slot.type === "find-gems" && slot.token && (
+            <FindGemsHeatmapWidget token={slot.token} />
+          )}
+          {!isTokenWidgetType(slot.type) && (
+            <AppToolWidget type={slot.type} />
           )}
         </div>
 
@@ -1747,7 +2749,7 @@ export default function Multicharts() {
   const [tokens, setTokens] = useState<TokenOption[]>([]);
   const [loadingTokens, setLoadingTokens] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedType, setSelectedType] = useState<WidgetType | null>(null);
+  const [selectedType, setSelectedType] = useState<TokenWidgetType | null>(null);
   const [selectedTokenForModal, setSelectedTokenForModal] = useState<TokenOption | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   
@@ -1775,23 +2777,27 @@ export default function Multicharts() {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
           const restored = parsed
-            .filter(
-              (item: any) =>
-                item &&
+            .filter((item: any) => {
+              if (
+                !item ||
+                !isWidgetType(item.type) ||
+                typeof item.id !== "string" ||
+                typeof item.width !== "number" ||
+                typeof item.height !== "number" ||
+                typeof item.x !== "number" ||
+                typeof item.y !== "number"
+              ) {
+                return false;
+              }
+              if (!isTokenWidgetType(item.type)) return true;
+              return (
                 item.token &&
                 typeof item.token.id === "string" &&
                 typeof item.token.tokenKey === "string" &&
                 typeof item.token.symbol === "string" &&
-                typeof item.token.name === "string" &&
-                (item.type === "charts" ||
-                  item.type === "recent-trades" ||
-                  item.type === "token-stats") &&
-                typeof item.id === "string" &&
-                typeof item.width === "number" &&
-                typeof item.height === "number" &&
-                typeof item.x === "number" &&
-                typeof item.y === "number"
-            )
+                typeof item.token.name === "string"
+              );
+            })
             .slice(0, MAX_SLOTS) as SlotItem[];
           setSlots(restored);
         }
@@ -1878,9 +2884,7 @@ export default function Multicharts() {
               (() => {
                 const denom = item?.denom || item?.token?.denom;
                 const symbol = item?.symbol || item?.token?.symbol || item?.name || "UNKNOWN";
-                return denom && !String(denom).toLowerCase().startsWith("ibc")
-                  ? String(denom)
-                  : String(symbol);
+                return String(denom || symbol);
               })(),
             name: item?.name || item?.token?.name || item?.symbol || "Unknown",
             imageUri: item?.imageUri || item?.token?.imageUri || item?.icon || item?.token?.icon,
@@ -1943,7 +2947,7 @@ export default function Multicharts() {
 
   const createSlot = (
     token: TokenOption,
-    type: WidgetType,
+    type: TokenWidgetType,
     position?: { x: number; y: number }
   ) => {
     if (slots.length >= MAX_SLOTS) return;
@@ -1962,6 +2966,28 @@ export default function Multicharts() {
     setSlots((prev) => [...prev, newSlot]);
   };
 
+  const createAppSlot = (type: AppWidgetType) => {
+    if (slots.length >= MAX_SLOTS) return;
+
+    const nextPosition = findNextPosition();
+    const isWide =
+      type === "wallet-details" ||
+      type === "portfolio" ||
+      type === "findgems" ||
+      type === "create-token";
+    const newSlot: SlotItem = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      type,
+      width: isWide ? 760 : 520,
+      height: isWide ? 560 : 420,
+      x: nextPosition.x,
+      y: nextPosition.y,
+    };
+
+    setSlots((prev) => [...prev, newSlot]);
+    closeModal();
+  };
+
   const closeModal = () => {
     setIsModalOpen(false);
     setSelectedType(null);
@@ -1969,7 +2995,7 @@ export default function Multicharts() {
     setSearchQuery("");
   };
 
-  const openWidgetForToken = (token: TokenOption, type: WidgetType) => {
+  const openWidgetForToken = (token: TokenOption, type: TokenWidgetType) => {
     createSlot(token, type);
     closeModal();
   };
@@ -1995,7 +3021,8 @@ export default function Multicharts() {
     const query = searchQuery.toLowerCase();
     return tokens.filter(t => 
       t.symbol.toLowerCase().includes(query) || 
-      t.name.toLowerCase().includes(query)
+      t.name.toLowerCase().includes(query) ||
+      (t.denom ?? "").toLowerCase().includes(query)
     );
   }, [tokens, searchQuery]);
 
@@ -2224,7 +3251,7 @@ export default function Multicharts() {
                 <label className="mb-4 block text-xs font-bold uppercase tracking-wider text-zinc-500">
                   Select What To Open
                 </label>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
                   {quickOpenOptions.map((option) => (
                     <button
                       key={option.type}
@@ -2246,10 +3273,10 @@ export default function Multicharts() {
           {/* Type Selection */}
           <div className="mb-8">
             <label className="mb-4 block text-xs font-bold uppercase tracking-wider text-zinc-500">
-              1. Select Widget Type
+              1. Select Token Widget Type
             </label>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {(["charts", "recent-trades", "token-stats"] as WidgetType[]).map(
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+              {tokenWidgetTypes.map(
                 (type) => (
                   <button
                     key={type}
@@ -2282,6 +3309,30 @@ export default function Multicharts() {
                   </button>
                 )
               )}
+            </div>
+          </div>
+
+          <div className="mb-8">
+            <label className="mb-4 block text-xs font-bold uppercase tracking-wider text-zinc-500">
+              Add App Tools To Canvas
+            </label>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {appWidgetOptions.map((option) => (
+                <button
+                  key={option.type}
+                  onClick={() => createAppSlot(option.type)}
+                  disabled={slots.length >= MAX_SLOTS}
+                  className="group flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-4 text-left transition-all duration-300 hover:border-emerald-500/30 hover:bg-emerald-500/[0.05] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-br ${typeGradient[option.type]} text-zinc-200 transition-all group-hover:scale-105`}>
+                    {typeIcon[option.type]}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-zinc-100">{option.label}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-zinc-500">{option.description}</p>
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
 

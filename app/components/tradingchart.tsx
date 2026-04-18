@@ -17,6 +17,7 @@ import { ArrowLeftRight, Copy, Expand, RefreshCw, Share2 } from "lucide-react";
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import type { SignerFilterSummary } from "@/app/components/RecentTrades";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
+import { isIbcDenom } from "@/lib/token-routing";
 
 declare global {
   interface Window {
@@ -28,7 +29,7 @@ declare global {
 /* ---------- CONFIG ---------- */
 const API_BASE = API_BASE_URL;
 const WS_URL =
-  process.env.NEXT_PUBLIC_TRADES_WS_URL || "ws://159.223.28.88:3000/ws";
+  process.env.NEXT_PUBLIC_TRADES_WS_URL || "wss://main-api.degenter.io/ws";
 const NATIVE_DENOM = "uzig";
 // green for buys, red for sells – used for candlesticks and markers
 const CANDLE_UP_COLOR = "#20D87C"; // bright green
@@ -181,12 +182,14 @@ const normalizePairKey = (value?: string | null) =>
 const extractTokenRef = (value?: string | null) => {
   const normalized = (value ?? "").trim();
   if (!normalized) return "";
+  if (isIbcDenom(normalized)) return normalized;
   return normalized.split(".").pop() || normalized;
 };
 
 const PAIR_CONTRACT_POOL_IDS: Record<string, string> = {
   zig1h72z8ptvcdqvuvy2lqanupwtextjmjmktj2ejgne2padxk0z8zds48shzq: "5",
   zig1jv7v8an78vwyfx409nvrguktz8dl97hg7v0qs59pnc9krlf4en8szqsq8h: "10",
+  zig1f2jt3f9gzajp5uupeq6xm20h90uzy6l8klvrx52ujaznc8xu8d7sfnrd87: "12",
 };
 
 const isLikelyPairContract = (value?: string | null) =>
@@ -201,10 +204,14 @@ const getPoolIdFromPool = (pool: any): string | null => {
   const candidates = [
     pool?.poolId,
     pool?.pool_id,
+    pool?.poolID,
     pool?.poolIdNumber,
     pool?.id,
   ];
-  const value = candidates.find((candidate) => candidate != null && candidate !== "");
+  const value = candidates.find((candidate) => {
+    const normalized = String(candidate ?? "").trim();
+    return normalized !== "" && /^[0-9]+$/.test(normalized);
+  });
   return value == null ? null : String(value);
 };
 
@@ -410,7 +417,9 @@ function buildOhlcvUrl(
 
   // Handle pool-based pricing
   if (params.isPoolSelected && params.poolId) {
-    url += `&priceSource=pool&poolId=${encodeURIComponent(params.poolId)}&dominant=quote&view=auto`;
+    url += `&priceSource=pool&poolId=${encodeURIComponent(
+      params.poolId
+    )}&dominant=${params.dominant ?? "quote"}&view=${params.view ?? "auto"}`;
   } else {
     url += `&unit=${params.unit}&priceSource=best`;
   }
@@ -423,10 +432,16 @@ function buildTokenUrl(
   apiBase: string,
   tokenId: string,
   isPoolSelected: boolean,
-  poolId: string | null
+  poolId: string | null,
+  dominant: PairSide = "quote",
+  view: PairView = "auto"
 ): string {
   if (isPoolSelected && poolId) {
-    return `${apiBase}/tokens/${encodeURIComponent(tokenId)}?priceSource=pool&poolId=${encodeURIComponent(poolId)}&dominant=quote&view=auto`;
+    return `${apiBase}/tokens/${encodeURIComponent(
+      tokenId
+    )}?priceSource=pool&poolId=${encodeURIComponent(
+      poolId
+    )}&dominant=${dominant}&view=${view}`;
   }
   return `${apiBase}/tokens/${encodeURIComponent(tokenId)}?priceSource=best`;
 }
@@ -485,6 +500,8 @@ function makeDatafeed(
         unit,
         isPoolSelected: poolConfig.isPoolSelected,
         poolId: poolConfig.poolId,
+        dominant: poolConfig.dominant,
+        view: poolConfig.view,
         fill: "prev"
       }
     );
@@ -1179,6 +1196,16 @@ function formatPrice(price: number): string {
   return price.toFixed(2);
 }
 
+const symbolFromDenom = (value?: string | null) => {
+  const raw = (value ?? "").trim();
+  if (!raw) return "";
+  const lower = raw.toLowerCase();
+  if (lower === "uzig" || lower === "zig" || lower.includes("uzig")) return "ZIG";
+  if (lower === "stzig" || lower.endsWith(".stzig")) return "STZIG";
+  if (lower.startsWith("ibc/")) return raw.split("/").pop() || raw;
+  return (raw.split(".").pop() || raw).toUpperCase();
+};
+
 const TF_PRESETS = {
   "1m": { tf: "1m", spanMs: 2 * 24 * 60 * 60 * 1000, stepSec: 60 },
   "5m": { tf: "5m", spanMs: 7 * 24 * 60 * 60 * 1000, stepSec: 300 },
@@ -1231,8 +1258,9 @@ export default function TradingChart({
   }>({});
 
   const [tokenData, setTokenData] = useState<TokenData | null>(null);
+  const tokenDataRef = useRef<TokenData | null>(null);
   const [currentView, setCurrentView] = useState<ChartView>("price");
-  const [priceDisplay, setPriceDisplay] = useState<PriceDisplay>("native");
+  const [priceDisplay, setPriceDisplay] = useState<PriceDisplay>("usd");
   const [chartReady, setChartReady] = useState(false);
   const initedRef = useRef(false);
   const [deferInit, setDeferInit] = useState(true);
@@ -1242,7 +1270,7 @@ export default function TradingChart({
   });
   const [activeTf, setActiveTf] = useState<TfKey>("1h");
   const [mode, setMode] = useState<ChartMode>("price");
-  const [unit, setUnit] = useState<ChartUnit>("native");
+  const [unit, setUnit] = useState<ChartUnit>("usd");
   const [viewMode, setViewMode] = useState<ViewRangeMode>("recent");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1284,8 +1312,17 @@ export default function TradingChart({
       selectedBaseDenom &&
       selectedQuoteDenom
   );
-  const pairBaseLabel = selectedPair?.baseSymbol || tokenData?.symbol || token || "BASE";
-  const pairQuoteLabel = selectedPair?.quoteSymbol || quoteSymbol || "ZIG";
+  const pairBaseLabel =
+    selectedPair?.baseSymbol ||
+    symbolFromDenom(selectedBaseDenom) ||
+    tokenData?.symbol ||
+    token ||
+    "BASE";
+  const pairQuoteLabel =
+    selectedPair?.quoteSymbol ||
+    symbolFromDenom(selectedQuoteDenom) ||
+    quoteSymbol ||
+    "ZIG";
   const nativeLabel = pairQuoteLabel;
   const selectedPoolView = useMemo<PairSide>(
     () => (unit === "usd" ? "base" : "quote"),
@@ -1295,6 +1332,13 @@ export default function TradingChart({
     if (!shouldUsePoolPricing) return "auto";
     return "auto";
   }, [shouldUsePoolPricing]);
+  const activePoolTokenDenom = shouldUsePoolPricing
+    ? selectedPoolView === "base"
+      ? selectedBaseDenom
+      : selectedQuoteDenom
+    : null;
+  const activePoolDominant: PairSide =
+    selectedPoolView === "base" ? "quote" : "base";
   const currentPairPriceLabel = shouldUsePoolPricing
     ? selectedPoolView === "base"
       ? pairQuoteLabel
@@ -1307,12 +1351,12 @@ export default function TradingChart({
     poolIdValue?: string | null
   ) => {
     const activePoolId =
-      poolIdValue ?? selectedPair?.poolId ?? selectedKnownPoolId ?? poolIdRef.current;
+      poolIdValue ?? selectedKnownPoolId ?? selectedPair?.poolId ?? poolIdRef.current;
     if (shouldUsePoolPricing && activePoolId) {
       const modeParam = modeValue !== "price" ? `&mode=${modeValue}` : "";
       return `&priceSource=pool&poolId=${encodeURIComponent(
         activePoolId
-      )}&dominant=quote&view=auto${modeParam}`;
+      )}&dominant=${activePoolDominant}&view=${poolViewParam}${modeParam}`;
     }
     return `&mode=${modeValue}&unit=${unitValue}&priceSource=best`;
   };
@@ -1345,13 +1389,18 @@ export default function TradingChart({
     );
   }, [token]);
   const chartTokenKey =
-    shouldUsePoolPricing && selectedBaseDenom
-      ? extractTokenRef(selectedBaseDenom)
-      : pairContract ?? token;
+    shouldUsePoolPricing && activePoolTokenDenom
+      ? activePoolTokenDenom
+      : denom ?? pairContract ?? token;
+  const selectedChartSymbol = shouldUsePoolPricing
+    ? selectedPoolView === "base"
+      ? selectedPair?.baseSymbol || symbolFromDenom(selectedBaseDenom)
+      : selectedPair?.quoteSymbol || symbolFromDenom(selectedQuoteDenom)
+    : symbolFromDenom(denom ?? token);
   const displaySymbol =
     shouldUsePoolPricing
-      ? tokenData?.symbol || meta.symbol || chartTokenKey || token
-      : meta.symbol || tokenData?.symbol || token;
+      ? selectedChartSymbol || tokenData?.symbol || meta.symbol || symbolFromDenom(chartTokenKey) || token
+      : selectedChartSymbol || meta.symbol || tokenData?.symbol || symbolFromDenom(chartTokenKey) || token;
   const displayName = shouldUsePoolPricing
     ? tokenData?.name || meta.name || "Token"
     : meta.name || tokenData?.name || "Token";
@@ -1379,7 +1428,7 @@ export default function TradingChart({
   const unitRef = useRef<ChartUnit>(unit);
 
   const getActivePoolId = useCallback(
-    () => selectedPair?.poolId ?? selectedKnownPoolId ?? poolIdRef.current,
+    () => selectedKnownPoolId ?? selectedPair?.poolId ?? poolIdRef.current,
     [selectedKnownPoolId, selectedPair?.poolId]
   );
 
@@ -1397,9 +1446,15 @@ export default function TradingChart({
   }, []);
 
   useEffect(() => {
+    tokenDataRef.current = tokenData;
+  }, [tokenData]);
+
+  useEffect(() => {
     setTokenData(null);
+    tokenDataRef.current = null;
     setMeta({});
     setLoading(true);
+    setError(null);
   }, [chartTokenKey]);
 
   const clearTvShapes = useCallback((chart: any) => {
@@ -1494,7 +1549,7 @@ const applyTvWalletShapes = useCallback(async () => {
       const poolConfig = {
         isPoolSelected: shouldUsePoolPricing,
         poolId: getActivePoolId(),
-        dominant: "quote" as PairSide,
+        dominant: activePoolDominant,
         view: poolViewParam,
       };
       const url = buildOhlcvUrl(
@@ -1505,12 +1560,14 @@ const applyTvWalletShapes = useCallback(async () => {
           from: new Date(minSec * 1000).toISOString(),
           to: new Date(maxSec * 1000).toISOString(),
           mode,
-          unit,
-          isPoolSelected: poolConfig.isPoolSelected,
-          poolId: poolConfig.poolId,
-          fill: "prev"
-        }
-      );
+        unit,
+        isPoolSelected: poolConfig.isPoolSelected,
+        poolId: poolConfig.poolId,
+        dominant: poolConfig.dominant,
+        view: poolConfig.view,
+        fill: "prev"
+      }
+    );
       const res = await fetchApi(url, { cache: "no-store" });
       const json = await res.json();
       const candles = Array.isArray(json?.data) ? json.data : [];
@@ -1590,7 +1647,7 @@ const applyTvWalletShapes = useCallback(async () => {
   }
 
   tvLastSettingsRef.current = settings;
-}, [clearTvShapes, getActivePoolId, getZigUsd, resolveTvTf, signerSummary, token, chartTokenKey, shouldUsePoolPricing, poolViewParam]);
+}, [activePoolDominant, clearTvShapes, getActivePoolId, getZigUsd, resolveTvTf, signerSummary, token, chartTokenKey, shouldUsePoolPricing, poolViewParam]);
   const applyTvWalletShapesRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
@@ -1651,10 +1708,10 @@ const applyTvWalletShapes = useCallback(async () => {
     () => ({
       isPoolSelected: shouldUsePoolPricing,
       poolId: getActivePoolId(),
-      dominant: "quote" as PairSide,
+      dominant: activePoolDominant,
       view: poolViewParam,
     }),
-    [getActivePoolId, poolViewParam, shouldUsePoolPricing]
+    [activePoolDominant, getActivePoolId, poolViewParam, shouldUsePoolPricing]
   );
 
   const fetchTokenData = useCallback(async () => {
@@ -1665,16 +1722,19 @@ const applyTvWalletShapes = useCallback(async () => {
           selectedPairContract || selectedQuoteDenom || selectedPair.quoteSymbol
         )}`
       : "";
-    const cacheKey = selectedPair ? `token_${token}_pair_${pairKey}` : `token_${token}`;
+    const cacheKey = selectedPair
+      ? `token_${chartTokenKey}_pair_${pairKey}`
+      : `token_${chartTokenKey}`;
     const now = Date.now();
 
     const cachedData = localStorage.getItem(cacheKey);
-    const cacheTime = lastFetched[token] || 0;
+    const cacheTime = lastFetched[chartTokenKey] || 0;
 
     if (cachedData && now - cacheTime < CACHE_DURATION) {
-      const parsed = normalizeTokenPayload(JSON.parse(cachedData), token);
+      const parsed = normalizeTokenPayload(JSON.parse(cachedData), chartTokenKey);
       tokenExponentRef.current = resolveTokenExponent(parsed);
       setTokenData(parsed);
+      setError(null);
       const cachedSupply = Number(parsed?.circulatingSupply);
       if (Number.isFinite(cachedSupply) && cachedSupply > 0) {
         supplyRef.current = cachedSupply;
@@ -1684,17 +1744,26 @@ const applyTvWalletShapes = useCallback(async () => {
     }
 
     try {
-      setLoading(true);
+      if (!tokenDataRef.current) {
+        setLoading(true);
+      }
       const activePoolId = getActivePoolId();
 
       // Use the helper function to build the URL
-      const tokenUrl = buildTokenUrl(API_BASE, chartTokenKey, shouldUsePoolPricing && !!activePoolId, activePoolId);
+      const tokenUrl = buildTokenUrl(
+        API_BASE,
+        chartTokenKey,
+        shouldUsePoolPricing && !!activePoolId,
+        activePoolId,
+        activePoolDominant,
+        poolViewParam
+      );
 
       const apiResponse = await fetchApi(tokenUrl);
       if (apiResponse.ok) {
         const apiData = await apiResponse.json();
         if (apiData?.success) {
-          const normalized = normalizeTokenPayload(apiData.data, token);
+          const normalized = normalizeTokenPayload(apiData.data, chartTokenKey);
           const endpointPriceNative = numericField(
             apiData?.data?.price?.native,
             apiData?.data?.priceInNative,
@@ -1729,7 +1798,7 @@ const applyTvWalletShapes = useCallback(async () => {
           }
           if (!selectedPair) {
             localStorage.setItem(cacheKey, JSON.stringify(normalized));
-            setLastFetched((prev) => ({ ...prev, [token]: now }));
+            setLastFetched((prev) => ({ ...prev, [chartTokenKey]: now }));
           }
 
           if (normalized?.circulatingSupply) {
@@ -1746,6 +1815,7 @@ const applyTvWalletShapes = useCallback(async () => {
             try {
               const poolsKey =
                 selectedBaseDenom ??
+                chartTokenKey ??
                 tokenId ??
                 selectedPair.baseSymbol ??
                 token;
@@ -1833,8 +1903,32 @@ const applyTvWalletShapes = useCallback(async () => {
           }
 
           setTokenData(normalized);
+          setError(null);
           setLoading(false);
           return;
+        }
+      }
+
+      if (shouldUsePoolPricing) {
+        const fallbackUrl = buildTokenUrl(API_BASE, chartTokenKey, false, null);
+        const fallbackResponse = await fetchApi(fallbackUrl, { cache: "no-store" });
+        if (fallbackResponse.ok) {
+          const fallbackData = await fallbackResponse.json();
+          if (fallbackData?.success && fallbackData?.data) {
+            const normalized = normalizeTokenPayload(
+              fallbackData.data,
+              chartTokenKey
+            );
+            const supplyVal = Number(normalized?.circulatingSupply);
+            if (Number.isFinite(supplyVal) && supplyVal > 0) {
+              supplyRef.current = supplyVal;
+            }
+            tokenExponentRef.current = resolveTokenExponent(normalized);
+            setTokenData(normalized);
+            setError(null);
+            setLoading(false);
+            return;
+          }
         }
       }
 
@@ -1845,9 +1939,10 @@ const applyTvWalletShapes = useCallback(async () => {
       setLoading(false);
     }
   }, [
+    activePoolDominant,
     chartTokenKey,
     getActivePoolId,
-    lastFetched,
+    poolViewParam,
     shouldUsePoolPricing,
     selectedPair,
     selectedBaseDenom,
@@ -1868,7 +1963,7 @@ const applyTvWalletShapes = useCallback(async () => {
 
     try {
       const rpcResponse = await fetch(
-        `https://public-zigchain-testnet-rpc.numia.xyztx_search?query=%22wasm.offer_asset=%27${token}%27+AND+wasm.action=%27swap%27%22&prove=true&page=1&per_page=1&order_by=%22desc%22`
+        `https://public-zigchain-testnet-rpc.numia.xyz/tx_search?query=%22wasm.offer_asset=%27${chartTokenKey}%27+AND+wasm.action=%27swap%27%22&prove=true&page=1&per_page=1&order_by=%22desc%22`
       );
       const rpcData = await rpcResponse.json();
 
@@ -1905,21 +2000,22 @@ const applyTvWalletShapes = useCallback(async () => {
             mcNative: priceInZig * circSupply,
             change24h: 0,
             volume24h: 0,
-            symbol: token.split(".").pop()?.toUpperCase() || "TOKEN",
-            name: token.split(".").pop() || "Token",
+            symbol: chartTokenKey.split(".").pop()?.toUpperCase() || "TOKEN",
+            name: chartTokenKey.split(".").pop() || "Token",
             timeframe,
             historicalData: [],
             circulatingSupply: circSupply,
           };
           tokenExponentRef.current = resolveTokenExponent(newData);
 
-          localStorage.setItem(`token_${token}`, JSON.stringify(newData));
+          localStorage.setItem(`token_${chartTokenKey}`, JSON.stringify(newData));
           if (Number.isFinite(circSupply) && circSupply > 0) {
             localStorage.setItem("circulatingSupply", circSupply.toString());
           }
-          setLastFetched((prev) => ({ ...prev, [token]: Date.now() }));
+          setLastFetched((prev) => ({ ...prev, [chartTokenKey]: Date.now() }));
 
           setTokenData(newData);
+          setError(null);
         }
       }
     } catch (err) {
@@ -1932,16 +2028,7 @@ const applyTvWalletShapes = useCallback(async () => {
 
   useEffect(() => {
     fetchTokenData();
-
-    const interval = setInterval(() => {
-      const cacheTime = lastFetched[token] || 0;
-      if (Date.now() - cacheTime >= CACHE_DURATION) {
-        fetchTokenData();
-      }
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [token, fetchTokenData]);
+  }, [chartTokenKey, fetchTokenData]);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -1966,11 +2053,11 @@ const applyTvWalletShapes = useCallback(async () => {
   }, [isStZigToken]);
 
   useEffect(() => {
-    if (!shouldUsePoolPricing) return;
-    const preferred = "native";
+    if (isStZigToken) return;
+    const preferred = "usd";
     setPriceDisplay(preferred);
     setUnit(preferred);
-  }, [shouldUsePoolPricing]);
+  }, [chartTokenKey, isStZigToken]);
 
   // reset contract address on token change
   useEffect(() => {
@@ -1996,6 +2083,7 @@ const applyTvWalletShapes = useCallback(async () => {
         try {
           const poolsKey =
             selectedBaseDenom ??
+            chartTokenKey ??
             tokenId ??
             selectedPair.baseSymbol ??
             token;
@@ -2076,7 +2164,7 @@ const applyTvWalletShapes = useCallback(async () => {
       try {
         const response = await fetchApi(
           `${API_BASE}/tokens/${encodeURIComponent(
-            token
+            chartTokenKey
           )}?priceSource=best&includePools=1`,
           { cache: "no-store" }
         );
@@ -2221,7 +2309,7 @@ const applyTvWalletShapes = useCallback(async () => {
         if (cancelled || !containerRef.current) return;
 
         const datafeed = makeDatafeed(
-          token,
+          chartTokenKey,
           getMode,
           getUnit,
           getPoolConfig,
@@ -2260,11 +2348,18 @@ const applyTvWalletShapes = useCallback(async () => {
 
         try {
           const activePoolId = getActivePoolId();
-          const tokenUrl = buildTokenUrl(API_BASE, chartTokenKey, shouldUsePoolPricing && !!activePoolId, activePoolId);
+          const tokenUrl = buildTokenUrl(
+            API_BASE,
+            chartTokenKey,
+            shouldUsePoolPricing && !!activePoolId,
+            activePoolId,
+            activePoolDominant,
+            poolViewParam
+          );
           const r = await fetchApi(tokenUrl, { cache: "no-store" });
           const j = await r.json();
           if (!cancelled && j?.success && j?.data) {
-            const normalized = normalizeTokenPayload(j.data, token);
+            const normalized = normalizeTokenPayload(j.data, chartTokenKey);
             setMeta({
               symbol: normalized.symbol,
               name: normalized.name,
@@ -2293,7 +2388,7 @@ const applyTvWalletShapes = useCallback(async () => {
       } catch {}
       datafeedRef.current = null;
     };
-  }, [token, getMode, getUnit, getPoolConfig, getZigUsd, getSupply, getTokenExponent, getContractAddress, getPoolId, deferInit, displaySymbol, chartTokenKey, shouldUsePoolPricing, getActivePoolId]);
+  }, [activePoolDominant, token, getMode, getUnit, getPoolConfig, getZigUsd, getSupply, getTokenExponent, getContractAddress, getPoolId, deferInit, displaySymbol, chartTokenKey, shouldUsePoolPricing, getActivePoolId, poolViewParam]);
 
   useEffect(() => {
     void applyTvWalletShapesRef.current();
@@ -2304,7 +2399,7 @@ const applyTvWalletShapes = useCallback(async () => {
     try {
       widgetRef.current?.activeChart?.().resetData?.();
     } catch {}
-  }, [unit, mode, activeTf]);
+  }, [unit, mode, activeTf, chartTokenKey, activePoolDominant]);
 
   useEffect(() => {
     if (!poolId) return;
@@ -2507,6 +2602,8 @@ const applyTvWalletShapes = useCallback(async () => {
         unit,
         isPoolSelected: shouldUsePoolPricing,
         poolId: getActivePoolId(),
+        dominant: activePoolDominant,
+        view: poolViewParam,
         fill: "prev"
       }
     );
@@ -2616,11 +2713,13 @@ const applyTvWalletShapes = useCallback(async () => {
           from: "1970-01-01T00:00:00.000Z",
           to: iso(Date.now()),
           mode,
-          unit,
-          isPoolSelected: shouldUsePoolPricing,
-          poolId: getActivePoolId(),
-          fill: "none"
-        }
+        unit,
+        isPoolSelected: shouldUsePoolPricing,
+        poolId: getActivePoolId(),
+        dominant: activePoolDominant,
+        view: poolViewParam,
+        fill: "none"
+      }
       );
       const res = await fetchApi(url, { cache: "no-store" });
       const json = await res.json();
@@ -2653,6 +2752,8 @@ const applyTvWalletShapes = useCallback(async () => {
           unit,
           isPoolSelected: shouldUsePoolPricing,
           poolId: getActivePoolId(),
+          dominant: activePoolDominant,
+          view: poolViewParam,
           fill: "prev",
           window: 1
         }
@@ -2734,6 +2835,8 @@ const applyTvWalletShapes = useCallback(async () => {
           unit,
           isPoolSelected: shouldUsePoolPricing,
           poolId: getActivePoolId(),
+          dominant: activePoolDominant,
+          view: poolViewParam,
           fill: "prev"
         }
       );
@@ -2830,8 +2933,8 @@ const applyTvWalletShapes = useCallback(async () => {
           });
         }
       }
-    } catch {
-      setError("Failed to load chart data");
+    } catch (err) {
+      console.warn("TradingChart candle load failed", err);
     } finally {
       setLoading(false);
     }
@@ -2860,6 +2963,8 @@ const applyTvWalletShapes = useCallback(async () => {
           unit,
           isPoolSelected: shouldUsePoolPricing,
           poolId: getActivePoolId(),
+          dominant: activePoolDominant,
+          view: poolViewParam,
           fill: "prev"
         }
       );
@@ -2941,7 +3046,7 @@ const applyTvWalletShapes = useCallback(async () => {
   const probeHasNewTrades = async (): Promise<boolean> => {
     try {
       const url = `${API_BASE}/trades/recent?tokenId=${encodeURIComponent(
-        token
+        chartTokenKey
       )}&limit=1&${cb()}`;
       const res = await fetchApi(url, { cache: "no-store" });
       const json = await res.json();
@@ -3058,6 +3163,8 @@ const applyTvWalletShapes = useCallback(async () => {
           unit,
           isPoolSelected: shouldUsePoolPricing,
           poolId: getActivePoolId(),
+          dominant: activePoolDominant,
+          view: poolViewParam,
           fill: "prev",
           window: n + 1
         }
@@ -3075,7 +3182,7 @@ const applyTvWalletShapes = useCallback(async () => {
   };
 
   useEffect(() => {
-    if (!token || !chartReady) return;
+    if (!chartTokenKey || !chartReady) return;
     let stopped = false;
     const schedule = (ms: number) => {
       if (stopped) return;
@@ -3127,15 +3234,23 @@ const applyTvWalletShapes = useCallback(async () => {
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = null;
     };
-  }, [token, activeTf, mode, unit, chartReady, viewMode]);
+  }, [
+    activePoolDominant,
+    activeTf,
+    chartReady,
+    chartTokenKey,
+    mode,
+    poolViewParam,
+    shouldUsePoolPricing,
+    unit,
+    viewMode,
+  ]);
 
   const currentPriceVal = useMemo(() => {
-    if (!tokenData) return null;
-
-    const supply = supplyRef.current || tokenData.circulatingSupply || null;
+    const supply = supplyRef.current || tokenData?.circulatingSupply || null;
     const zigLive = livePrice?.zig;
     const liveBase =
-      !shouldUsePoolPricing && zigLive && Number.isFinite(zigLive)
+      zigLive && Number.isFinite(zigLive)
         ? priceDisplay === "usd"
           ? zigLive * getZigUsd()
           : zigLive
@@ -3143,18 +3258,20 @@ const applyTvWalletShapes = useCallback(async () => {
 
     if (currentView === "marketCap") {
       const base =
-        liveBase && supply ? liveBase * supply : priceDisplay === "usd"
-        ? tokenData.mc
-        : tokenData.mcNative;
+        liveBase && supply
+          ? liveBase * supply
+          : priceDisplay === "usd"
+          ? tokenData?.mc
+          : tokenData?.mcNative;
       return Number.isFinite(base) ? base : null;
     }
 
-    return liveBase ??
-      (shouldUsePoolPricing
-        ? tokenData.priceInNative
-        : priceDisplay === "usd"
-        ? tokenData.priceInUsd
-        : tokenData.priceInNative);
+    const fallbackPrice = shouldUsePoolPricing
+      ? tokenData?.priceInNative
+      : priceDisplay === "usd"
+      ? tokenData?.priceInUsd
+      : tokenData?.priceInNative;
+    return liveBase ?? (Number.isFinite(fallbackPrice) ? fallbackPrice : null);
   }, [tokenData, livePrice, shouldUsePoolPricing, priceDisplay, getZigUsd, currentView]);
 
   useEffect(() => {
@@ -3271,9 +3388,9 @@ const applyTvWalletShapes = useCallback(async () => {
               <div className="min-w-[180px] flex-shrink-0">
                 {loading ? (
                   <div className="h-8 w-32 bg-gray-700 rounded animate-pulse"></div>
-                ) : error ? (
+                ) : error && !tokenData ? (
                   <span className="text-red-400">Error loading data</span>
-                ) : tokenData ? (
+                ) : priceParts ? (
                   <div className="flex flex-col">
                     {currentView === "marketCap" ? (
                       <div className="text-2xl sm:text-3xl font-bold text-white">
@@ -3340,26 +3457,20 @@ const applyTvWalletShapes = useCallback(async () => {
                       ["native", "ZIG"],
                     ] as const)
               ).map(([u, label]) => {
-                const disableActivePoolToken =
-                  shouldUsePoolPricing && u === "usd";
                 const disableUsdForStzig =
                   !shouldUsePoolPricing && isStZigToken && u === "usd";
-                const disabled = disableActivePoolToken || disableUsdForStzig;
+                const disabled = disableUsdForStzig;
                 return (
                   <button
                     key={u}
                     disabled={disabled}
                     onClick={() => {
                       if (disabled) return;
-                      if (shouldUsePoolPricing) {
-                        onSwapSelectedPair?.();
-                        return;
-                      }
                       setPriceDisplay(u);
                       setUnit(u);
                     }}
                     className={`px-2 py-0.5 rounded text-xs ${
-                      (shouldUsePoolPricing ? u === "usd" : priceDisplay === u)
+                      priceDisplay === u
                         ? "border border-yellow-300 text-yellow-200"
                         : "text-white/90 hover:text-white"
                     } ${
