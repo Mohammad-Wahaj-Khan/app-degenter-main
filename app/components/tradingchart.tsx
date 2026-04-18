@@ -1201,9 +1201,9 @@ const symbolFromDenom = (value?: string | null) => {
   if (!raw) return "";
   const lower = raw.toLowerCase();
   if (lower === "uzig" || lower === "zig" || lower.includes("uzig")) return "ZIG";
-  if (lower.includes("stzig")) return "STZIG";
+  if (lower === "stzig" || lower.endsWith(".stzig")) return "STZIG";
   if (lower.startsWith("ibc/")) return raw.split("/").pop() || raw;
-  return raw.split(".").pop() || raw;
+  return (raw.split(".").pop() || raw).toUpperCase();
 };
 
 const TF_PRESETS = {
@@ -1392,10 +1392,15 @@ export default function TradingChart({
     shouldUsePoolPricing && activePoolTokenDenom
       ? activePoolTokenDenom
       : denom ?? pairContract ?? token;
+  const selectedChartSymbol = shouldUsePoolPricing
+    ? selectedPoolView === "base"
+      ? selectedPair?.baseSymbol || symbolFromDenom(selectedBaseDenom)
+      : selectedPair?.quoteSymbol || symbolFromDenom(selectedQuoteDenom)
+    : symbolFromDenom(denom ?? token);
   const displaySymbol =
     shouldUsePoolPricing
-      ? tokenData?.symbol || meta.symbol || chartTokenKey || token
-      : meta.symbol || tokenData?.symbol || token;
+      ? selectedChartSymbol || tokenData?.symbol || meta.symbol || symbolFromDenom(chartTokenKey) || token
+      : selectedChartSymbol || meta.symbol || tokenData?.symbol || symbolFromDenom(chartTokenKey) || token;
   const displayName = shouldUsePoolPricing
     ? tokenData?.name || meta.name || "Token"
     : meta.name || tokenData?.name || "Token";
