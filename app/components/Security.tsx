@@ -11,6 +11,7 @@ import {
   API_BASE_URL,
   API_HEADERS,
 } from "@/lib/api";
+import { isIbcDenom } from "@/lib/token-routing";
 
 const API_BASE = API_BASE_URL;
 const PAIR_CONTRACT_POOL_IDS: Record<string, string> = {
@@ -68,6 +69,7 @@ const isZigAsset = (value?: string | null) => {
 const extractTokenRef = (value?: string | null) => {
   const normalized = (value ?? "").trim();
   if (!normalized) return "";
+  if (isIbcDenom(normalized)) return normalized;
   return normalized.split(".").pop() || normalized;
 };
 
@@ -80,10 +82,14 @@ const getPoolIdFromPool = (pool: any): string | null => {
   const candidates = [
     pool?.poolId,
     pool?.pool_id,
+    pool?.poolID,
     pool?.poolIdNumber,
     pool?.id,
   ];
-  const value = candidates.find((candidate) => candidate != null && candidate !== "");
+  const value = candidates.find((candidate) => {
+    const normalized = String(candidate ?? "").trim();
+    return normalized !== "" && /^[0-9]+$/.test(normalized);
+  });
   return value == null ? null : String(value);
 };
 

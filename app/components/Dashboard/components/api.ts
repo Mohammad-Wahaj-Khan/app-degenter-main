@@ -185,8 +185,9 @@ export class TokenAPI {
     includePools: boolean = false
   ): Promise<Token> {
     const includePoolsParam = includePools ? "&includePools=1" : "";
+    const safeTokenId = encodeURIComponent(tokenId);
     return this.fetchData<Token>(
-      `/tokens/${tokenId}?priceSource=${priceSource}${includePoolsParam}`
+      `/tokens/${safeTokenId}?priceSource=${priceSource}${includePoolsParam}`
     );
   }
 
@@ -196,8 +197,9 @@ export class TokenAPI {
     includePools: boolean = false
   ): Promise<Token> {
     const includePoolsParam = includePools ? "&includePools=1" : "";
+    const safeTokenId = encodeURIComponent(tokenId);
     return this.fetchData<Token>(
-      `/tokens/${tokenId}?priceSource=pool&poolId=${poolId}${includePoolsParam}`
+      `/tokens/${safeTokenId}?priceSource=pool&poolId=${encodeURIComponent(poolId)}${includePoolsParam}`
     );
   }
 
@@ -209,7 +211,8 @@ export class TokenAPI {
     unit: Unit = "native",
     mode: Mode = "price"
   ): Promise<OHLCVData[]> {
-    let endpoint = `/tokens/${tokenId}/ohlcv?tf=${timeframe}&priceSource=${priceSource}`;
+    const safeTokenId = encodeURIComponent(tokenId);
+    let endpoint = `/tokens/${safeTokenId}/ohlcv?tf=${timeframe}&priceSource=${priceSource}`;
     if (unit !== "native") endpoint += `&unit=${unit}`;
     if (mode !== "price") endpoint += `&mode=${mode}`;
     return this.fetchData<OHLCVData[]>(endpoint);
@@ -220,25 +223,26 @@ export class TokenAPI {
     poolId: string,
     timeframe: Timeframe = "1h"
   ): Promise<OHLCVData[]> {
+    const safeTokenId = encodeURIComponent(tokenId);
     return this.fetchData<OHLCVData[]>(
-      `/tokens/${tokenId}/ohlcv?tf=${timeframe}&priceSource=pool&poolId=${poolId}`
+      `/tokens/${safeTokenId}/ohlcv?tf=${timeframe}&priceSource=pool&poolId=${encodeURIComponent(poolId)}`
     );
   }
 
   // Token Additional Data Endpoints
   async getTokenHolders(tokenId: string): Promise<TokenHolder[]> {
-    return this.fetchData<TokenHolder[]>(`/tokens/${tokenId}/holders`);
+    return this.fetchData<TokenHolder[]>(`/tokens/${encodeURIComponent(tokenId)}/holders`);
   }
 
   async getTokenPools(
     tokenId: string,
     bucket: Bucket = "24h"
   ): Promise<Pool[]> {
-    return this.fetchData<Pool[]>(`/tokens/${tokenId}/pools?bucket=${bucket}`);
+    return this.fetchData<Pool[]>(`/tokens/${encodeURIComponent(tokenId)}/pools?bucket=${bucket}`);
   }
 
   async getTokenSecurity(tokenId: string): Promise<TokenSecurity> {
-    return this.fetchData<TokenSecurity>(`/tokens/${tokenId}/security`);
+    return this.fetchData<TokenSecurity>(`/tokens/${encodeURIComponent(tokenId)}/security`);
   }
 
   // Trades Endpoints
@@ -265,7 +269,7 @@ export class TokenAPI {
     unit: Unit = "usd"
   ): Promise<Trade[]> {
     return this.fetchData<Trade[]>(
-      `/trades/token/${tokenId}?tf=${timeframe}&limit=${limit}&unit=${unit}`
+      `/trades/token/${encodeURIComponent(tokenId)}?tf=${timeframe}&limit=${limit}&unit=${unit}`
     );
   }
 

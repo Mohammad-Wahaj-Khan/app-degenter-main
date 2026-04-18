@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import { Search, Wallet, AlertTriangle, TrendingUp, ChevronDown, Copy, Check, ShieldAlert } from 'lucide-react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import Dashboard from '../multicharts/page';
 import TopMarketToken from '../components/TopMarketToken';
 import Navbar from '../components/navbar';
 

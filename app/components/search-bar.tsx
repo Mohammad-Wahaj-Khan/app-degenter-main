@@ -11,6 +11,7 @@ import { Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
+import { storeTokenRoute } from "@/lib/token-routing";
 
 type ResultType = "token";
 type SearchResult = {
@@ -406,7 +407,7 @@ export default function SearchBar({
     setRecent(getRecent());
     setSelectedToken(t);
 
-    const tokenPath = t.denom || t.id;
+    const tokenPath = storeTokenRoute(t.denom, t.symbol, t.id);
     router.push(`/token/${encodeURIComponent(tokenPath)}`);
 
     await fetchTokenPools(t.id);
@@ -673,13 +674,16 @@ export default function SearchBar({
                           {recent.map((r) => (
                             <button
                               key={r.id}
-                              onClick={() =>
+                              onClick={() => {
+                                const tokenPath = storeTokenRoute(
+                                  r.denom,
+                                  r.symbol,
+                                  r.id
+                                );
                                 router.push(
-                                  `/token/${encodeURIComponent(
-                                    r.denom || r.id
-                                  )}`
-                                )
-                              }
+                                  `/token/${encodeURIComponent(tokenPath)}`
+                                );
+                              }}
                               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/90 text-[13px]"
                             >
                               <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />

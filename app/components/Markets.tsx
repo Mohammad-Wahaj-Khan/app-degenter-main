@@ -38,14 +38,24 @@ interface PoolToken {
   denom: string;
   exponent: number;
   imageUri?: string;
+  image?: string;
+  icon?: string;
+  logo?: string;
+  logoURI?: string;
+  logoUri?: string;
+  image_url?: string;
+  imageUrl?: string;
 }
 
 interface PoolEntry {
   id?: string | number;
   poolId?: string | number;
   pool_id?: string | number;
+  poolID?: string | number;
   poolIdNumber?: string | number;
-  pairContract: string;
+  pairContract?: string;
+  pair_contract?: string;
+  contract_address?: string;
   base: PoolToken;
   quote: PoolToken;
   isUzigQuote: boolean;
@@ -74,21 +84,79 @@ const isZigDenom = (value?: string | null) => {
   return normalized === "zig" || normalized === "uzig";
 };
 
+const isIbcDenom = (value?: string | null) =>
+  (value ?? "").trim().toLowerCase().startsWith("ibc/");
+
+const getTokenRouteRef = (denom?: string | null, symbol?: string | null) => {
+  if (!denom) return null;
+  return isIbcDenom(denom) ? symbol || denom : denom;
+};
+
 const buildPoolsUrl = (denom: string) =>
   `${API_BASE}/tokens/${encodeURIComponent(
     denom
-  )}/pools?dominant=base&bucket=24h&limit=100`;
+  )}/pools?includeAllSides=1`;
+  // ?dominant=base&bucket=24h&limit=100
 
 const resolvePoolId = (entry: PoolEntry): string | null => {
   const candidates = [
     entry.poolId,
     entry.pool_id,
+    entry.poolID,
     entry.poolIdNumber,
     entry.id,
   ];
-  const value = candidates.find((candidate) => candidate != null && candidate !== "");
+  const value = candidates.find((candidate) => {
+    const normalized = String(candidate ?? "").trim();
+    return normalized !== "" && /^[0-9]+$/.test(normalized);
+  });
   return value == null ? null : String(value);
 };
+
+const resolvePairContract = (entry: PoolEntry): string | null =>
+  entry.pairContract ?? entry.pair_contract ?? entry.contract_address ?? null;
+
+const resolveTokenImage = (
+  token?: Partial<PoolToken> | null,
+  fallback?: string | null
+) =>
+  token?.imageUri ||
+  token?.image ||
+  token?.imageUrl ||
+  token?.image_url ||
+  token?.icon ||
+  token?.logoURI ||
+  token?.logoUri ||
+  token?.logo ||
+  fallback ||
+  "";
+
+const tokenMatchesHeader = (
+  token?: Partial<PoolToken> | null,
+  header?: PoolsResponse["token"] | null
+) => {
+  if (!token || !header) return false;
+  const tokenDenom = token.denom?.trim().toLowerCase();
+  const headerDenom = header.denom?.trim().toLowerCase();
+  const tokenSymbol = token.symbol?.trim().toLowerCase();
+  const headerSymbol = header.symbol?.trim().toLowerCase();
+  const tokenId = token.tokenId != null ? String(token.tokenId) : "";
+  const headerTokenId = header.tokenId != null ? String(header.tokenId) : "";
+  return Boolean(
+    (tokenDenom && headerDenom && tokenDenom === headerDenom) ||
+      (tokenId && headerTokenId && tokenId === headerTokenId) ||
+      (tokenSymbol && headerSymbol && tokenSymbol === headerSymbol)
+  );
+};
+
+const resolveMarketTokenImage = (
+  token?: Partial<PoolToken> | null,
+  header?: PoolsResponse["token"] | null
+) =>
+  resolveTokenImage(
+    token,
+    tokenMatchesHeader(token, header) ? header?.imageUri : undefined
+  );
 
 // Sophisticated number formatting
 const formatCurrency = (val: number, compact = true) => {
@@ -191,6 +259,10 @@ export default function Markets({ denom, onSelectPair }: MarketsProps) {
       </div>
     );
   }
+
+  const selectedPoolContract = selectedPool
+    ? resolvePairContract(selectedPool)
+    : null;
 
   return (
     <div className="min-h-screen w-full text-slate-300 font-sans selection:bg-[#FA4E30]/30">
@@ -296,14 +368,17 @@ export default function Markets({ denom, onSelectPair }: MarketsProps) {
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
                 {rawResponse?.data.map((entry, index) => {
-                  const isHovered = hoveredRow === entry.pairContract;
+                  const rowPairContract = resolvePairContract(entry);
+                  const rowKey =
+                    rowPairContract ?? resolvePoolId(entry) ?? `${index}`;
+                  const isHovered = hoveredRow === rowKey;
                   const tvlShare = stats.tvl > 0 ? (entry.tvlUsd / stats.tvl) * 100 : 0;
                   
                   return (
                     <tr 
-                      key={entry.pairContract}
+                      key={rowKey}
                       className="group relative transition-all duration-200 hover:bg-white/[0.03]"
-                      onMouseEnter={() => setHoveredRow(entry.pairContract)}
+                      onMouseEnter={() => setHoveredRow(rowKey)}
                       onMouseLeave={() => setHoveredRow(null)}
                       onClick={() => {
                         const selectedPair = {
@@ -311,7 +386,7 @@ export default function Markets({ denom, onSelectPair }: MarketsProps) {
                           quoteSymbol: entry.quote?.symbol ?? null,
                           baseDenom: entry.base?.denom ?? null,
                           quoteDenom: entry.quote?.denom ?? null,
-                          pairContract: entry.pairContract ?? null,
+                          pairContract: rowPairContract,
                           poolId: resolvePoolId(entry),
                         };
                         if (onSelectPair) {
@@ -319,15 +394,17 @@ export default function Markets({ denom, onSelectPair }: MarketsProps) {
                           return;
                         }
                         const baseDenom = selectedPair.baseDenom;
+                        const baseSymbol = selectedPair.baseSymbol;
                         const pairContract = selectedPair.pairContract;
                         const quoteDenom = selectedPair.quoteDenom;
+                        const tokenRouteRef = getTokenRouteRef(baseDenom, baseSymbol);
                         const targetUrl =
-                          baseDenom && pairContract && !isZigDenom(quoteDenom)
+                          tokenRouteRef && pairContract && (isIbcDenom(baseDenom) || !isZigDenom(quoteDenom))
                             ? `/token/${encodeURIComponent(
-                                baseDenom
+                                tokenRouteRef
                               )}/${encodeURIComponent(pairContract)}`
-                            : baseDenom
-                            ? `/token/${encodeURIComponent(baseDenom)}`
+                            : tokenRouteRef
+                            ? `/token/${encodeURIComponent(tokenRouteRef)}`
                             : null;
                         if (targetUrl) {
                           router.push(targetUrl);
@@ -342,12 +419,12 @@ export default function Markets({ denom, onSelectPair }: MarketsProps) {
                           <div className="relative flex -space-x-2">
                             <TokenIcon 
                               symbol={entry.base.symbol} 
-                              uri={entry.base.imageUri || rawResponse.token.imageUri}
+                              uri={resolveMarketTokenImage(entry.base, rawResponse.token)}
                               primary
                             />
                             <TokenIcon 
                               symbol={entry.quote.symbol} 
-                              uri={entry.quote.imageUri}
+                              uri={resolveMarketTokenImage(entry.quote, rawResponse.token)}
                             />
                           </div>
                           <div>
@@ -363,13 +440,15 @@ export default function Markets({ denom, onSelectPair }: MarketsProps) {
                             </div>
                             <div className="flex items-center gap-2 text-[10px] text-slate-600 font-mono">
                               <span className="truncate max-w-[120px]">
-                                {entry.pairContract.slice(0, 6)}...{entry.pairContract.slice(-4)}
+                                {rowPairContract
+                                  ? `${rowPairContract.slice(0, 6)}...${rowPairContract.slice(-4)}`
+                                  : "Pool"}
                               </span>
                               <button 
                                 className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-orange-400"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  navigator.clipboard.writeText(entry.pairContract);
+                                  if (rowPairContract) navigator.clipboard.writeText(rowPairContract);
                                 }}
                               >
                                 <Copy className="w-3 h-3" />
@@ -449,8 +528,8 @@ export default function Markets({ denom, onSelectPair }: MarketsProps) {
               <div className="flex items-center justify-between p-6 border-b border-white/[0.06] bg-white/[0.02]">
                 <div className="flex items-center gap-3">
                   <div className="flex -space-x-2">
-                    <TokenIcon symbol={selectedPool.base.symbol} uri={selectedPool.base.imageUri || rawResponse?.token.imageUri} primary size="md" />
-                    <TokenIcon symbol={selectedPool.quote.symbol} uri={selectedPool.quote.imageUri} size="md" />
+                    <TokenIcon symbol={selectedPool.base.symbol} uri={resolveMarketTokenImage(selectedPool.base, rawResponse?.token)} primary size="md" />
+                    <TokenIcon symbol={selectedPool.quote.symbol} uri={resolveMarketTokenImage(selectedPool.quote, rawResponse?.token)} size="md" />
                   </div>
                   <div>
                     <h3 className="text-lg font-bold text-white">
@@ -483,14 +562,18 @@ export default function Markets({ denom, onSelectPair }: MarketsProps) {
                     <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Contract Address</span>
                     <button 
                       className="flex items-center gap-1 text-xs text-orange-400 hover:text-orange-300 transition-colors"
-                      onClick={() => navigator.clipboard.writeText(selectedPool.pairContract)}
+                      onClick={() => {
+                        if (selectedPoolContract) {
+                          navigator.clipboard.writeText(selectedPoolContract);
+                        }
+                      }}
                     >
                       <Copy className="w-3 h-3" />
                       Copy
                     </button>
                   </div>
                   <code className="block text-xs font-mono text-slate-300 break-all bg-black/30 rounded-lg p-3">
-                    {selectedPool.pairContract}
+                    {selectedPoolContract ?? "Unknown contract"}
                   </code>
                 </div>
 
@@ -607,6 +690,7 @@ function TokenIcon({
   primary?: boolean;
   size?: "sm" | "md" | "lg";
 }) {
+  const [failed, setFailed] = useState(false);
   const sizeClasses = {
     sm: "h-8 w-8",
     md: "h-10 w-10",
@@ -616,7 +700,20 @@ function TokenIcon({
   return (
     <div className={`relative ${sizeClasses[size]} rounded-full overflow-hidden border-2 border-[#0a0a0f] ${primary ? 'z-10' : 'z-0'} bg-[#1a1a1f] ring-1 ring-white/10`}>
       {uri ? (
-        <Image src={uri} alt={symbol} fill className="object-cover" />
+        !failed ? (
+          <Image
+            src={uri}
+            alt={symbol}
+            fill
+            className="object-cover"
+            unoptimized
+            onError={() => setFailed(true)}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-slate-500">
+            {symbol.slice(0, 2)}
+          </div>
+        )
       ) : (
         <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-slate-500">
           {symbol.slice(0, 2)}

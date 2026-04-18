@@ -4,6 +4,7 @@ import Image from "next/image";
 import React from "react";
 import { Token } from "./TopTokensTable";
 import Link from "next/link";
+import { storeTokenRoute } from "@/lib/token-routing";
 
 interface NewListingItem {
   name: string;
@@ -76,7 +77,12 @@ const NewListing: React.FC<{ LatestListing: Token[] }> = ({
                     </div>
                   </div>
                   <div className="flex flex-col items-start overflow-hidden">
-                    <Link href={`/token/${token.denom}`}>
+                    <Link
+                      href={`/token/${storeTokenRoute(
+                        token.denom,
+                        token.symbol
+                      )}`}
+                    >
                       <button className="bg-[#FA4E30] text-[#FFFFFF] px-12 py-2 rounded-lg">
                         Trade
                       </button>

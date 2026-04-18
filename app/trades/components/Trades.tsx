@@ -280,7 +280,7 @@ const Trades = ({
             return {
               denom,
               label: token.symbol || denom,
-              tokenId: token.tokenId,
+              tokenId: denom,
             };
           })
           .filter((option) => option.denom && !isZigDenom(option.denom));

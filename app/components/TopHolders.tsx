@@ -6,6 +6,7 @@ import RecentTrades from "./RecentTrades";
 import AuditPanel from "./audit-panel";
 import { FileCode, Wallet } from "lucide-react";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
+import { isIbcDenom } from "@/lib/token-routing";
 
 const API_BASE = API_BASE_URL;
 
@@ -18,8 +19,8 @@ const PAIR_CONTRACT_POOL_IDS: Record<string, string> = {
 interface Holder {
   address: string;
   balance: number;
-  pctOfMax: number;
-  pctOfTotal: number;
+  pctOfMax?: number | null;
+  pctOfTotal?: number | null;
   label?: string;
 }
 
@@ -62,6 +63,7 @@ const isZigAsset = (value?: string | null) => {
 const extractTokenRef = (value?: string | null) => {
   const normalized = (value ?? "").trim();
   if (!normalized) return "";
+  if (isIbcDenom(normalized)) return normalized;
   return normalized.split(".").pop() || normalized;
 };
 
@@ -74,15 +76,26 @@ const getPoolIdFromPool = (pool: any): string | null => {
   const candidates = [
     pool?.poolId,
     pool?.pool_id,
+    pool?.poolID,
     pool?.poolIdNumber,
     pool?.id,
   ];
-  const value = candidates.find((candidate) => candidate != null && candidate !== "");
+  const value = candidates.find((candidate) => {
+    const normalized = String(candidate ?? "").trim();
+    return normalized !== "" && /^[0-9]+$/.test(normalized);
+  });
   return value == null ? null : String(value);
 };
 
 const getPairContractFromPool = (pool: any): string | null =>
   pool?.pairContract ?? pool?.pair_contract ?? null;
+
+const toFiniteNumber = (value: unknown, fallback = 0) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+const formatPct = (value: unknown) => `${toFiniteNumber(value).toFixed(3)}%`;
 
 const TopHolders: React.FC<TopHoldersProps> = ({ tokenId, selectedPair }) => {
   // console.log('[TopHolders] tokenId:', tokenId);
@@ -258,11 +271,17 @@ const TopHolders: React.FC<TopHoldersProps> = ({ tokenId, selectedPair }) => {
         // Fetch labels for contract addresses
         const holdersWithLabels = await Promise.all(
           json.data.map(async (holder: Holder) => {
+            const normalizedHolder = {
+              ...holder,
+              balance: toFiniteNumber(holder.balance),
+              pctOfMax: toFiniteNumber(holder.pctOfMax),
+              pctOfTotal: toFiniteNumber(holder.pctOfTotal),
+            };
             if (holder.address.length > 60) {
               const label = await fetchContractLabel(holder.address);
-              return { ...holder, label };
+              return { ...normalizedHolder, label };
             }
-            return holder;
+            return normalizedHolder;
           })
         );
         setHolders(holdersWithLabels);
@@ -394,7 +413,7 @@ const TopHolders: React.FC<TopHoldersProps> = ({ tokenId, selectedPair }) => {
                       </div>
                       {h.label && (
                         <span className="text-xs text-gray-400">
-                          {h.label} • {h.pctOfMax.toFixed(3)}% of Max
+                          {h.label} • {formatPct(h.pctOfMax)} of Max
                         </span>
                       )}
                     </div>
@@ -408,10 +427,10 @@ const TopHolders: React.FC<TopHoldersProps> = ({ tokenId, selectedPair }) => {
                     })}
                   </td>
                   <td className="px-4 py-2 text-yellow-400">
-                    {h.pctOfMax.toFixed(3)}%
+                    {formatPct(h.pctOfMax)}
                   </td>
                   <td className="px-4 py-2 text-blue-400">
-                    {h.pctOfTotal.toFixed(3)}%
+                    {formatPct(h.pctOfTotal)}
                   </td>
                 </tr>
               ))

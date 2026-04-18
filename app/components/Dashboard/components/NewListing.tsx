@@ -9,6 +9,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import type { DashboardToken } from "@/types/dashboard";
 import NewTokenBadge from "./NewTokenBadge";
 import { isTokenNew } from "@/lib/tokenUtils";
+import { storeTokenRoute } from "@/lib/token-routing";
 
 const NewListing: React.FC<{ LatestListing: DashboardToken[] }> = ({
   LatestListing,
@@ -153,10 +154,7 @@ const NewListing: React.FC<{ LatestListing: DashboardToken[] }> = ({
                   </div>
                   <div className="flex flex-col items-start overflow-hidden">
                     <Link
-                      href={`/token/${token.denom.startsWith("ibc/")
-                          ? token.symbol
-                          : token.denom
-                        }`}
+                      href={`/token/${storeTokenRoute(token.denom, token.symbol)}`}
                     >
                       <button className="bg-[#FA4E30] text-[#FFFFFF] px-12 py-2 rounded-lg">
                         Trade

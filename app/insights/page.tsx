@@ -39,13 +39,15 @@ async function getTokenData() {
     items.map(async (item: any) => {
       const symbol = item.symbol ?? item?.token?.symbol;
       const tokenId = item.tokenId ?? item?.token?.tokenId;
+      const denom = item.denom ?? item?.token?.denom;
+      const fetchRef = denom || tokenId;
       let priceChange =
         item?.price?.changePct ?? item?.priceChange ?? item?.price?.change;
 
-      if (!hasValidChange(priceChange) && tokenId) {
+      if (!hasValidChange(priceChange) && fetchRef) {
         try {
           const detailRes = await fetch(
-            `${process.env.NEXT_PUBLIC_API_BASE_URL}/tokens/${tokenId}`,
+            `${process.env.NEXT_PUBLIC_API_BASE_URL}/tokens/${encodeURIComponent(fetchRef)}`,
             { next: { revalidate: 60 } }
           );
           if (detailRes.ok) {

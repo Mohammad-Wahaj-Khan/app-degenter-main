@@ -17,6 +17,7 @@ import AddLeft from "@/app/components/add-left";
 import MySwaps from "@/app/components/MySwaps";
 import NotFoundPage from "@/app/not-found";
 import Markets from "@/app/components/Markets";
+import { resolveCachedTokenRouteDenom } from "@/lib/token-routing";
 // import  HoldersBubble from "@/app/components/HoldersBubble";
 
 interface Token {
@@ -55,16 +56,28 @@ const isZigAsset = (value?: string | null) => {
   return normalized === "zig" || normalized === "uzig";
 };
 
-const getPoolId = (pool: any): string | null =>
-  pool?.poolId != null
-    ? String(pool.poolId)
-    : pool?.pool_id != null
-    ? String(pool.pool_id)
-    : pool?.poolIdNumber != null
-    ? String(pool.poolIdNumber)
-    : pool?.id != null
-    ? String(pool.id)
-    : null;
+const isIbcDenom = (value?: string | null) =>
+  normalizeDenom(value).startsWith("ibc/");
+
+const getTokenRouteRef = (denom?: string | null, symbol?: string | null) => {
+  if (!denom) return null;
+  return isIbcDenom(denom) ? symbol || denom : denom;
+};
+
+const getPoolId = (pool: any): string | null => {
+  const candidates = [
+    pool?.poolId,
+    pool?.pool_id,
+    pool?.poolID,
+    pool?.poolIdNumber,
+    pool?.id,
+  ];
+  const value = candidates.find((candidate) => {
+    const normalized = String(candidate ?? "").trim();
+    return normalized !== "" && /^[0-9]+$/.test(normalized);
+  });
+  return value == null ? null : String(value);
+};
 
 const buildPoolsUrl = (tokenRef: string) =>
   `${API_BASE}/tokens/${encodeURIComponent(
@@ -125,12 +138,23 @@ const fetchTokenBySymbol = async (
 
     const token = detail.token || {};
     const denom = token.denom;
+    if (
+      denom &&
+      normalizeDenom(denom) !== normalizeDenom(symbol) &&
+      !options.skipPairFallback
+    ) {
+      return await fetchTokenBySymbol(denom, {
+        ...options,
+        skipPairFallback: true,
+      });
+    }
     const fallback = token.symbol || token.name || token.tokenId || symbol;
     const priceChange = detail.price?.changePct || detail.priceChange;
 
     return {
       id: Number(token.tokenId || 0),
-      pair_contract: denom ? (denom.startsWith("ibc/") ? fallback : denom) : fallback,
+      denom,
+      pair_contract: denom || fallback,
       name: token.name || "Unknown Token",
       symbol: token.symbol || symbol,
       price: detail.price?.native || detail.priceInNative || 0,
@@ -261,12 +285,14 @@ export default function PairDetails() {
     const currentOverride = selectedPairOverrideRef.current;
     const currentOverrideMatchesRoute =
       currentOverride &&
-      normalizeDenom(currentOverride.baseDenom) === normalizeDenom(parts[0]) &&
+      (normalizeDenom(currentOverride.baseDenom) === normalizeDenom(parts[0]) ||
+        normalizeDenom(currentOverride.baseSymbol) === normalizeDenom(parts[0])) &&
       (parts.length < 2 ||
         normalizeDenom(currentOverride.pairContract) ===
           normalizeDenom(parts[1]) ||
         normalizeDenom(currentOverride.quoteDenom) ===
-          normalizeDenom(parts[1]));
+          normalizeDenom(parts[1]) ||
+        normalizeDenom(currentOverride.quoteSymbol) === normalizeDenom(parts[1]));
     if (!currentOverrideMatchesRoute) {
       selectedPairOverrideRef.current = null;
       setSelectedPairOverride(null);
@@ -283,24 +309,30 @@ export default function PairDetails() {
       setResolvedBaseSymbol(null);
       setResolvedQuoteSymbol(null);
 
-      let lookupKey = raw;
+      const cachedBaseDenom = resolveCachedTokenRouteDenom(String(raw));
+      const cachedQuoteDenom = parts[1]
+        ? resolveCachedTokenRouteDenom(String(parts[1]))
+        : "";
+      let lookupKey = cachedBaseDenom || raw;
       let baseDenom: string | null = null;
       let quoteDenom: string | null = null;
       let matchedPoolId: string | null = null;
       let matchedPairContract: string | null = null;
       let poolRedirectDone = false;
       if (parts.length >= 2 && parts[0] && parts[1]) {
-        baseDenom = parts[0];
+        baseDenom = cachedBaseDenom || parts[0];
         const secondSegment = parts[1];
         const secondSegmentIsPairContract = isLikelyPairContract(String(secondSegment));
-        quoteDenom = secondSegmentIsPairContract ? null : secondSegment;
+        quoteDenom = secondSegmentIsPairContract
+          ? null
+          : cachedQuoteDenom || secondSegment;
         if (active) {
           setResolvedDenom(baseDenom);
           setResolvedQuoteDenom(quoteDenom);
         }
-        lookupKey = baseDenom;
+        lookupKey = baseDenom || raw;
         try {
-          const res = await fetch(buildPoolsUrl(baseDenom), {
+          const res = await fetch(buildPoolsUrl(baseDenom || raw), {
             headers: API_HEADERS,
           });
           if (res.ok) {
@@ -312,13 +344,17 @@ export default function PairDetails() {
                   secondSegmentIsPairContract &&
                   normalizeDenom(getPairContract(p)) === normalizeDenom(secondSegment);
                 const baseMatch =
-                  normalizeDenom(p?.base?.denom) === normalizeDenom(baseDenom);
+                  normalizeDenom(p?.base?.denom) === normalizeDenom(baseDenom) ||
+                  normalizeDenom(p?.base?.symbol) === normalizeDenom(baseDenom);
                 const quoteMatch =
-                  normalizeDenom(p?.quote?.denom) === normalizeDenom(quoteDenom);
+                  normalizeDenom(p?.quote?.denom) === normalizeDenom(quoteDenom) ||
+                  normalizeDenom(p?.quote?.symbol) === normalizeDenom(quoteDenom);
                 const reverseBaseMatch =
-                  normalizeDenom(p?.base?.denom) === normalizeDenom(quoteDenom);
+                  normalizeDenom(p?.base?.denom) === normalizeDenom(quoteDenom) ||
+                  normalizeDenom(p?.base?.symbol) === normalizeDenom(quoteDenom);
                 const reverseQuoteMatch =
-                  normalizeDenom(p?.quote?.denom) === normalizeDenom(baseDenom);
+                  normalizeDenom(p?.quote?.denom) === normalizeDenom(baseDenom) ||
+                  normalizeDenom(p?.quote?.symbol) === normalizeDenom(baseDenom);
                 return (
                   pairContractMatch ||
                   (baseMatch && quoteMatch) ||
@@ -347,7 +383,9 @@ export default function PairDetails() {
                 const activeQuoteSymbol = routeMatchesPoolQuote
                   ? poolBaseSymbol
                   : poolQuoteSymbol;
+                baseDenom = activeBaseDenom;
                 quoteDenom = activeQuoteDenom;
+                lookupKey = activeBaseDenom || lookupKey;
                 setResolvedDenom(activeBaseDenom);
                 setResolvedQuoteDenom(activeQuoteDenom);
                 setResolvedBaseSymbol(activeBaseSymbol || null);
@@ -368,7 +406,8 @@ export default function PairDetails() {
         }
       } else if (isLikelyPairContract(raw)) {
         try {
-          const res = await fetch(buildPoolsUrl(raw), { headers: API_HEADERS });
+          const poolsLookupKey = cachedBaseDenom || raw;
+          const res = await fetch(buildPoolsUrl(poolsLookupKey), { headers: API_HEADERS });
           if (res.ok) {
             const pools = await res.json();
             const pool = pools?.data?.[0] || null;
@@ -402,7 +441,8 @@ export default function PairDetails() {
         }
       } else {
         try {
-          const res = await fetch(buildPoolsUrl(raw), { headers: API_HEADERS });
+          const poolsLookupKey = cachedBaseDenom || raw;
+          const res = await fetch(buildPoolsUrl(poolsLookupKey), { headers: API_HEADERS });
           if (res.ok) {
             const pools = await res.json();
             const data = pools?.data ?? [];
@@ -415,15 +455,18 @@ export default function PairDetails() {
               if (zigPool && active) {
                 matchedPoolId = getPoolId(zigPool);
                 matchedPairContract = getPairContract(zigPool);
-                setResolvedDenom(zigPool?.base?.denom || null);
-                setResolvedQuoteDenom(zigPool?.quote?.denom || null);
+                baseDenom = zigPool?.base?.denom || null;
+                quoteDenom = zigPool?.quote?.denom || null;
+                lookupKey = baseDenom || lookupKey;
+                setResolvedDenom(baseDenom);
+                setResolvedQuoteDenom(quoteDenom);
                 setResolvedBaseSymbol(zigPool?.base?.symbol || null);
                 setResolvedQuoteSymbol(zigPool?.quote?.symbol || null);
                 setResolvedRoutePair({
                   baseSymbol: zigPool?.base?.symbol || null,
                   quoteSymbol: zigPool?.quote?.symbol || null,
-                  baseDenom: zigPool?.base?.denom || null,
-                  quoteDenom: zigPool?.quote?.denom || null,
+                  baseDenom,
+                  quoteDenom,
                   pairContract: matchedPairContract,
                   poolId: matchedPoolId,
                 });
@@ -433,10 +476,14 @@ export default function PairDetails() {
                 const baseDen = fallbackPool?.base?.denom;
                 const quoteDen = fallbackPool?.quote?.denom;
                 if (baseDen && quoteDen && parts.length < 2) {
+                  const baseRef =
+                    getTokenRouteRef(baseDen, fallbackPool?.base?.symbol) || baseDen;
+                  const quoteRef =
+                    getTokenRouteRef(quoteDen, fallbackPool?.quote?.symbol) || quoteDen;
                   poolRedirectDone = true;
                   router.replace(
-                    `/token/${encodeURIComponent(baseDen)}/${encodeURIComponent(
-                      quoteDen
+                    `/token/${encodeURIComponent(baseRef)}/${encodeURIComponent(
+                      quoteRef
                     )}`
                   );
                   return;
@@ -499,6 +546,23 @@ export default function PairDetails() {
       }
       if (!active) return;
       if (data) {
+        if (data.denom) {
+          setResolvedDenom((current) => current || data.denom || null);
+        }
+        setResolvedBaseSymbol((current) => current || data.symbol || null);
+        const baseRouteRef = getTokenRouteRef(data.denom, data.symbol);
+        if (baseRouteRef && isIbcDenom(data.denom)) {
+          const currentBaseRef = String(parts[0] ?? "");
+          const currentSecondRef = parts[1] ? String(parts[1]) : null;
+          const desiredUrl = currentSecondRef
+            ? `/token/${encodeURIComponent(baseRouteRef)}/${encodeURIComponent(
+                currentSecondRef
+              )}`
+            : `/token/${encodeURIComponent(baseRouteRef)}`;
+          if (normalizeDenom(currentBaseRef) === normalizeDenom(data.denom)) {
+            router.replace(desiredUrl);
+          }
+        }
         setToken(data);
       } else {
         setError("Token not found");
@@ -529,13 +593,15 @@ export default function PairDetails() {
     setSelectedPairOverride(pair);
     setResolvedRoutePair(pair);
     const baseDen = pair.baseDenom;
+    const baseSym = pair.baseSymbol;
     const quoteDen = pair.quoteDenom;
     const pairContract = pair.pairContract;
+    const baseRouteRef = getTokenRouteRef(baseDen, baseSym);
     const quoteSym = String(pair.quoteSymbol || "").toLowerCase();
     const quoteDenLc = String(quoteDen || "").toLowerCase();
-    if (baseDen) {
+    if (baseRouteRef) {
       if (quoteSym === "zig" || quoteDenLc === "uzig") {
-        const url = `/token/${encodeURIComponent(baseDen)}`;
+        const url = `/token/${encodeURIComponent(baseRouteRef)}`;
         if (selectedPairUrl !== url) {
           setSelectedPairUrl(url);
           router.replace(url);
@@ -543,8 +609,8 @@ export default function PairDetails() {
         return;
       }
     }
-    if (baseDen && pairContract) {
-      const url = `/token/${encodeURIComponent(baseDen)}/${encodeURIComponent(
+    if (baseRouteRef && pairContract) {
+      const url = `/token/${encodeURIComponent(baseRouteRef)}/${encodeURIComponent(
         pairContract
       )}`;
       if (selectedPairUrl !== url) {
@@ -553,9 +619,11 @@ export default function PairDetails() {
       }
       return;
     }
-    if (baseDen && quoteDen) {
-      const url = `/token/${encodeURIComponent(baseDen)}/${encodeURIComponent(
-        quoteDen
+    if (baseRouteRef && quoteDen) {
+      const quoteRouteRef =
+        getTokenRouteRef(quoteDen, pair.quoteSymbol) || quoteDen;
+      const url = `/token/${encodeURIComponent(baseRouteRef)}/${encodeURIComponent(
+        quoteRouteRef
       )}`;
       if (selectedPairUrl !== url) {
         setSelectedPairUrl(url);
@@ -590,15 +658,6 @@ export default function PairDetails() {
     setResolvedQuoteDenom(swappedPair.quoteDenom);
     setResolvedBaseSymbol(swappedPair.baseSymbol);
     setResolvedQuoteSymbol(swappedPair.quoteSymbol);
-
-    const secondSegment = swappedPair.pairContract || swappedPair.quoteDenom;
-    const url = `/token/${encodeURIComponent(
-      swappedPair.baseDenom
-    )}/${encodeURIComponent(secondSegment)}`;
-    if (selectedPairUrl !== url) {
-      setSelectedPairUrl(url);
-      router.replace(url);
-    }
   };
 
   if (!loading && (error || !token)) {
@@ -689,6 +748,7 @@ export default function PairDetails() {
                 {token ? (
                   <TradingChart
                     token={token.pair_contract}
+                    denom={token.denom || token.pair_contract}
                     quoteSymbol={effectiveQuoteSymbol}
                     tokenId={token.id}
                     selectedPair={effectiveSelectedPair}
@@ -807,7 +867,9 @@ export default function PairDetails() {
                 {activeTab === "trades" ? (
                   <RecentTrades
                     tokenId={token?.pair_contract}
+                    tokenNumericId={token?.id}
                     selectedPair={effectiveSelectedPair}
+                    usePoolTrades={Boolean(selectedPairOverride || routePairContract)}
                     onSignerFilterChange={setSignerSummary}
                   />
                 ) : activeTab === "holders" ? (

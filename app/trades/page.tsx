@@ -56,11 +56,7 @@ async function fetchTokenBySymbol(symbol: string): Promise<Token | null> {
 
     return {
       id: Number(token.tokenId || 0),
-      pair_contract: token.denom
-        ? token.denom.startsWith("ibc/")
-          ? token.symbol || token.name || token.tokenId || ""
-          : token.denom
-        : token.symbol || token.name || token.tokenId || "",
+      pair_contract: token.denom || token.symbol || token.name || token.tokenId || "",
       name: token.name || "Unknown Token",
       symbol: token.symbol || "",
       price: token.priceInNative || 0,
