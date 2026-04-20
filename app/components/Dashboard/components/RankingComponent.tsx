@@ -71,6 +71,13 @@ const MIN_RANKING_ROWS = 5;
 const MAX_RANKING_ROWS = 5;
 const RANKING_REPEAT_GROUPS = 60;
 
+type RankingCardStyle = React.CSSProperties & {
+  "--ranking-spotlight-x"?: string;
+  "--ranking-spotlight-y"?: string;
+  "--ranking-spotlight-opacity"?: string;
+  "--ranking-spotlight-color"?: string;
+};
+
 const isStakedZig = (token: Token) => {
   const symbolLower = (token.symbol || "").toLowerCase();
   const idLower = (token.id || "").toLowerCase();
@@ -160,11 +167,42 @@ const RankingComponent: React.FC<{
   const scrollVelocityRef = useRef(0);
   const lastScrollRef = useRef({ top: 0, time: 0 });
   const snapTimeoutRef = useRef<number | null>(null);
+  const prefersReducedMotionRef = useRef(false);
 
   // Detect mobile on mount
   useEffect(() => {
     setIsMobile(/iPhone|iPad|iPod|Android/.test(navigator.userAgent) || window.innerWidth < 768);
   }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updatePreference = () => {
+      prefersReducedMotionRef.current = mediaQuery.matches;
+    };
+
+    updatePreference();
+    mediaQuery.addEventListener("change", updatePreference);
+
+    return () => mediaQuery.removeEventListener("change", updatePreference);
+  }, []);
+
+  const handleCardPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (prefersReducedMotionRef.current || event.pointerType === "touch") return;
+
+    const card = event.currentTarget;
+    const rect = card.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 100;
+    const y = ((event.clientY - rect.top) / rect.height) * 100;
+
+    card.style.setProperty("--ranking-spotlight-x", `${x.toFixed(2)}%`);
+    card.style.setProperty("--ranking-spotlight-y", `${y.toFixed(2)}%`);
+    card.style.setProperty("--ranking-spotlight-opacity", "1");
+  };
+
+  const handleCardPointerLeave = (event: React.PointerEvent<HTMLDivElement>) => {
+    const card = event.currentTarget;
+    card.style.setProperty("--ranking-spotlight-opacity", "0");
+  };
 
   // Three.js background effect - iOS Optimized
   useEffect(() => {
@@ -496,7 +534,8 @@ const RankingComponent: React.FC<{
 
   itemRefs.current = [];
 
-  // ===== TILT BACK INTO SCREEN ANIMATION =====
+  // ReactBits-style interactive depth: centered cards stay sharp while the wheel
+  // softly tilts surrounding rows back into the panel.
   React.useEffect(() => {
     if (!listRef.current) return;
     const container = listRef.current;
@@ -523,17 +562,17 @@ const RankingComponent: React.FC<{
     const step = () => {
       const containerHeight = container.clientHeight || 1;
       const scrollTop = container.scrollTop;
-      const centerOffset = containerHeight * 0.12;
+      const centerOffset = isMobile ? containerHeight * 0.06 : containerHeight * 0.12;
       const center = scrollTop + containerHeight / 2 - centerOffset;
 
       const speed = scrollVelocityRef.current;
       const speedFactor = Math.min(speed / 1.2, 1); // 0..1
       const dampen = 1 - speedFactor * 0.7;
 
-      const maxRotateX = 18 * dampen;
-      const minScale = 0.82 + (1 - dampen) * 0.06;
-      const maxTranslateZ = -55 * dampen;
-      const minOpacity = 0.22 + (1 - dampen) * 0.18;
+      const maxRotateX = (isMobile ? 12 : 18) * dampen;
+      const minScale = (isMobile ? 0.88 : 0.82) + (1 - dampen) * 0.06;
+      const maxTranslateZ = (isMobile ? -34 : -55) * dampen;
+      const minOpacity = (isMobile ? 0.36 : 0.22) + (1 - dampen) * 0.18;
 
       for (let i = 0; i < itemRefs.current.length; i++) {
         const el = itemRefs.current[i];
@@ -556,7 +595,7 @@ const RankingComponent: React.FC<{
         const targetRotateX = isFocused ? 0 : tiltDirection * tiltAmount * maxRotateX;
 
         const scaleAmount = 1 - clampedDistance * (1 - minScale);
-        const targetScale = isFocused ? 1.03 : Math.max(minScale, scaleAmount);
+        const targetScale = isFocused ? (isMobile ? 1.01 : 1.03) : Math.max(minScale, scaleAmount);
 
         const depthAmount = Math.pow(clampedDistance, 0.9);
         const targetTranslateZ = depthAmount * maxTranslateZ;
@@ -658,7 +697,7 @@ const RankingComponent: React.FC<{
       }
       window.removeEventListener("resize", onResize);
     };
-  }, [rankings.length]);
+  }, [isMobile, rankings.length]);
 
   React.useEffect(() => {
     const container = listRef.current;
@@ -714,7 +753,7 @@ const RankingComponent: React.FC<{
   }, [rankings.length]);
 
   return (
-    <div className="bg-black/30 rounded-lg border border-[#808080]/20 px-4 md:px-12 py-6 lg:min-h-[500px] lg:max-h-[500px] overflow-hidden relative">
+    <div className="bg-black/30 rounded-lg border border-[#808080]/20 px-3 sm:px-5 md:px-12 py-5 md:py-6 lg:min-h-[500px] lg:max-h-[500px] overflow-hidden relative">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center justify-center space-x-2 w-full">
           <Image src="/startRanking.png" width={14} height={14} alt="star" />
@@ -744,7 +783,7 @@ const RankingComponent: React.FC<{
 
       <div
         ref={listRef}
-        className="h-[480px] md:h-[500px] overflow-y-scroll no-scrollbar space-y-5 relative z-10 overscroll-contain"
+        className="h-[420px] sm:h-[460px] md:h-[500px] overflow-y-scroll no-scrollbar space-y-4 sm:space-y-5 relative z-10 overscroll-contain"
         style={{
           perspective: "1400px",
           transformStyle: "preserve-3d",
@@ -761,16 +800,28 @@ const RankingComponent: React.FC<{
                 ref={(el) => {
                   itemRefs.current[keyIndex] = el;
                 }}
-                className={`relative h-[70px] rounded-3xl overflow-visible transition duration-300 ease-out will-change-transform hover:shadow-[0_25px_60px_rgba(15,23,42,0.55)] hover:brightness-110 ${
+                onPointerMove={handleCardPointerMove}
+                onPointerLeave={handleCardPointerLeave}
+                className={`group relative h-[68px] sm:h-[70px] rounded-3xl overflow-visible transition duration-300 ease-out will-change-transform hover:shadow-[0_25px_60px_rgba(15,23,42,0.55)] hover:brightness-110 ${
                   index === 0 ? "shadow-[0_0_30px_5px_rgba(239,68,68,0.3)]" : ""
                 } `}
-                style={{
-                  transformStyle: "preserve-3d",
-                  backfaceVisibility: "visible",
-                  transformOrigin: "center center",
-                  // iOS performance optimization
-                  WebkitBackfaceVisibility: "visible",
-                }}
+                style={
+                  {
+                    transformStyle: "preserve-3d",
+                    backfaceVisibility: "visible",
+                    transformOrigin: "center center",
+                    // iOS performance optimization
+                    WebkitBackfaceVisibility: "visible",
+                    "--ranking-spotlight-color":
+                      index === 0
+                        ? "255, 178, 84"
+                        : index === 1
+                        ? "66, 245, 195"
+                        : index === 2
+                        ? "229, 154, 239"
+                        : "173, 173, 173",
+                  } as RankingCardStyle
+                }
               >
                 {/* Glass border effect */}
                 <div
@@ -787,6 +838,20 @@ const RankingComponent: React.FC<{
                   className={`absolute inset-0 bg-gradient-to-r ${item.color} rounded-2xl`}
                 />
 
+                <div
+                  className="absolute inset-0 z-[12] rounded-2xl opacity-[var(--ranking-spotlight-opacity,0)] transition-opacity duration-300 pointer-events-none mix-blend-screen"
+                  style={
+                    {
+                      background:
+                        "radial-gradient(220px circle at var(--ranking-spotlight-x,50%) var(--ranking-spotlight-y,50%), rgba(var(--ranking-spotlight-color),0.34), rgba(var(--ranking-spotlight-color),0.12) 34%, transparent 68%)",
+                    } as RankingCardStyle
+                  }
+                />
+
+                <div className="absolute inset-0 z-[13] rounded-2xl opacity-0 transition-opacity duration-500 pointer-events-none group-hover:opacity-100">
+                  <div className="absolute -inset-y-8 -left-1/2 w-1/2 rotate-12 bg-gradient-to-r from-transparent via-white/20 to-transparent blur-[1px] transition-transform duration-700 ease-out group-hover:translate-x-[340%]" />
+                </div>
+
                 <div className="relative z-20 px-4 py-3 h-full">
                   {/* <div className="flex items-center justify-between text-[0.65rem] uppercase tracking-[0.4em] text-white/70 mb-2">
                     <span className="flex items-center gap-2 font-semibold">
@@ -799,7 +864,7 @@ const RankingComponent: React.FC<{
                     <div className="flex items-center space-x-3 w-full">
                       <span className="relative">
                         <span
-                          className={`text-[8.5rem] font-normal absolute top-[-110px] left-[0px] md:left-[30px] z-20 bg-clip-text text-transparent bg-gradient-to-b ${item.textGradient}`}
+                          className={`text-[7.6rem] sm:text-[8.5rem] font-normal absolute top-[-98px] sm:top-[-110px] left-[-2px] sm:left-[0px] md:left-[30px] z-20 bg-clip-text text-transparent bg-gradient-to-b ${item.textGradient}`}
                         >
                           {item.rank}
                         </span>
@@ -808,37 +873,37 @@ const RankingComponent: React.FC<{
                             item.textGradient
                           } ${
                             item.rank === 1
-                              ? "text-[2.2rem] left-[45px] md:left-[70px] top-[-9px]"
+                              ? "text-[1.95rem] sm:text-[2.2rem] left-[39px] sm:left-[45px] md:left-[70px] top-[-6px] sm:top-[-9px]"
                               : item.rank === 2
-                              ? "text-[2rem] left-[65px] md:left-[85px] top-[-11px]"
+                              ? "text-[1.8rem] sm:text-[2rem] left-[58px] sm:left-[65px] md:left-[85px] top-[-8px] sm:top-[-11px]"
                               : item.rank === 3
-                              ? "text-[1.8rem] left-[70px] md:left-[100px] top-[-2px]"
+                              ? "text-[1.6rem] sm:text-[1.8rem] left-[62px] sm:left-[70px] md:left-[100px] top-[0px] sm:top-[-2px]"
                               : item.rank === 4
-                              ? "text-[1.6rem] left-[80px] md:left-[110px] top-[-2px]"
-                              : "text-[1.5rem] left-[80px] md:left-[105px] top-[-2px]"
+                              ? "text-[1.45rem] sm:text-[1.6rem] left-[70px] sm:left-[80px] md:left-[110px] top-[0px] sm:top-[-2px]"
+                              : "text-[1.4rem] sm:text-[1.5rem] left-[70px] sm:left-[80px] md:left-[105px] top-[0px] sm:top-[-2px]"
                           }`}
                         >
                           {getRankDisplay(item.rank).suffix}
                         </span>
                       </span>
                       <div className="flex items-center w-full">
-                        <div className="flex items-center justify-between ml-28 md:ml-36 w-full">
-                          <div className="flex items-center space-x-3">
+                        <div className="flex items-center justify-between ml-[6.5rem] sm:ml-28 md:ml-36 w-full gap-3">
+                          <div className="flex min-w-0 items-center space-x-2.5 sm:space-x-3">
                             {item.image ? (
                               <Image
                                 src={item.image}
                                 width={40}
                                 height={40}
-                                className="rounded-full"
+                                className="rounded-full w-9 h-9 sm:w-10 sm:h-10"
                                 alt="Token Image"
                                 // iOS image optimization
                                 loading={keyIndex < 10 ? "eager" : "lazy"}
                               />
                             ) : (
-                              <div className="w-10 h-10 rounded-full bg-black/50 animate-pulse"></div>
+                              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-black/50 animate-pulse"></div>
                             )}
-                            <div className="text-white text-[1.1rem] flex flex-col justify-start gap-0 font-medium">
-                              <span className="flex items-center gap-1">
+                            <div className="text-white text-[0.95rem] sm:text-[1.1rem] flex min-w-0 flex-col justify-start gap-0 font-medium">
+                              <span className="flex items-center gap-1 truncate max-w-[5.5rem] sm:max-w-none">
                                 {item.symbol}
                               </span>
                               <span className="text-[#CECECE] text-xs font-normal">
@@ -847,8 +912,8 @@ const RankingComponent: React.FC<{
                               </span>
                             </div>
                           </div>
-                          <div className="text-xs font-normal text-white flex flex-col items-end">
-                            <div>{item.current_price.toFixed(6)}</div>
+                          <div className="shrink-0 text-[0.68rem] sm:text-xs font-normal text-white flex flex-col items-end">
+                            <div className="tabular-nums">{item.current_price.toFixed(6)}</div>
                             <div>
                               {item.id?.startsWith("ibc/") ? (
                                 <span className="text-gray-400">-</span>

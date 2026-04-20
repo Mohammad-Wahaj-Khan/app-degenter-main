@@ -12,9 +12,8 @@ import {
 import Image from "next/image";
 import { Copy, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
-const ZIGCHAIN_ICON = "/zigicon.png";
+import ZIG_ICON from "@/public/oroswap.png";
 const Degenter_ICON = "/degen.png";
-const ZIGCHAIN_LABEL = "Oroswap";
 const Degenter_Label = "Degenter";
 const API_BASE = API_BASE_URL;
 const TRADES_WS_URL = process.env.NEXT_PUBLIC_TRADES_WS_URL || "";
@@ -136,7 +135,7 @@ export type ValueRangeLabel = "< 1K ZIG" | "1K - 10K ZIG" | "> 10K ZIG";
 
 export interface TradesFilter {
   assetMode: "all" | "token";
-  timeRange: "24H" | "7D" | "30D";
+  timeRange: "24H" | "7D" | "30D" | "60D";
   valueRange: ValueRangeLabel | "";
   tokenDenom: string;
   wallet: string;
@@ -152,12 +151,16 @@ const TIME_RANGE_MS: Record<TradesFilter["timeRange"], number> = {
   "24H": 24 * 60 * 60 * 1000,
   "7D": 7 * 24 * 60 * 60 * 1000,
   "30D": 30 * 24 * 60 * 60 * 1000,
+  "60D": 60 * 24 * 60 * 60 * 1000,
 };
 const TIME_RANGE_API: Record<TradesFilter["timeRange"], string> = {
   "24H": "24h",
   "7D": "7d",
   "30D": "30d",
+  "60D": "60d",
 };
+
+const WALLET_ADDRESS_PATTERN = /^zig1[0-9a-z]{20,}$/i;
 
 interface TradesProps {
   filters: TradesFilter;
@@ -698,15 +701,36 @@ const Trades = ({
     );
   }, [allTokenOptions, filters.tokenDenom, tokenOptionsFromTrades]);
 
+  const walletApiAddress = useMemo(() => {
+    const walletQuery = filters.wallet.trim();
+    return WALLET_ADDRESS_PATTERN.test(walletQuery) ? walletQuery : "";
+  }, [filters.wallet]);
+
   const fetchTradesFromApi = useCallback(async () => {
-    const timeframe = TIME_RANGE_API[filters.timeRange] ?? "24h";
+    const timeframe = TIME_RANGE_API[filters.timeRange] ?? "60d";
     const tokenQuery = filters.tokenDenom.trim();
     const tokenRef = resolvedTokenOption?.tokenId || tokenQuery;
-    const endpoint = tokenRef
-      ? `${API_BASE}/trades/token/${encodeURIComponent(
-          tokenRef
-        )}?tf=${timeframe}&unit=usd&limit=5000&source=chain`
-      : `${API_BASE}/trades?tf=${timeframe}&unit=usd&limit=5000&source=chain`;
+    const params = new URLSearchParams({
+      tf: timeframe,
+      unit: "usd",
+      limit: "5000",
+      source: "chain",
+    });
+    let baseEndpoint = `${API_BASE}/trades`;
+
+    if (walletApiAddress) {
+      baseEndpoint = `${API_BASE}/trades/wallet/${encodeURIComponent(
+        walletApiAddress
+      )}`;
+      if (tokenRef) {
+        params.set("token", tokenRef);
+        params.set("search", tokenQuery);
+      }
+    } else if (tokenRef) {
+      baseEndpoint = `${API_BASE}/trades/token/${encodeURIComponent(tokenRef)}`;
+    }
+
+    const endpoint = `${baseEndpoint}?${params.toString()}`;
     try {
       if (!tradesRef.current.length) {
         setLoading(true);
@@ -714,6 +738,13 @@ const Trades = ({
       const res = await fetchApi(endpoint);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
+      const apiTrades = Array.isArray(json?.data)
+        ? json.data
+        : Array.isArray(json?.items)
+        ? json.items
+        : Array.isArray(json)
+        ? json
+        : [];
       if (json?.token?.denom && json?.token?.symbol) {
         setSymbolMap((prev) => ({
           ...prev,
@@ -721,10 +752,10 @@ const Trades = ({
           [String(json.token.denom).toLowerCase()]: json.token.symbol,
         }));
       }
-      if (json?.success && Array.isArray(json.data)) {
+      if (apiTrades.length) {
         setSymbolMap((prev) => {
           const next = { ...prev };
-          json.data.forEach((trade: any) => {
+          apiTrades.forEach((trade: any) => {
             if (trade?.offerDenom && trade?.offerSymbol) {
               next[trade.offerDenom] = trade.offerSymbol;
               next[String(trade.offerDenom).toLowerCase()] = trade.offerSymbol;
@@ -738,7 +769,7 @@ const Trades = ({
         });
         setTokenImageMap((prev) => {
           const next = { ...prev };
-          json.data.forEach((trade: any) => {
+          apiTrades.forEach((trade: any) => {
             if (trade?.offerDenom && trade?.offerImage) {
               next[trade.offerDenom] = trade.offerImage;
               next[String(trade.offerDenom).toLowerCase()] = trade.offerImage;
@@ -750,15 +781,23 @@ const Trades = ({
           });
           return next;
         });
-        const mapped = json.data.map(mapApiTradeToLocal);
+        const mapped = apiTrades.map(mapApiTradeToLocal);
         setTrades(mapped);
+      } else {
+        setTrades([]);
       }
     } catch (err) {
       console.error("Failed to fetch trades", err);
     } finally {
       setLoading(false);
     }
-  }, [fetchApi, filters.timeRange, filters.tokenDenom, resolvedTokenOption]);
+  }, [
+    fetchApi,
+    filters.timeRange,
+    filters.tokenDenom,
+    resolvedTokenOption,
+    walletApiAddress,
+  ]);
 
   useEffect(() => {
     wsMessageHandlerRef.current = (event) => {
@@ -802,14 +841,14 @@ const Trades = ({
   }, []);
 
   useEffect(() => {
-    if (!filters.tokenDenom) {
+    if (!filters.tokenDenom && !walletApiAddress) {
       if (!TRADES_WS_URL) {
         fetchTradesFromApi();
       }
       return;
     }
     fetchTradesFromApi();
-  }, [fetchTradesFromApi, filters.tokenDenom]);
+  }, [fetchTradesFromApi, filters.tokenDenom, walletApiAddress]);
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -1102,15 +1141,15 @@ const Trades = ({
                       </div>
                     </td>
                     <td className="px-6 py-4 border-b border-white/15">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center">
                         <Image
-                          src={ZIGCHAIN_ICON}
-                          alt="Zigchain"
-                          width={24}
-                          height={24}
-                          className="h-6 w-6 rounded-full object-cover"
+                          src={ZIG_ICON}
+                          alt="Oroswap"
+                          width={154}
+                          height={51}
+                          className="h-auto w-[112px] object-contain"
+                          unoptimized
                         />
-                        <span className="text-sm">{ZIGCHAIN_LABEL}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4 border-b border-white/15">
