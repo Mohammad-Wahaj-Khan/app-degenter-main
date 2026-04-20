@@ -148,7 +148,9 @@ export default function RootLayout({
       >
         <ImageFallbackHandler />
         <Providers>
-          <ClickSpark>{children}</ClickSpark>
+          {/* <ClickSpark> */}
+            {children}
+            {/* </ClickSpark> */}
         </Providers>
       </body>
     </html>
