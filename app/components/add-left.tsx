@@ -614,47 +614,74 @@ export default function AddLeft({
       ) : (
         /* ✅ Case 2: Default fallback block */
         <div
-          className="rounded-lg p-2 mt-3 bg-cover bg-center bg-no-repeat h-32 w-full"
+          className="rounded-lg p-3 mt-3 bg-cover bg-center bg-no-repeat h-32 w-full flex flex-col justify-between overflow-hidden"
           style={{
             backgroundImage: "url('/defaultframe.png')",
           }}
         >
-          <div className="flex gap-2 justify-center mb-2">
-            <div className="flex-col items-center justify-center uppercase">
-              <h3 className="text-white font-medium text-[1.5rem] text-center">
+          <div className="min-w-0 text-center uppercase">
+              <h3 className="text-white font-semibold text-[1.15rem] leading-tight truncate">
                 {token?.name}
               </h3>
-              <p className="text-white text-[0.7rem] text-center max-w-full px-2 break-words line-clamp-2">
+              <p className="mt-1 text-white text-[0.68rem] leading-snug max-w-full px-2 line-clamp-2">
                 {token?.description}
               </p>
-            </div>
           </div>
-            <div className="flex gap-2 justify-center">
-              <span className="bg-black/50 px-2 py-1 rounded-[0.3rem]">
+          <div className="flex items-center justify-center gap-2">
+            {token?.telegram ? (
+              <a
+                href={token.telegram}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open Telegram"
+                className="h-9 w-9 inline-flex items-center justify-center rounded bg-black/50 text-white hover:bg-black/70 transition"
+              >
                 <FaTelegramPlane size={14} />
-                {token?.telegram}
-                {token?.telegram && (
-                  <Link href={token.telegram} target="_blank">
-                    <HiGlobeAsiaAustralia size={15} className="text-white" />
-                  </Link>
-                )}
+              </a>
+            ) : (
+              <span
+                aria-disabled="true"
+                className="h-9 w-9 inline-flex items-center justify-center rounded bg-black/30 text-white/45 cursor-not-allowed"
+              >
+                <FaTelegramPlane size={14} />
               </span>
-            <span className="bg-black/50 px-2 py-1 rounded-[0.3rem]">
-              <BsTwitterX size={12} />
-              {token?.twitter && (
-                <Link href={token.twitter} target="_blank">
-                  <HiGlobeAsiaAustralia size={15} className="text-white" />
-                </Link>
-              )}
-            </span>
-            <span className="bg-black/50 px-2 py-1 rounded-[0.3rem]">
-              <HiGlobeAsiaAustralia size={14} />
-              {token?.website && (
-                <Link href={token.website} target="_blank">
-                  <HiGlobeAsiaAustralia size={15} className="text-white" />
-                </Link>
-              )}
-            </span>
+            )}
+            {token?.twitter ? (
+              <a
+                href={token.twitter}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open X profile"
+                className="h-9 w-9 inline-flex items-center justify-center rounded bg-black/50 text-white hover:bg-black/70 transition"
+              >
+                <BsTwitterX size={12} />
+              </a>
+            ) : (
+              <span
+                aria-disabled="true"
+                className="h-9 w-9 inline-flex items-center justify-center rounded bg-black/30 text-white/45 cursor-not-allowed"
+              >
+                <BsTwitterX size={12} />
+              </span>
+            )}
+            {token?.website ? (
+              <a
+                href={token.website}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open website"
+                className="h-9 w-9 inline-flex items-center justify-center rounded bg-black/50 text-white hover:bg-black/70 transition"
+              >
+                <HiGlobeAsiaAustralia size={15} />
+              </a>
+            ) : (
+              <span
+                aria-disabled="true"
+                className="h-9 w-9 inline-flex items-center justify-center rounded bg-black/30 text-white/45 cursor-not-allowed"
+              >
+                <HiGlobeAsiaAustralia size={15} />
+              </span>
+            )}
           </div>
         </div>
       )}

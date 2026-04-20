@@ -90,8 +90,6 @@ const parseNumber = (value: unknown) =>
 const EXCLUDED_SYMBOLS = new Set([
   "stzig",
   "st-zig",
-  "zig",
-  "uzig",
   "usdc",
   "usdt",
   "statom",

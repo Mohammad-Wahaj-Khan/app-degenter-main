@@ -11,7 +11,7 @@ import { Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
-import { storeTokenRoute } from "@/lib/token-routing";
+import { storeTokenRoute, tokenApiRef } from "@/lib/token-routing";
 
 type ResultType = "token";
 type SearchResult = {
@@ -116,10 +116,6 @@ async function fetchAllPoolsOnce(): Promise<Token[]> {
       }
 
       const batch: Token[] = json.data
-        .filter((token: any) => {
-          const tokenName = (token.name || "").toLowerCase();
-          return tokenName !== "zig" && tokenName !== "uzig";
-        })
         .map((token: any) => ({
           id: token.denom || token.tokenId,
           name: token.name || "Unknown Token",
@@ -320,7 +316,9 @@ export default function SearchBar({
     try {
       setLoadingPools(true);
       const response = await fetch(
-        `${API_BASE}/tokens/${tokenId}/pools?bucket=24h&includeCaps=1`,
+        `${API_BASE}/tokens/${encodeURIComponent(
+          tokenApiRef(tokenId)
+        )}/pools?bucket=24h&includeCaps=1`,
         { cache: "no-store", headers: API_HEADERS }
       );
 

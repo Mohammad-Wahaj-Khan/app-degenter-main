@@ -10,6 +10,7 @@ import type { DashboardToken } from "@/types/dashboard";
 import NewTokenBadge from "./NewTokenBadge";
 import { isTokenNew } from "@/lib/tokenUtils";
 import { storeTokenRoute } from "@/lib/token-routing";
+import LowLiquidityBadge, { hasLowLiquidity } from "./LiquidityWarning";
 
 const NewListing: React.FC<{ LatestListing: DashboardToken[] }> = ({
   LatestListing,
@@ -143,6 +144,7 @@ const NewListing: React.FC<{ LatestListing: DashboardToken[] }> = ({
                       <div className="text-white font-medium text-[1.35rem]">
                         {getDisplayName(token)}
                       </div>
+                      {hasLowLiquidity(token) && <LowLiquidityBadge />}
                       {isTokenNew(token.creationTime) && <NewTokenBadge />}
                     </div>
                     <div className="text-[#919191] text-sm">

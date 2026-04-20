@@ -488,7 +488,7 @@ export default function PairDetails() {
           }
           return;
         }
-      } else {
+      } else if (!isZigAsset(raw)) {
         try {
           const poolsLookupKey = cachedBaseDenom || raw;
           const res = await fetch(buildPoolsUrl(poolsLookupKey), { headers: API_HEADERS });
@@ -550,6 +550,17 @@ export default function PairDetails() {
           }
         } catch (err) {
           console.error("Failed to resolve pools for redirect:", err);
+        }
+      } else {
+        lookupKey = normalizeDenom(raw) === "zig" ? "uzig" : raw;
+        baseDenom = lookupKey;
+        quoteDenom = null;
+        if (active) {
+          setResolvedDenom(lookupKey);
+          setResolvedQuoteDenom(null);
+          setResolvedBaseSymbol("ZIG");
+          setResolvedQuoteSymbol(null);
+          setResolvedRoutePair(null);
         }
       }
 
@@ -653,18 +664,6 @@ export default function PairDetails() {
     const quoteDen = pair.quoteDenom;
     const pairContract = pair.pairContract;
     const baseRouteRef = getTokenRouteRef(baseDen, baseSym);
-    const quoteSym = String(pair.quoteSymbol || "").toLowerCase();
-    const quoteDenLc = String(quoteDen || "").toLowerCase();
-    if (baseRouteRef) {
-      if (quoteSym === "zig" || quoteDenLc === "uzig") {
-        const url = `/token/${encodeURIComponent(baseRouteRef)}`;
-        if (selectedPairUrl !== url) {
-          setSelectedPairUrl(url);
-          replaceTokenUrl(url);
-        }
-        return;
-      }
-    }
     if (baseRouteRef && pairContract) {
       const url = `/token/${encodeURIComponent(baseRouteRef)}/${encodeURIComponent(
         pairContract

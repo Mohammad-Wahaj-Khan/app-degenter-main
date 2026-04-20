@@ -6,7 +6,7 @@ import RecentTrades from "./RecentTrades";
 import AuditPanel from "./audit-panel";
 import { FileCode, Wallet } from "lucide-react";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
-import { isIbcDenom } from "@/lib/token-routing";
+import { isIbcDenom, tokenApiRef } from "@/lib/token-routing";
 
 const API_BASE = API_BASE_URL;
 
@@ -64,7 +64,7 @@ const extractTokenRef = (value?: string | null) => {
   const normalized = (value ?? "").trim();
   if (!normalized) return "";
   if (isIbcDenom(normalized)) return normalized;
-  return normalized.split(".").pop() || normalized;
+  return tokenApiRef(normalized.split(".").pop() || normalized);
 };
 
 const getKnownPoolIdForPairContract = (pairContract?: string | null) => {
@@ -158,7 +158,7 @@ const TopHolders: React.FC<TopHoldersProps> = ({ tokenId, selectedPair }) => {
       try {
         const response = await fetch(
           `${API_BASE}/tokens/${encodeURIComponent(
-            source
+            tokenApiRef(source)
           )}/pools?dominant=base&bucket=24h&limit=100`,
           { headers: API_HEADERS }
         );
@@ -194,25 +194,27 @@ const TopHolders: React.FC<TopHoldersProps> = ({ tokenId, selectedPair }) => {
   };
 
   const buildTokenUrl = (tokenRef: string, poolId: string | null) => {
+    const apiRef = tokenApiRef(tokenRef);
     if (shouldUsePoolPricing && poolId) {
       return `${API_BASE}/tokens/${encodeURIComponent(
-        tokenRef
+        apiRef
       )}?priceSource=pool&poolId=${encodeURIComponent(
         poolId
       )}&dominant=quote&view=auto`;
     }
-    return `${API_BASE}/tokens/${encodeURIComponent(tokenRef)}`;
+    return `${API_BASE}/tokens/${encodeURIComponent(apiRef)}`;
   };
 
   const buildHoldersUrl = (tokenRef: string, poolId: string | null) => {
+    const apiRef = tokenApiRef(tokenRef);
     if (shouldUsePoolPricing && poolId) {
       return `${API_BASE}/tokens/${encodeURIComponent(
-        tokenRef
+        apiRef
       )}/holders?priceSource=pool&poolId=${encodeURIComponent(
         poolId
       )}&dominant=quote&view=auto`;
     }
-    return `${API_BASE}/tokens/${encodeURIComponent(tokenRef)}/holders`;
+    return `${API_BASE}/tokens/${encodeURIComponent(apiRef)}/holders`;
   };
 
   // Fetch token details including exponent

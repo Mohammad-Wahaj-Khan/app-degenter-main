@@ -1449,11 +1449,11 @@ export function SwapForm({
         );
         chunkFailureRef.current = null;
         setChunkError(null);
-        console.info(
-          "[TWAP] chunk executed",
-          { completed, total, status: statusStr },
-          chunkTx ? { txHash: chunkTx } : {}
-        );
+        // console.info(
+        //   "[TWAP] chunk executed",
+        //   { completed, total, status: statusStr },
+        //   chunkTx ? { txHash: chunkTx } : {}
+        // );
         setTimeout(() => setChunkNotice(null), 6500);
       }
 
@@ -1471,12 +1471,12 @@ export function SwapForm({
           ord?.last_tx_hash ??
           ord?.completion_tx ??
           submitState.txHash;
-        console.info("[TWAP] order completed", {
-          completed,
-          total,
-          status: statusStr,
-          txHash: completionTx ?? "unknown",
-        });
+        // console.info("[TWAP] order completed", {
+        //   completed,
+        //   total,
+        //   status: statusStr,
+        //   txHash: completionTx ?? "unknown",
+        // });
         setSubmitState({
           status: "success",
           message: `TWAP swap successful${

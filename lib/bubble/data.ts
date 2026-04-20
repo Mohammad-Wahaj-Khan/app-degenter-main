@@ -56,11 +56,11 @@ function parseDenom(denom: string) {
 }
 
 function isJunkToken(denom: string, ticker?: string) {
+  if (denom === 'uzig') return false;
   if (!ticker) return true;
   if (denom.includes('oroswaplptoken')) return true;
   if (denom.startsWith('zp')) return true;
   if (denom.startsWith('ibc/')) return true;
-  if (denom === 'uzig') return true;
   if (ticker.startsWith('QUOTE') || ticker.startsWith('PANDA')) return true;
   if (ticker.length > 20) return true;
   return false;
@@ -212,7 +212,7 @@ export async function getHomeScreenData(onProgress?: (msg: string) => void) {
   const newest = await getNewestTokens(12);
   const topVolume = [...tokens].sort((a, b) => (b.volUsd || 0) - (a.volUsd || 0)).slice(0, 12);
   const topGainers = [...tokens]
-    .filter((token) => (token.priceUsd ?? 0) > 0)
+    .filter((token) => token.denom === 'uzig' || (token.priceUsd ?? 0) > 0)
     .sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0))
     .slice(0, 12);
   const mostActive = [...tokens].sort((a, b) => (b.tx || 0) - (a.tx || 0)).slice(0, 12);

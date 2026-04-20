@@ -19,6 +19,7 @@ import {
   X
 } from "lucide-react";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
+import { tokenApiRef } from "@/lib/token-routing";
 
 interface MarketsProps {
   denom?: string;
@@ -94,7 +95,7 @@ const getTokenRouteRef = (denom?: string | null, symbol?: string | null) => {
 
 const buildPoolsUrl = (denom: string) =>
   `${API_BASE}/tokens/${encodeURIComponent(
-    denom
+    tokenApiRef(denom)
   )}/pools?includeAllSides=1`;
   // ?dominant=base&bucket=24h&limit=100
 
@@ -399,7 +400,7 @@ export default function Markets({ denom, onSelectPair }: MarketsProps) {
                         const quoteDenom = selectedPair.quoteDenom;
                         const tokenRouteRef = getTokenRouteRef(baseDenom, baseSymbol);
                         const targetUrl =
-                          tokenRouteRef && pairContract && (isIbcDenom(baseDenom) || !isZigDenom(quoteDenom))
+                          tokenRouteRef && pairContract
                             ? `/token/${encodeURIComponent(
                                 tokenRouteRef
                               )}/${encodeURIComponent(pairContract)}`

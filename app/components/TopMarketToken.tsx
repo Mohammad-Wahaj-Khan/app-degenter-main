@@ -51,7 +51,7 @@ export default function TopMarketToken() {
           ? respAny
           : respAny?.data ?? respAny?.tokens ?? respAny?.results ?? [];
 
-        // Filter out ZIG and uzig tokens
+        // Include ZIG like other tokens, but only include tokens with holders.
         const filteredTokens = rawTokens.filter((token: APIToken) => {
           // console.log(
           //   "Checking token:",
@@ -59,11 +59,7 @@ export default function TopMarketToken() {
           //   "holders:",
           //   token.holders
           // );
-          return (
-            token.symbol &&
-            !["zig", "uzig"].includes(token.symbol.toLowerCase()) &&
-            token.holders > 0
-          ); // Only include tokens with holders
+          return token.symbol && token.holders > 0; // Only include tokens with holders
         });
 
         // // console.log("Filtered tokens count:", filteredTokens.length);

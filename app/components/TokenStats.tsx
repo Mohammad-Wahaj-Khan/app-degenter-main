@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { ChevronDown } from "lucide-react";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
-import { isIbcDenom } from "@/lib/token-routing";
+import { tokenApiRef } from "@/lib/token-routing";
 
 const API_BASE = API_BASE_URL;
 
@@ -46,17 +46,15 @@ const isSelectedPairWithZig = (
   isZigAsset(selectedPair?.baseDenom) ||
   isZigAsset(selectedPair?.quoteDenom);
 
-// Helper function to extract token ID from full denom
-const extractTokenId = (denom: string): string => {
-  if (isIbcDenom(denom)) return denom;
-  const parts = denom.split('.');
-  const lastPart = parts[parts.length - 1];
-  
-  if (lastPart === 'stzig') return 'stzig';
-  if (lastPart === 'zig') return 'zig';
-  if (lastPart === 'uzig') return 'uzig';
-  
-  return lastPart || denom;
+// Keep full denoms for API lookups. Symbols can collide across factory tokens.
+const normalizeFetchRef = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    return decodeURIComponent(trimmed);
+  } catch {
+    return trimmed;
+  }
 };
 
 const getPoolIdFromPool = (pool: any): string | null => {
@@ -80,7 +78,9 @@ const getKnownPoolIdForPairContract = (pairContract?: string | null) => {
 };
 
 const buildPoolsLookupUrl = (tokenRef: string) =>
-  `${API_BASE}/tokens/${encodeURIComponent(tokenRef)}/pools?includeAllSides=1`;
+  `${API_BASE}/tokens/${encodeURIComponent(
+    tokenApiRef(tokenRef)
+  )}/pools?includeAllSides=1`;
 
 const isMatchingPool = (
   pool: any,
@@ -207,29 +207,29 @@ export default function TokenStats({
     : null;
 
   const resolveTokenId = (): string | null => {
-    // For selected pairs, use the token symbol/denom (like "stzig"), not numeric ID.
-    if (selectedBaseDenom && !isZigAsset(selectedBaseDenom)) {
-      return extractTokenId(selectedBaseDenom);
+    // Prefer full denoms over symbols. Symbols can repeat across tokens.
+    if (selectedBaseDenom) {
+      return normalizeFetchRef(selectedBaseDenom);
     }
 
-    if (selectedQuoteDenom && !isZigAsset(selectedQuoteDenom)) {
-      return extractTokenId(selectedQuoteDenom);
+    if (selectedQuoteDenom) {
+      return normalizeFetchRef(selectedQuoteDenom);
     }
 
-    if (selectedPair?.baseSymbol && !isZigAsset(selectedPair.baseSymbol)) {
+    if (selectedPair?.baseSymbol) {
       return selectedPair.baseSymbol.toLowerCase();
     }
 
-    if (selectedPair?.quoteSymbol && !isZigAsset(selectedPair.quoteSymbol)) {
+    if (selectedPair?.quoteSymbol) {
       return selectedPair.quoteSymbol.toLowerCase();
     }
 
     if (tokenKey && tokenKey.trim() !== "") {
-      return extractTokenId(tokenKey);
+      return normalizeFetchRef(tokenKey);
     }
 
     if (summaryData?.token?.denom) {
-      return extractTokenId(summaryData.token.denom);
+      return normalizeFetchRef(summaryData.token.denom);
     }
     
     if (summaryData?.token?.symbol) {
@@ -247,17 +247,18 @@ export default function TokenStats({
 
   // Helper to build token details URL with proper parameters
   const buildTokenDetailsUrl = (fetchTarget: string, poolId: string | null) => {
+    const apiTarget = tokenApiRef(fetchTarget);
     if (selectedPairWithZig) {
-      return `${API_BASE}/tokens/${encodeURIComponent(fetchTarget)}`;
+      return `${API_BASE}/tokens/${encodeURIComponent(apiTarget)}`;
     }
 
     if (poolId) {
       // When pool is selected, ALWAYS use the poolId from selectedPair
       // This ensures we get the correct pair's data (e.g., STZIG/ZIGMORNING with poolId=10)
-      return `${API_BASE}/tokens/${encodeURIComponent(fetchTarget)}?priceSource=pool&poolId=${encodeURIComponent(poolId)}&dominant=quote&view=auto`;
+      return `${API_BASE}/tokens/${encodeURIComponent(apiTarget)}?priceSource=pool&poolId=${encodeURIComponent(poolId)}&dominant=quote&view=auto`;
     }
     // When no pool selected, fetch with best price source
-    return `${API_BASE}/tokens/${encodeURIComponent(fetchTarget)}?priceSource=best`;
+    return `${API_BASE}/tokens/${encodeURIComponent(apiTarget)}?priceSource=best`;
   };
 
   const resolvePoolIdFromTokenDetails = async (
@@ -268,7 +269,9 @@ export default function TokenStats({
 
     try {
       const response = await fetch(
-        `${API_BASE}/tokens/${encodeURIComponent(fetchTarget)}?priceSource=best&includePools=1`,
+        `${API_BASE}/tokens/${encodeURIComponent(
+          tokenApiRef(fetchTarget)
+        )}?priceSource=best&includePools=1`,
         { headers: API_HEADERS }
       );
       if (!response.ok) return null;
@@ -304,7 +307,7 @@ export default function TokenStats({
     try {
       const response = await fetch(
         `${API_BASE}/tokens/${encodeURIComponent(
-          tokenIdentity
+          tokenApiRef(tokenIdentity)
         )}?priceSource=best&includePools=1`,
         { headers: API_HEADERS }
       );
@@ -319,11 +322,11 @@ export default function TokenStats({
         (detail?.price?.poolId != null ? String(detail.price.poolId) : null) ||
         (detail?.price?.pool_id != null ? String(detail.price.pool_id) : null);
       if (directPoolId) {
-        console.info("[TokenStats] tokenId direct poolId", {
-          tokenId: tokenIdentity,
-          directPoolId,
-          pairContract: detail?.pairContract ?? detail?.price?.pairContract,
-        });
+        // console.info("[TokenStats] tokenId direct poolId", {
+        //   tokenId: tokenIdentity,
+        //   directPoolId,
+        //   pairContract: detail?.pairContract ?? detail?.price?.pairContract,
+        // });
         return directPoolId;
       }
       const candidates = [
@@ -341,13 +344,13 @@ export default function TokenStats({
         )
       );
       const resolved = getPoolIdFromPool(match);
-      console.info("[TokenStats] tokenId pool lookup", {
-        tokenId: tokenIdentity,
-        resolved,
-        selectedPairContract,
-        selectedBaseDenom,
-        selectedQuoteDenom,
-      });
+      // console.info("[TokenStats] tokenId pool lookup", {
+      //   tokenId: tokenIdentity,
+      //   resolved,
+      //   selectedPairContract,
+      //   selectedBaseDenom,
+      //   selectedQuoteDenom,
+      // });
       return resolved;
     } catch (err) {
       console.error("[TokenStats] Failed tokenId pool lookup", err);
@@ -381,29 +384,29 @@ export default function TokenStats({
         if (!response.ok) continue;
         const json = await response.json();
         const pools = Array.isArray(json?.data) ? json.data : [];
-        console.info("[TokenStats] pool lookup candidates", {
-          sourceDenom,
-          count: pools.length,
-          selectedPairContract,
-          selectedBaseDenom,
-          selectedQuoteDenom,
-            poolCandidates: pools.slice(0, 10).map((pool: any) => ({
-              poolId:
-                pool?.poolId ??
-                pool?.pool_id ??
-                pool?.poolID ??
-                pool?.poolIdNumber ??
-                pool?.id,
-              pairContract:
-                pool?.pairContract ??
-                pool?.pair_contract ??
-                pool?.contract_address,
-              baseDenom: pool?.base?.denom,
-              quoteDenom: pool?.quote?.denom,
-              baseSymbol: pool?.base?.symbol,
-            quoteSymbol: pool?.quote?.symbol,
-          })),
-        });
+        // console.info("[TokenStats] pool lookup candidates", {
+        //   sourceDenom,
+        //   count: pools.length,
+        //   selectedPairContract,
+        //   selectedBaseDenom,
+        //   selectedQuoteDenom,
+        //     poolCandidates: pools.slice(0, 10).map((pool: any) => ({
+        //       poolId:
+        //         pool?.poolId ??
+        //         pool?.pool_id ??
+        //         pool?.poolID ??
+        //         pool?.poolIdNumber ??
+        //         pool?.id,
+        //       pairContract:
+        //         pool?.pairContract ??
+        //         pool?.pair_contract ??
+        //         pool?.contract_address,
+        //       baseDenom: pool?.base?.denom,
+        //       quoteDenom: pool?.quote?.denom,
+        //       baseSymbol: pool?.base?.symbol,
+        //     quoteSymbol: pool?.quote?.symbol,
+        //   })),
+        // });
         const match = pools.find((pool: any) =>
           isMatchingPool(
             pool,
@@ -438,17 +441,17 @@ export default function TokenStats({
       }
 
       const poolId = await resolveSelectedPairPoolId(fetchTarget);
-      console.info("[TokenStats] fetch context", {
-        fetchTarget,
-        poolId,
-        shouldUsePoolPricing,
-        selectedPairWithZig,
-        selectedPair,
-        tokenId,
-        tokenKey,
-        summaryDenom: summaryData?.token?.denom,
-        summarySymbol: summaryData?.token?.symbol,
-      });
+      // console.info("[TokenStats] fetch context", {
+      //   fetchTarget,
+      //   poolId,
+      //   shouldUsePoolPricing,
+      //   selectedPairWithZig,
+      //   selectedPair,
+      //   tokenId,
+      //   tokenKey,
+      //   summaryDenom: summaryData?.token?.denom,
+      //   summarySymbol: summaryData?.token?.symbol,
+      // });
       if (shouldUsePoolPricing && !poolId) {
         console.error("[TokenStats] Unable to resolve pool id for selected non-ZIG pair", {
           selectedPair,
@@ -466,7 +469,7 @@ export default function TokenStats({
       
       // Build the URL with proper parameters
       const tokenUrl = buildTokenDetailsUrl(fetchTarget, poolId);
-      console.info("[TokenStats] request", { tokenUrl });
+      // console.info("[TokenStats] request", { tokenUrl });
       
       // console.log("========== TOKEN STATS FETCH ==========");
       // console.log("Fetching token stats from:", tokenUrl);
@@ -482,19 +485,19 @@ export default function TokenStats({
 
       if (statsResponse.ok) {
         const json = await statsResponse.json();
-        console.info("[TokenStats] response", {
-          status: statsResponse.status,
-          success: json?.success,
-          hasData: Boolean(json?.data),
-          responsePoolId:
-            json?.data?.poolId ??
-            json?.data?.pool_id ??
-            json?.data?.poolID ??
-            json?.data?.price?.poolId ??
-            json?.data?.price?.pool_id,
-          symbol: json?.data?.token?.symbol ?? json?.data?.symbol,
-          denom: json?.data?.token?.denom,
-        });
+        // console.info("[TokenStats] response", {
+        //   status: statsResponse.status,
+        //   success: json?.success,
+        //   hasData: Boolean(json?.data),
+        //   responsePoolId:
+        //     json?.data?.poolId ??
+        //     json?.data?.pool_id ??
+        //     json?.data?.poolID ??
+        //     json?.data?.price?.poolId ??
+        //     json?.data?.price?.pool_id,
+        //   symbol: json?.data?.token?.symbol ?? json?.data?.symbol,
+        //   denom: json?.data?.token?.denom,
+        // });
         if (json?.success && json?.data) {
           const tokenData = json.data;
           
@@ -577,12 +580,27 @@ export default function TokenStats({
   useEffect(() => {
     if (shouldUsePoolPricing) return;
     if (!summaryData) return;
+
+    const resolvedRef = resolveTokenId();
+    const summaryDenom = summaryData.token?.denom;
+    const requiresExactDenom =
+      resolvedRef &&
+      (resolvedRef.includes(".") ||
+        resolvedRef.includes("/") ||
+        normalizeDenom(resolvedRef) === "uzig");
+    if (
+      requiresExactDenom &&
+      summaryDenom &&
+      normalizeDenom(summaryDenom) !== normalizeDenom(resolvedRef)
+    ) {
+      return;
+    }
     
     // For non-pool views, use summary data
     setData(summaryData);
     lastGoodDataRef.current = summaryData;
     setLoading(false);
-  }, [shouldUsePoolPricing, summaryData]);
+  }, [shouldUsePoolPricing, summaryData, tokenKey, tokenId, selectedPair]);
 
   // Initial fetch when selectedPair or token changes
   useEffect(() => {
@@ -619,19 +637,19 @@ export default function TokenStats({
   }
 
   if (!data) {
-    console.warn("[TokenStats] rendering no-data state", {
-      tokenId,
-      tokenKey,
-      selectedPair,
-      shouldUsePoolPricing,
-      selectedPairWithZig,
-      activePoolId,
-      selectedBaseDenom,
-      selectedQuoteDenom,
-      selectedPairContract,
-      summaryHasData: Boolean(summaryData),
-      lastGoodHasData: Boolean(lastGoodDataRef.current),
-    });
+    // console.warn("[TokenStats] rendering no-data state", {
+    //   tokenId,
+    //   tokenKey,
+    //   selectedPair,
+    //   shouldUsePoolPricing,
+    //   selectedPairWithZig,
+    //   activePoolId,
+    //   selectedBaseDenom,
+    //   selectedQuoteDenom,
+    //   selectedPairContract,
+    //   summaryHasData: Boolean(summaryData),
+    //   lastGoodHasData: Boolean(lastGoodDataRef.current),
+    // });
     if (!tokenKey && !tokenId && !selectedPair) {
       return (
         <div className="bg-black/50 border border-gray-700 rounded-lg p-6 text-center text-gray-400">

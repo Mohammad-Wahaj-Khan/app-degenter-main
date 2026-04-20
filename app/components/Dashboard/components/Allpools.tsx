@@ -186,13 +186,11 @@ export default function Allpools() {
       const json = await res.json();
       const tokens: TokenResponse[] = json?.data || [];
 
-      // Filter out ZIG and STZIG tokens
+      // Keep STZIG out of the pools list while showing ZIG like other tokens.
       const filtered = tokens.filter((t) => {
         const upperSymbol = t.symbol?.toUpperCase();
         const upperName = t.name?.toUpperCase() || "";
         return (
-          upperSymbol !== "ZIG" &&
-          upperName !== "ZIG" &&
           upperSymbol !== "STZIG" &&
           !upperName.includes("STZIG")
         );

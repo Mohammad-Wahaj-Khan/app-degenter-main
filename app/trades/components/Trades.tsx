@@ -286,7 +286,7 @@ const Trades = ({
               tokenId: denom,
             };
           })
-          .filter((option) => option.denom && !isZigDenom(option.denom));
+          .filter((option) => option.denom);
 
         if (!cancelled) {
           TOKEN_OPTIONS_CACHE.options = options;
@@ -684,7 +684,7 @@ const Trades = ({
         label,
         tokenId: undefined,
       }))
-      .filter(({ denom }) => !isZigDenom(denom));
+      .filter(({ denom }) => denom);
   }, [trades, symbolMap]);
 
   const resolvedTokenOption = useMemo(() => {

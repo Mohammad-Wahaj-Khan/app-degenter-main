@@ -16,7 +16,7 @@ import {
 import explorer from "../../public/explorer.png";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 import { useRouter } from "next/navigation";
-import { isIbcDenom } from "@/lib/token-routing";
+import { isIbcDenom, tokenApiRef } from "@/lib/token-routing";
 
 const API_BASE = API_BASE_URL;
 const TRADES_WS_URL = process.env.NEXT_PUBLIC_TRADES_WS_URL || "";
@@ -254,11 +254,13 @@ const poolMatchesSelectedPair = (
 };
 
 const buildPoolsLookupUrl = (tokenRef: string) =>
-  `${API_BASE}/tokens/${encodeURIComponent(tokenRef)}/pools?includeAllSides=1`;
+  `${API_BASE}/tokens/${encodeURIComponent(
+    tokenApiRef(tokenRef)
+  )}/pools?includeAllSides=1`;
 
 const buildTokenDetailsLookupUrl = (tokenRef: string) =>
   `${API_BASE}/tokens/${encodeURIComponent(
-    tokenRef
+    tokenApiRef(tokenRef)
   )}?priceSource=best&includePools=1`;
 
 const numericField = (...values: unknown[]) => {
@@ -460,7 +462,9 @@ const fetchTokenMeta = async (tokenId: string) => {
   }
 
   try {
-    const res = await fetchApi(`${API_BASE}/tokens/${encodeURIComponent(tokenId)}`);
+    const res = await fetchApi(
+      `${API_BASE}/tokens/${encodeURIComponent(tokenApiRef(tokenId))}`
+    );
     if (!res.ok) return null;
     const json = await res.json();
     if (!json?.success || !json?.data) return null;
@@ -1030,21 +1034,21 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
     "";
 
   useEffect(() => {
-    console.info("[RecentTrades] pool id context", {
-      usePoolTrades,
-      isPoolTradeContext,
-      shouldUsePoolTrades,
-      activePoolId,
-      statePoolId: poolId,
-      selectedPairPoolId: selectedPair?.poolId ?? null,
-      selectedKnownPoolId,
-      selectedPairContract,
-      selectedBaseDenom,
-      selectedQuoteDenom,
-      tokenId,
-      resolvedTokenId,
-      resolvedNumericTokenId,
-    });
+    // console.info("[RecentTrades] pool id context", {
+    //   usePoolTrades,
+    //   isPoolTradeContext,
+    //   shouldUsePoolTrades,
+    //   activePoolId,
+    //   statePoolId: poolId,
+    //   selectedPairPoolId: selectedPair?.poolId ?? null,
+    //   selectedKnownPoolId,
+    //   selectedPairContract,
+    //   selectedBaseDenom,
+    //   selectedQuoteDenom,
+    //   tokenId,
+    //   resolvedTokenId,
+    //   resolvedNumericTokenId,
+    // });
   }, [
     activePoolId,
     isPoolTradeContext,
@@ -1134,7 +1138,9 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
     async (id: string): Promise<string | null> => {
       try {
         const res = await fetchApi(
-          `${API_BASE}/tokens/${encodeURIComponent(id)}?priceSource=best`,
+          `${API_BASE}/tokens/${encodeURIComponent(
+            tokenApiRef(id)
+          )}?priceSource=best`,
           { cache: "no-store" }
         );
         if (!res.ok) return null;
@@ -1174,15 +1180,15 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           ? String(tokenDetail.price.pool_id)
           : null);
 
-      console.info("[RecentTrades] direct token pool lookup", {
-        tokenNumericId: resolvedNumericTokenId,
-        directPoolId,
-        pairContract:
-          tokenDetail?.pairContract ??
-          tokenDetail?.pair_contract ??
-          tokenDetail?.price?.pairContract ??
-          tokenDetail?.price?.pair_contract,
-      });
+      // console.info("[RecentTrades] direct token pool lookup", {
+      //   tokenNumericId: resolvedNumericTokenId,
+      //   directPoolId,
+      //   pairContract:
+      //     tokenDetail?.pairContract ??
+      //     tokenDetail?.pair_contract ??
+      //     tokenDetail?.price?.pairContract ??
+      //     tokenDetail?.price?.pair_contract,
+      // });
 
       return directPoolId;
     } catch (error) {
@@ -1232,29 +1238,29 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           getPoolIdFromPool(pool) ||
           getKnownPoolIdForPairContract(getPairContractFromPool(pool));
         if (matchedPoolId) {
-          console.info("[RecentTrades] selected pair pool resolved", {
-            lookup,
-            selectedPairContract,
-            matchedPoolId,
-          });
+          // console.info("[RecentTrades] selected pair pool resolved", {
+          //   lookup,
+          //   selectedPairContract,
+          //   matchedPoolId,
+          // });
           return String(matchedPoolId);
         }
-        console.info("[RecentTrades] selected pair pool no match", {
-          lookup,
-          selectedPairContract,
-          selectedBaseDenom,
-          selectedQuoteDenom,
-          selectedBaseSymbol: selectedPair?.baseSymbol,
-          selectedQuoteSymbol: selectedPair?.quoteSymbol,
-          candidates: pools.slice(0, 12).map((candidate) => ({
-            poolId: getPoolIdFromPool(candidate),
-            pairContract: getPairContractFromPool(candidate),
-            baseDenom: candidate?.base?.denom,
-            quoteDenom: candidate?.quote?.denom,
-            baseSymbol: candidate?.base?.symbol,
-            quoteSymbol: candidate?.quote?.symbol,
-          })),
-        });
+        // console.info("[RecentTrades] selected pair pool no match", {
+        //   lookup,
+        //   selectedPairContract,
+        //   selectedBaseDenom,
+        //   selectedQuoteDenom,
+        //   selectedBaseSymbol: selectedPair?.baseSymbol,
+        //   selectedQuoteSymbol: selectedPair?.quoteSymbol,
+        //   candidates: pools.slice(0, 12).map((candidate) => ({
+        //     poolId: getPoolIdFromPool(candidate),
+        //     pairContract: getPairContractFromPool(candidate),
+        //     baseDenom: candidate?.base?.denom,
+        //     quoteDenom: candidate?.quote?.denom,
+        //     baseSymbol: candidate?.base?.symbol,
+        //     quoteSymbol: candidate?.quote?.symbol,
+        //   })),
+        // });
       } catch (error) {
         console.error("[RecentTrades] selected pair pool lookup failed", {
           lookup,
@@ -1579,13 +1585,13 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
               })
             );
             const tokenDerivedPoolId = getPoolIdFromPool(tokenMatch);
-            console.info("[RecentTrades] tokenId pool lookup", {
-              tokenId: tokenIdentity,
-              resolved: tokenDerivedPoolId,
-              selectedPairContract,
-              selectedBaseDenom,
-              selectedQuoteDenom,
-            });
+            // console.info("[RecentTrades] tokenId pool lookup", {
+            //   tokenId: tokenIdentity,
+            //   resolved: tokenDerivedPoolId,
+            //   selectedPairContract,
+            //   selectedBaseDenom,
+            //   selectedQuoteDenom,
+            // });
             if (tokenDerivedPoolId) {
               setPoolId(String(tokenDerivedPoolId));
               return;
@@ -1603,24 +1609,24 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           selectedPair?.baseSymbol ||
           resolvedKey ||
           "";
-        console.info("[RecentTrades] resolving pool id", {
-          baseKey,
-          tokenId,
-          pairContract,
-          resolvedTokenId,
-          selectedPair: {
-            poolId: selectedPair?.poolId,
-            baseSymbol: selectedPair?.baseSymbol,
-            quoteSymbol: selectedPair?.quoteSymbol,
-            baseDenom: selectedPair?.baseDenom,
-            quoteDenom: selectedPair?.quoteDenom,
-            pairContract: selectedPair?.pairContract,
-          },
-          selectedPairContract,
-          selectedBaseDenom,
-          selectedQuoteDenom,
-          shouldUsePoolPricing,
-        });
+        // console.info("[RecentTrades] resolving pool id", {
+        //   baseKey,
+        //   tokenId,
+        //   pairContract,
+        //   resolvedTokenId,
+        //   selectedPair: {
+        //     poolId: selectedPair?.poolId,
+        //     baseSymbol: selectedPair?.baseSymbol,
+        //     quoteSymbol: selectedPair?.quoteSymbol,
+        //     baseDenom: selectedPair?.baseDenom,
+        //     quoteDenom: selectedPair?.quoteDenom,
+        //     pairContract: selectedPair?.pairContract,
+        //   },
+        //   selectedPairContract,
+        //   selectedBaseDenom,
+        //   selectedQuoteDenom,
+        //   shouldUsePoolPricing,
+        // });
         const response = await fetchApi(
           buildPoolsLookupUrl(baseKey),
           { cache: "no-store" }
@@ -1637,24 +1643,24 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           return;
         }
         const pools = extractPools(data);
-        console.info("[RecentTrades] pool candidates", {
-          baseKey,
-          count: pools.length,
-          poolCandidates: pools.slice(0, 10).map((pool: any) => ({
-            poolId:
-              pool?.poolId ??
-              pool?.pool_id ??
-              pool?.poolID ??
-              pool?.poolIdNumber ??
-              pool?.id,
-            pairContract:
-              getPairContractFromPool(pool),
-            baseDenom: pool?.base?.denom,
-            quoteDenom: pool?.quote?.denom,
-            baseSymbol: pool?.base?.symbol,
-            quoteSymbol: pool?.quote?.symbol,
-          })),
-        });
+        // console.info("[RecentTrades] pool candidates", {
+        //   baseKey,
+        //   count: pools.length,
+        //   poolCandidates: pools.slice(0, 10).map((pool: any) => ({
+        //     poolId:
+        //       pool?.poolId ??
+        //       pool?.pool_id ??
+        //       pool?.poolID ??
+        //       pool?.poolIdNumber ??
+        //       pool?.id,
+        //     pairContract:
+        //       getPairContractFromPool(pool),
+        //     baseDenom: pool?.base?.denom,
+        //     quoteDenom: pool?.quote?.denom,
+        //     baseSymbol: pool?.base?.symbol,
+        //     quoteSymbol: pool?.quote?.symbol,
+        //   })),
+        // });
         if (!pools.length) {
           setLoading(false);
           return;
@@ -2170,10 +2176,10 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           // borderLeft: isShark ? "4px solid #1EA76D" : "1px solid transparent",
         }}
       >
-        <td className="px-4 py-3 text-sm text-gray-400 font-mono">
+        <td className="px-3 sm:px-4 py-3 text-md sm:text-base lg:text-lg text-gray-400 font-mono whitespace-nowrap">
           {formatTimeAgo(trade.time)}
         </td>
-        <td className={`px-4 py-3 text-sm font-bold ${directionColor}`}>
+        <td className={`px-3 sm:px-4 py-3 text-md sm:text-base lg:text-lg font-bold ${directionColor} whitespace-nowrap`}>
           <div className="flex items-center gap-2">
             <span className="uppercase tracking-wide">
               {trade.direction.toUpperCase()}
@@ -2185,10 +2191,10 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
             )} */}
           </div>
         </td>
-        <td className="px-4 py-3 text-sm font-mono text-gray-200">
+        <td className="px-3 sm:px-4 py-3 text-md sm:text-base lg:text-lg font-mono text-gray-200 whitespace-nowrap">
           <span className={directionColor}>{priceText}</span>
         </td>
-        <td className="px-4 py-3">
+        <td className="px-3 sm:px-4 py-3 whitespace-nowrap">
           <div className="flex items-center gap-2">
             <span
               className={`inline-flex items-center justify-center w-6 h-6 rounded-full `}
@@ -2207,9 +2213,9 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
             <span className="text-gray-200 font-mono">{valueText}</span>
           </div>
         </td>
-        <td className="px-4 py-3 text-base">
+        <td className="px-3 sm:px-4 py-3 text-base sm:text-[1.02rem] lg:text-[1.05rem] whitespace-nowrap">
           <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2 text-[#1EA76D] font-semibold text-base leading-tight">
+            <div className="flex items-center gap-2 text-[#1EA76D] font-medium text-base sm:text-[1.02rem] lg:text-[1.05rem] leading-tight whitespace-nowrap">
               <TradeTokenImage
                 src={getTokenIcon(trade.askDenom, trade.askImage)}
                 alt={symbolFor(trade.askDenom, trade.askSymbol)}
@@ -2217,7 +2223,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
               +{formatRecentTradeAmount(trade.returnAmount)}{" "}
               {symbolFor(trade.askDenom, trade.askSymbol)}
             </div>
-            <div className="flex items-center gap-2 text-[#FF5C5C] font-semibold text-base leading-tight">
+            <div className="flex items-center gap-2 text-[#FF5C5C] font-medium text-base sm:text-[1.02rem] lg:text-[1.05rem] leading-tight whitespace-nowrap">
               <TradeTokenImage
                 src={getTokenIcon(trade.offerDenom, trade.offerImage)}
                 alt={symbolFor(trade.offerDenom, trade.offerSymbol)}
@@ -2227,7 +2233,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
             </div>
           </div>
         </td>
-        <td className="px-4 py-3 text-sm font-mono text-gray-400">
+        <td className="px-3 sm:px-4 py-3 text-md sm:text-base lg:text-lg font-mono text-gray-400 whitespace-nowrap">
           <div className="flex items-center gap-2">
             {trade.signer ? (
               <Link
@@ -2277,7 +2283,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
             )}
           </div>
         </td>
-        <td className="px-4 py-3 text-sm font-mono text-gray-400">
+        <td className="px-3 sm:px-4 py-3 text-md sm:text-base lg:text-lg font-mono text-gray-400 whitespace-nowrap">
           {trade.txHash ? (
             <Link
               href={`https://zigscan.org/tx/${trade.txHash}`}
@@ -2291,7 +2297,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
             shortTx
           )}
         </td>
-        <td className="px-4 py-3 text-center">
+        <td className="px-3 sm:px-4 py-3 text-center whitespace-nowrap">
           {trade.txHash ? (
             <Link
               href={`https://zigscan.org/tx/${trade.txHash}`}
@@ -2348,10 +2354,10 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
       </svg>
       {/* Filter Buttons */}
       {activeTab === "Trade History" && (
-        <div className="flex flex-wrap gap-2 mb-4 p-4">
+        <div className="mb-4 flex flex-wrap gap-2 p-3 sm:p-4">
           <button
             onClick={() => setActiveFilter(null)}
-            className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+            className={`rounded-lg px-3 py-1 text-md sm:text-base lg:text-lg font-medium transition-colors ${
               activeFilter === null
                 ? "bg-[#1EA76D] text-white"
                 : "bg-gray-800 text-gray-300 hover:bg-gray-700"
@@ -2361,7 +2367,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           </button>
           <button
             onClick={() => setActiveFilter("whale")}
-            className={`px-3 py-1 rounded-lg text-sm font-medium flex items-center gap-1 transition-colors ${
+            className={`flex items-center gap-1 rounded-lg px-3 py-1 text-md sm:text-base lg:text-lg font-medium transition-colors ${
               activeFilter === "whale"
                 ? "bg-blue-900/50 text-blue-300"
                 : "bg-gray-800 text-blue-400 hover:bg-gray-700"
@@ -2371,7 +2377,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           </button>
           <button
             onClick={() => setActiveFilter("shark")}
-            className={`px-3 py-1 rounded-lg text-sm font-medium flex items-center gap-1 transition-colors ${
+            className={`flex items-center gap-1 rounded-lg px-3 py-1 text-md sm:text-base lg:text-lg font-medium transition-colors ${
               activeFilter === "shark"
                 ? "bg-red-900/50 text-red-300"
                 : "bg-gray-800 text-red-400 hover:bg-gray-700"
@@ -2381,7 +2387,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           </button>
           <button
             onClick={() => setActiveFilter("shrimp")}
-            className={`px-3 py-1 rounded-lg text-sm font-medium flex items-center gap-1 transition-colors ${
+            className={`flex items-center gap-1 rounded-lg px-3 py-1 text-md sm:text-base lg:text-lg font-medium transition-colors ${
               activeFilter === "shrimp"
                 ? "bg-yellow-900/50 text-yellow-300"
                 : "bg-gray-800 text-yellow-400 hover:bg-gray-700"
@@ -2393,17 +2399,17 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
       )}
       {/* Table */}
       <div className="relative overflow-x-auto overflow-visible">
-        <table className="relative z-10 w-full text-base sm:text-[1rem] text-white">
-          <thead className="bg-black/60 text-white uppercase text-sm tracking-wider">
+        <table className="relative z-10 min-w-[1120px] lg:min-w-full w-full text-md sm:text-base lg:text-[1rem] text-white">
+          <thead className="bg-black/60 text-white uppercase text-md sm:text-base lg:text-lg tracking-wider">
             <tr>
-              <td className="px-4 py-2 text-left text-gray-400">Time</td>
-              <td className="px-4 py-2 text-left text-gray-400">Type</td>
-              <td className="px-4 py-2 text-left text-gray-400">Price</td>
-              <td className="px-4 py-2 text-left text-gray-400">Value</td>
-              <td className="px-4 py-2 text-left text-gray-400">Amount</td>
-              <td className="px-4 py-2">
+              <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Time</td>
+              <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Type</td>
+              <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Price</td>
+              <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Value</td>
+              <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Amount</td>
+              <td className="px-3 sm:px-4 py-2 whitespace-nowrap">
                 <div className="flex items-center gap-1 text-gray-400">
-                  <span className="flex items-center gap-1 text-sm">
+                  <span className="flex items-center gap-1 text-md sm:text-base lg:text-lg whitespace-nowrap">
                     By address
                     <Search className="h-3 w-3 text-gray-500" />
                   </span>
@@ -2434,8 +2440,8 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
                   )} */}
                 </div>
               </td>
-              <td className="px-4 py-2 text-left text-gray-400">Transaction</td>
-              <td className="px-4 py-2 text-left text-gray-400">Action</td>
+              <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Transaction</td>
+              <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Action</td>
             </tr>
           </thead>
 
@@ -2490,8 +2496,8 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="flex flex-col sm:flex-row justify-end items-center px-4 py-2 text-white text-sm bg-black/40">
-        <div className="flex items-center gap-1 mb-2 sm:mb-0">
+      <div className="flex flex-col sm:flex-row justify-end items-center px-3 sm:px-4 py-2 text-white text-md sm:text-base lg:text-lg bg-black/40">
+        <div className="flex items-center gap-1 mb-2 sm:mb-0 text-center sm:text-left">
           <button
             onClick={() => handlePageChange(1)}
             disabled={currentPage === 1}
@@ -2543,7 +2549,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
                   setActiveFilter(null);
                   setShowFilterDropdown(false);
                 }}
-                className={`block w-full px-4 py-2 text-sm text-left ${
+                className={`block w-full px-4 py-2 text-lg text-left ${
                   !activeFilter ? "bg-gray-100 dark:bg-gray-700" : ""
                 }`}
               >
@@ -2554,7 +2560,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
                   setActiveFilter("whale");
                   setShowFilterDropdown(false);
                 }}
-                className={`block w-full px-4 py-2 text-sm text-left ${
+                className={`block w-full px-4 py-2 text-lg text-left ${
                   activeFilter === "whale" ? "bg-gray-100 dark:bg-gray-700" : ""
                 }`}
               >
@@ -2565,7 +2571,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
                   setActiveFilter("shark");
                   setShowFilterDropdown(false);
                 }}
-                className={`block w-full px-4 py-2 text-sm text-left ${
+                className={`block w-full px-4 py-2 text-lg text-left ${
                   activeFilter === "shark" ? "bg-gray-100 dark:bg-gray-700" : ""
                 }`}
               >
@@ -2576,7 +2582,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
                   setActiveFilter("shrimp");
                   setShowFilterDropdown(false);
                 }}
-                className={`block w-full px-4 py-2 text-sm text-left ${
+                className={`block w-full px-4 py-2 text-lg text-left ${
                   activeFilter === "shrimp"
                     ? "bg-gray-100 dark:bg-gray-700"
                     : ""

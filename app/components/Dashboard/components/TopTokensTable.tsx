@@ -88,12 +88,8 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
           ? respAny
           : respAny?.data ?? respAny?.tokens ?? respAny?.results ?? [];
 
-        // Filter out ZIG and uzig tokens
         const filteredTokens = rawTokens.filter(
-          (token: any) =>
-            token &&
-            token.symbol &&
-            !["zig", "uzig"].includes(String(token.symbol).toLowerCase())
+          (token: any) => token && token.symbol
         );
 
         const tokensData: Token[] = filteredTokens.map((token: any) => {
