@@ -51,6 +51,7 @@ type ChangePct = {
 
 type MoversApiToken = {
   tokenId?: number | string;
+  denom?: string;
   symbol?: string;
   name?: string;
   priceUsd?: number;
@@ -338,11 +339,15 @@ const FindGemsMain = () => {
         const gainersList = Array.isArray(moversData.data?.gainers) ? moversData.data.gainers : [];
         const losersList = Array.isArray(moversData.data?.losers) ? moversData.data.losers : [];
 
+        const isNativeZig = (token: MoversApiToken) =>
+          String(token.symbol || "").toLowerCase() === "zig" ||
+          String(token.denom || "").toLowerCase() === "uzig";
+
         const mappedGainers = gainersList
-          .filter((token) => token.symbol && (token.priceUsd || 0) > 0)
+          .filter((token) => token.symbol && (isNativeZig(token) || (token.priceUsd || 0) > 0))
           .map(mapMoverToken);
         const mappedLosers = losersList
-          .filter((token) => token.symbol && (token.priceUsd || 0) > 0)
+          .filter((token) => token.symbol && (isNativeZig(token) || (token.priceUsd || 0) > 0))
           .map(mapMoverToken);
 
         const uniq = new Map<string, Token>();

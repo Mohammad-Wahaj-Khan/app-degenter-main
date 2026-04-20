@@ -1,4 +1,5 @@
 // app/lib/api.ts
+import { tokenApiRef } from "@/lib/token-routing";
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 const normalizeBaseUrl = (value?: string) => {
   if (!value) return DEFAULT_BASE_URL;
@@ -212,7 +213,7 @@ export class TokenAPI {
     init: RequestInit = {},
     poolId?: string | null
   ) {
-    const safeSymbol = encodeURIComponent(symbol);
+    const safeSymbol = encodeURIComponent(tokenApiRef(symbol));
     const include = includePools ? "&includePools=1" : "";
     const pool = poolId ? `&poolId=${encodeURIComponent(poolId)}` : "";
     return this.fetchData<{ success: boolean; data: TokenSummary }>(
@@ -228,7 +229,7 @@ export class TokenAPI {
     init: RequestInit = {},
     poolId?: string | null
   ) {
-    const safeSymbol = encodeURIComponent(symbol);
+    const safeSymbol = encodeURIComponent(tokenApiRef(symbol));
     const include = includePools ? "&includePools=1" : "";
     const pool = poolId ? `&poolId=${encodeURIComponent(poolId)}` : "";
     return this.fetchData<TokenDetailResponse>(
@@ -245,7 +246,7 @@ export class TokenAPI {
     unit: Unit = "native",
     init: RequestInit = {}
   ) {
-    const safeSymbol = encodeURIComponent(symbol);
+    const safeSymbol = encodeURIComponent(tokenApiRef(symbol));
     return this.fetchData<OHLCVData[]>(
       `/tokens/${safeSymbol}/ohlcv?tf=${tf}&priceSource=${priceSource}&unit=${unit}`,
       init
@@ -295,7 +296,7 @@ export class TokenAPI {
     bucket: Bucket = "24h",
     init: RequestInit = {}
   ) {
-    const safeSymbol = encodeURIComponent(symbol);
+    const safeSymbol = encodeURIComponent(tokenApiRef(symbol));
     return this.fetchData<any>(
       `/tokens/${safeSymbol}/pools?bucket=${bucket}`,
       init
@@ -303,7 +304,7 @@ export class TokenAPI {
   }
 
   async getTokenSecurity(symbol: string, init: RequestInit = {}) {
-    const safeSymbol = encodeURIComponent(symbol);
+    const safeSymbol = encodeURIComponent(tokenApiRef(symbol));
     return this.fetchData<any>(`/tokens/${safeSymbol}/security`, init);
   }
 
@@ -313,7 +314,7 @@ export class TokenAPI {
     offset = 0,
     init: RequestInit = {}
   ) {
-    const safeSymbol = encodeURIComponent(symbol);
+    const safeSymbol = encodeURIComponent(tokenApiRef(symbol));
     return this.fetchData<any>(
       `/tokens/${safeSymbol}/holders?limit=${limit}&offset=${offset}`,
       init
@@ -327,7 +328,7 @@ export class TokenAPI {
     unit: Unit = "usd",
     init: RequestInit = {}
   ) {
-    const safeSymbol = encodeURIComponent(symbol);
+    const safeSymbol = encodeURIComponent(tokenApiRef(symbol));
     return this.fetchData<any>(
       `/trades/token/${safeSymbol}?tf=${tf}&limit=${limit}&unit=${unit}`,
       init

@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import useSWR from "swr";
 import { tokenAPI, API_BASE_URL, API_HEADERS } from "@/lib/api";
+import { tokenApiRef } from "@/lib/token-routing";
 import AddLeft from "./add-left";
 import AllSpcPairs from "./AllSpcPairs";
 import { useChain } from "@cosmos-kit/react";
@@ -82,7 +83,7 @@ export default function SwapPanel({
       try {
         const res = await fetchApi(
           `${API_BASE}/tokens/${encodeURIComponent(
-            tokenSymbol
+            tokenApiRef(tokenSymbol)
           )}?priceSource=best&includePools=1`,
           { cache: "no-store" }
         );
@@ -251,21 +252,18 @@ export default function SwapPanel({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 w-full">
           <div
-            onClick={togglePairOptions}
-            className={`${
-              showPairOptions ? "bg-[#1A5346]" : "bg-black/20"
-            } text-white px-3 py-1 rounded-t-lg w-full text-lg font-medium flex items-center justify-between transition-colors duration-200 cursor-pointer`}
+            className="text-white/50 bg-black/20 px-3 py-1 rounded-t-lg w-full text-lg font-medium flex items-center justify-between transition-colors duration-200 cursor-not-allowed"
+            title="Coming soon"
           >
             <div className="flex items-center gap-2">
               <Stars size={16} className="text-[#FA4E30]" />
               All Pairs
+              <Lock size={14} className="text-white/40" />
             </div>
             <div className="py-1 px-2 rounded-t-md">
               <ChevronDown
                 size={18}
-                className={`text-white/70 transition-transform duration-200 ${
-                  showPairOptions ? "rotate-180" : ""
-                }`}
+                className="text-white/40 transition-transform duration-200"
               />
             </div>
           </div>

@@ -11,7 +11,7 @@ import {
   API_BASE_URL,
   API_HEADERS,
 } from "@/lib/api";
-import { isIbcDenom } from "@/lib/token-routing";
+import { isIbcDenom, tokenApiRef } from "@/lib/token-routing";
 
 const API_BASE = API_BASE_URL;
 const PAIR_CONTRACT_POOL_IDS: Record<string, string> = {
@@ -70,7 +70,7 @@ const extractTokenRef = (value?: string | null) => {
   const normalized = (value ?? "").trim();
   if (!normalized) return "";
   if (isIbcDenom(normalized)) return normalized;
-  return normalized.split(".").pop() || normalized;
+  return tokenApiRef(normalized.split(".").pop() || normalized);
 };
 
 const getKnownPoolIdForPairContract = (pairContract?: string | null) => {
@@ -180,7 +180,7 @@ const Security: React.FC<{
       try {
         const response = await fetch(
           `${API_BASE}/tokens/${encodeURIComponent(
-            source
+            tokenApiRef(source)
           )}/pools?dominant=base&bucket=24h&limit=100`,
           { headers: API_HEADERS }
         );
@@ -217,7 +217,9 @@ const Security: React.FC<{
     suffix = "",
     poolId: string | null = null
   ) => {
-    const base = `${API_BASE}/tokens/${encodeURIComponent(tokenRef)}${suffix}`;
+    const base = `${API_BASE}/tokens/${encodeURIComponent(
+      tokenApiRef(tokenRef)
+    )}${suffix}`;
     if (shouldUsePoolPricing && poolId) {
       return `${base}?priceSource=pool&poolId=${encodeURIComponent(
         poolId

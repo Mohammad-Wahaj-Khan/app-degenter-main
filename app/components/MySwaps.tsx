@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useChain } from "@cosmos-kit/react";
 import { CHAIN_NAME } from "../config/chain";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
+import { tokenApiRef } from "@/lib/token-routing";
 
 /* ---------- CONFIG ---------- */
 const API_BASE = API_BASE_URL;
@@ -76,10 +77,11 @@ const MySwaps: React.FC<MySwapsProps> = ({ tokenId }) => {
 
         // Add token filter if tokenId is provided
         if (tokenId) {
+          const tokenQueryRef = tokenApiRef(tokenId);
           // First try exact match (for denom)
-          params.append("token", tokenId);
+          params.append("token", tokenQueryRef);
           // Then add additional search parameters for symbol/name matching
-          params.append("search", tokenId);
+          params.append("search", tokenQueryRef);
         }
 
         const url = `${API_BASE}/trades/wallet/${address}?tf=60d&${params.toString()}`;
@@ -193,7 +195,7 @@ const MySwaps: React.FC<MySwapsProps> = ({ tokenId }) => {
 
     try {
       const url = `${API_BASE}/tokens/${encodeURIComponent(
-        tokenId
+        tokenApiRef(tokenId)
       )}/holders?page=${currentPage}&limit=${perPage}`;
       const response = await fetch(url, {
         headers: { Accept: "application/json", ...API_HEADERS },

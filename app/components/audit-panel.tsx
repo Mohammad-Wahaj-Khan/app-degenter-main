@@ -9,6 +9,7 @@ import {
   API_BASE_URL,
   API_HEADERS,
 } from "@/lib/api";
+import { tokenApiRef } from "@/lib/token-routing";
 
 const API_BASE = API_BASE_URL;
 
@@ -58,7 +59,7 @@ export default function AuditPanel({ tokenKey }: { tokenKey?: string | null }) {
       }
       try {
         const response = await fetch(
-          `${API_BASE}/tokens/${encodeURIComponent(tokenKey)}/security`,
+          `${API_BASE}/tokens/${encodeURIComponent(tokenApiRef(tokenKey))}/security`,
           { headers: API_HEADERS }
         );
         const data: SecurityResponse = await response.json();

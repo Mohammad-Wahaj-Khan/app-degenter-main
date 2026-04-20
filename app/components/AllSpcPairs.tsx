@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
-import { storeTokenRoute } from "@/lib/token-routing";
+import { storeTokenRoute, tokenApiRef } from "@/lib/token-routing";
 
 const API_BASE = API_BASE_URL.replace(/\/+$/, "");
 
@@ -30,7 +30,7 @@ export default function AllSpcPairs({
           ...API_HEADERS,
         };
         const res = await fetch(
-          `${API_BASE}/tokens/${encodeURIComponent(resolvedKey)}/pools`,
+          `${API_BASE}/tokens/${encodeURIComponent(tokenApiRef(resolvedKey))}/pools`,
           {
           headers: API_HEADERS,
           }
@@ -71,24 +71,9 @@ export default function AllSpcPairs({
                 onClick={() => {
                   const baseDenom = p?.base?.denom;
                   const baseSymbol = p?.base?.symbol;
-                  const quoteDenom = p?.quote?.denom;
-                  const quoteSymbol = p?.quote?.symbol;
                   const baseRouteRef = storeTokenRoute(baseDenom, baseSymbol);
-                  const quoteSym = String(p?.quote?.symbol || "").toLowerCase();
-                  const quoteDen = String(quoteDenom || "").toLowerCase();
                   if (baseRouteRef) {
-                    if (quoteSym === "zig" || quoteDen === "uzig") {
-                      router.push(`/token/${encodeURIComponent(baseRouteRef)}`);
-                      return;
-                    }
-                  }
-                  if (baseRouteRef && quoteDenom) {
-                    const quoteRouteRef = storeTokenRoute(quoteDenom, quoteSymbol);
-                    router.push(
-                      `/token/${encodeURIComponent(
-                        baseRouteRef
-                      )}/${encodeURIComponent(quoteRouteRef)}`
-                    );
+                    router.push(`/token/${encodeURIComponent(baseRouteRef)}`);
                   }
                 }}
               >
