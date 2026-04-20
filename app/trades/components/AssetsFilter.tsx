@@ -9,8 +9,8 @@ const assetModes: { label: string; value: AssetMode }[] = [
   { label: "All", value: "all" },
   { label: "Token", value: "token" },
 ];
-type TimeRange = "24H" | "7D" | "30D";
-const timeRanges: TimeRange[] = ["24H", "7D", "30D"];
+type TimeRange = "24H" | "7D" | "30D" | "60D";
+const timeRanges: TimeRange[] = ["24H", "7D", "30D", "60D"];
 const valueRanges: { label: ValueRangeLabel; icon: string }[] = [
   { label: "< 1K ZIG", icon: "🦐" },
   { label: "1K - 10K ZIG", icon: "🦈" }, // Using closer emojis to the icons🐬

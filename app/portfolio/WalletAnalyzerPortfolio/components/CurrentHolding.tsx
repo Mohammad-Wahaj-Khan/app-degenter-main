@@ -100,7 +100,7 @@ const formatZigValue = (value?: number) => {
     maximumFractionDigits: 6,
     minimumFractionDigits: 6,
   }).format(value);
-  return `${formatted} ZIG`;
+  return `${formatted}`;
 };
 
 
@@ -269,10 +269,10 @@ const TokenRow = ({ data }: { data: TokenData }) => {
 
       <div className="flex flex-col gap-1">
         <span className="md:hidden text-[10px] uppercase tracking-[0.4em] text-gray-500">
-          ZIG Value
+          Value (USD)
         </span>
         <span className="text-gray-200 font-medium text-sm">
-          {data.usdValue}
+          ${data.usdValue}
         </span>
       </div>
     </div>
@@ -451,7 +451,7 @@ export default function CurrentHolding({ addressOverride }: CurrentHoldingProps)
             <div>Tokens</div>
             <div>Price (USD)</div>
             <div>Balance</div>
-            <div>ZIG Value</div>
+            <div>Value (USD)</div>
           </div>
         </div>
 
