@@ -319,11 +319,11 @@ export default function TokenStats({
         (detail?.price?.poolId != null ? String(detail.price.poolId) : null) ||
         (detail?.price?.pool_id != null ? String(detail.price.pool_id) : null);
       if (directPoolId) {
-        console.info("[TokenStats] tokenId direct poolId", {
-          tokenId: tokenIdentity,
-          directPoolId,
-          pairContract: detail?.pairContract ?? detail?.price?.pairContract,
-        });
+        // console.info("[TokenStats] tokenId direct poolId", {
+        //   tokenId: tokenIdentity,
+        //   directPoolId,
+        //   pairContract: detail?.pairContract ?? detail?.price?.pairContract,
+        // });
         return directPoolId;
       }
       const candidates = [
@@ -341,13 +341,13 @@ export default function TokenStats({
         )
       );
       const resolved = getPoolIdFromPool(match);
-      console.info("[TokenStats] tokenId pool lookup", {
-        tokenId: tokenIdentity,
-        resolved,
-        selectedPairContract,
-        selectedBaseDenom,
-        selectedQuoteDenom,
-      });
+      // console.info("[TokenStats] tokenId pool lookup", {
+      //   tokenId: tokenIdentity,
+      //   resolved,
+      //   selectedPairContract,
+      //   selectedBaseDenom,
+      //   selectedQuoteDenom,
+      // });
       return resolved;
     } catch (err) {
       console.error("[TokenStats] Failed tokenId pool lookup", err);
@@ -381,29 +381,29 @@ export default function TokenStats({
         if (!response.ok) continue;
         const json = await response.json();
         const pools = Array.isArray(json?.data) ? json.data : [];
-        console.info("[TokenStats] pool lookup candidates", {
-          sourceDenom,
-          count: pools.length,
-          selectedPairContract,
-          selectedBaseDenom,
-          selectedQuoteDenom,
-            poolCandidates: pools.slice(0, 10).map((pool: any) => ({
-              poolId:
-                pool?.poolId ??
-                pool?.pool_id ??
-                pool?.poolID ??
-                pool?.poolIdNumber ??
-                pool?.id,
-              pairContract:
-                pool?.pairContract ??
-                pool?.pair_contract ??
-                pool?.contract_address,
-              baseDenom: pool?.base?.denom,
-              quoteDenom: pool?.quote?.denom,
-              baseSymbol: pool?.base?.symbol,
-            quoteSymbol: pool?.quote?.symbol,
-          })),
-        });
+        // console.info("[TokenStats] pool lookup candidates", {
+        //   sourceDenom,
+        //   count: pools.length,
+        //   selectedPairContract,
+        //   selectedBaseDenom,
+        //   selectedQuoteDenom,
+        //     poolCandidates: pools.slice(0, 10).map((pool: any) => ({
+        //       poolId:
+        //         pool?.poolId ??
+        //         pool?.pool_id ??
+        //         pool?.poolID ??
+        //         pool?.poolIdNumber ??
+        //         pool?.id,
+        //       pairContract:
+        //         pool?.pairContract ??
+        //         pool?.pair_contract ??
+        //         pool?.contract_address,
+        //       baseDenom: pool?.base?.denom,
+        //       quoteDenom: pool?.quote?.denom,
+        //       baseSymbol: pool?.base?.symbol,
+        //     quoteSymbol: pool?.quote?.symbol,
+        //   })),
+        // });
         const match = pools.find((pool: any) =>
           isMatchingPool(
             pool,
@@ -438,17 +438,17 @@ export default function TokenStats({
       }
 
       const poolId = await resolveSelectedPairPoolId(fetchTarget);
-      console.info("[TokenStats] fetch context", {
-        fetchTarget,
-        poolId,
-        shouldUsePoolPricing,
-        selectedPairWithZig,
-        selectedPair,
-        tokenId,
-        tokenKey,
-        summaryDenom: summaryData?.token?.denom,
-        summarySymbol: summaryData?.token?.symbol,
-      });
+      // console.info("[TokenStats] fetch context", {
+      //   fetchTarget,
+      //   poolId,
+      //   shouldUsePoolPricing,
+      //   selectedPairWithZig,
+      //   selectedPair,
+      //   tokenId,
+      //   tokenKey,
+      //   summaryDenom: summaryData?.token?.denom,
+      //   summarySymbol: summaryData?.token?.symbol,
+      // });
       if (shouldUsePoolPricing && !poolId) {
         console.error("[TokenStats] Unable to resolve pool id for selected non-ZIG pair", {
           selectedPair,
@@ -466,7 +466,7 @@ export default function TokenStats({
       
       // Build the URL with proper parameters
       const tokenUrl = buildTokenDetailsUrl(fetchTarget, poolId);
-      console.info("[TokenStats] request", { tokenUrl });
+      // console.info("[TokenStats] request", { tokenUrl });
       
       // console.log("========== TOKEN STATS FETCH ==========");
       // console.log("Fetching token stats from:", tokenUrl);
@@ -482,19 +482,19 @@ export default function TokenStats({
 
       if (statsResponse.ok) {
         const json = await statsResponse.json();
-        console.info("[TokenStats] response", {
-          status: statsResponse.status,
-          success: json?.success,
-          hasData: Boolean(json?.data),
-          responsePoolId:
-            json?.data?.poolId ??
-            json?.data?.pool_id ??
-            json?.data?.poolID ??
-            json?.data?.price?.poolId ??
-            json?.data?.price?.pool_id,
-          symbol: json?.data?.token?.symbol ?? json?.data?.symbol,
-          denom: json?.data?.token?.denom,
-        });
+        // console.info("[TokenStats] response", {
+        //   status: statsResponse.status,
+        //   success: json?.success,
+        //   hasData: Boolean(json?.data),
+        //   responsePoolId:
+        //     json?.data?.poolId ??
+        //     json?.data?.pool_id ??
+        //     json?.data?.poolID ??
+        //     json?.data?.price?.poolId ??
+        //     json?.data?.price?.pool_id,
+        //   symbol: json?.data?.token?.symbol ?? json?.data?.symbol,
+        //   denom: json?.data?.token?.denom,
+        // });
         if (json?.success && json?.data) {
           const tokenData = json.data;
           
@@ -619,19 +619,19 @@ export default function TokenStats({
   }
 
   if (!data) {
-    console.warn("[TokenStats] rendering no-data state", {
-      tokenId,
-      tokenKey,
-      selectedPair,
-      shouldUsePoolPricing,
-      selectedPairWithZig,
-      activePoolId,
-      selectedBaseDenom,
-      selectedQuoteDenom,
-      selectedPairContract,
-      summaryHasData: Boolean(summaryData),
-      lastGoodHasData: Boolean(lastGoodDataRef.current),
-    });
+    // console.warn("[TokenStats] rendering no-data state", {
+    //   tokenId,
+    //   tokenKey,
+    //   selectedPair,
+    //   shouldUsePoolPricing,
+    //   selectedPairWithZig,
+    //   activePoolId,
+    //   selectedBaseDenom,
+    //   selectedQuoteDenom,
+    //   selectedPairContract,
+    //   summaryHasData: Boolean(summaryData),
+    //   lastGoodHasData: Boolean(lastGoodDataRef.current),
+    // });
     if (!tokenKey && !tokenId && !selectedPair) {
       return (
         <div className="bg-black/50 border border-gray-700 rounded-lg p-6 text-center text-gray-400">

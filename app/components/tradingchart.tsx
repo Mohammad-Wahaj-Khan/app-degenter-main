@@ -1196,13 +1196,17 @@ function formatPrice(price: number): string {
   return price.toFixed(2);
 }
 
-const symbolFromDenom = (value?: string | null) => {
+const symbolFromDenom = (
+  value?: string | null,
+  symbolFallback?: string | null
+) => {
   const raw = (value ?? "").trim();
   if (!raw) return "";
+  const fallback = (symbolFallback ?? "").trim();
   const lower = raw.toLowerCase();
   if (lower === "uzig" || lower === "zig" || lower.includes("uzig")) return "ZIG";
   if (lower === "stzig" || lower.endsWith(".stzig")) return "STZIG";
-  if (lower.startsWith("ibc/")) return raw.split("/").pop() || raw;
+  if (lower.startsWith("ibc/")) return fallback || "";
   return (raw.split(".").pop() || raw).toUpperCase();
 };
 
@@ -1314,13 +1318,13 @@ export default function TradingChart({
   );
   const pairBaseLabel =
     selectedPair?.baseSymbol ||
-    symbolFromDenom(selectedBaseDenom) ||
+    symbolFromDenom(selectedBaseDenom, tokenData?.symbol || meta.symbol || token) ||
     tokenData?.symbol ||
     token ||
     "BASE";
   const pairQuoteLabel =
     selectedPair?.quoteSymbol ||
-    symbolFromDenom(selectedQuoteDenom) ||
+    symbolFromDenom(selectedQuoteDenom, quoteSymbol || meta.symbol) ||
     quoteSymbol ||
     "ZIG";
   const nativeLabel = pairQuoteLabel;
@@ -1394,19 +1398,38 @@ export default function TradingChart({
       : denom ?? pairContract ?? token;
   const selectedChartSymbol = shouldUsePoolPricing
     ? selectedPoolView === "base"
-      ? selectedPair?.baseSymbol || symbolFromDenom(selectedBaseDenom)
-      : selectedPair?.quoteSymbol || symbolFromDenom(selectedQuoteDenom)
-    : symbolFromDenom(denom ?? token);
+      ? selectedPair?.baseSymbol ||
+        symbolFromDenom(selectedBaseDenom, tokenData?.symbol || meta.symbol || token)
+      : selectedPair?.quoteSymbol ||
+        symbolFromDenom(selectedQuoteDenom, quoteSymbol || meta.symbol)
+    : symbolFromDenom(denom ?? token, tokenData?.symbol || meta.symbol || token);
   const displaySymbol =
     shouldUsePoolPricing
-      ? selectedChartSymbol || tokenData?.symbol || meta.symbol || symbolFromDenom(chartTokenKey) || token
-      : selectedChartSymbol || meta.symbol || tokenData?.symbol || symbolFromDenom(chartTokenKey) || token;
-  const displayName = shouldUsePoolPricing
-    ? tokenData?.name || meta.name || "Token"
-    : meta.name || tokenData?.name || "Token";
-  const displayLogo = shouldUsePoolPricing
-    ? tokenData?.imageUri || meta.logo
-    : meta.logo || tokenData?.imageUri;
+      ? selectedChartSymbol ||
+        tokenData?.symbol ||
+        meta.symbol ||
+        symbolFromDenom(chartTokenKey, tokenData?.symbol || meta.symbol || token) ||
+        token
+      : selectedChartSymbol ||
+        meta.symbol ||
+        tokenData?.symbol ||
+        symbolFromDenom(chartTokenKey, tokenData?.symbol || meta.symbol || token) ||
+        token;
+  const metadataSymbol = tokenData?.symbol || meta.symbol || "";
+  const metadataMatchesDisplay =
+    !displaySymbol ||
+    !metadataSymbol ||
+    normalizePairKey(metadataSymbol) === normalizePairKey(displaySymbol);
+  const displayName = metadataMatchesDisplay
+    ? shouldUsePoolPricing
+      ? tokenData?.name || meta.name || displaySymbol || "Token"
+      : meta.name || tokenData?.name || displaySymbol || "Token"
+    : displaySymbol || "Token";
+  const displayLogo = metadataMatchesDisplay
+    ? shouldUsePoolPricing
+      ? tokenData?.imageUri || meta.logo
+      : meta.logo || tokenData?.imageUri
+    : undefined;
 
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
 

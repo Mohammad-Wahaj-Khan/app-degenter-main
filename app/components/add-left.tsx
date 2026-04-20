@@ -621,7 +621,7 @@ export default function AddLeft({
         >
           <div className="flex gap-2 justify-center mb-2">
             <div className="flex-col items-center justify-center uppercase">
-              <h3 className="text-white font-medium text-[1.5rem] text-center">
+              <h3 className="text-white font-medium text-[1.3rem] text-center">
                 {token?.name}
               </h3>
               <p className="text-white text-[0.7rem] text-center max-w-full px-2 break-words line-clamp-2">
