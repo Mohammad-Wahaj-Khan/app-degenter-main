@@ -850,7 +850,8 @@ export default function WalletAnalyzer({
         <div className="grid grid-cols-1 gap-4">
           {/* Right Section: Charts & Analytics */}
           <div className="lg:col-span-9 space-y-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:auto-rows-fr mt-6">
+            {/* md:grid-cols-2 md:auto-rows-fr */}
+            <div className="grid grid-cols-1 gap-4  mt-6">
               {/* Trading PNL / Win Rate Section */}
               <div className="rounded-2xl border border-white/10 bg-[#0d0d0d] overflow-hidden shadow-2xl h-full flex flex-col">
                 {/* PNL Summary Line */}
@@ -1154,7 +1155,7 @@ export default function WalletAnalyzer({
                 </div>
               </div>
               {/* RIGHT COLUMN: PNL Distribution & Actions */}
-              <div className="relative overflow-hidden border border-white/10 rounded-2xl h-full">
+              {/* <div className="relative overflow-hidden border border-white/10 rounded-2xl h-full">
                 <div
                   className="rounded-2xl p-6 overflow-hidden relative shadow-2xl h-full flex flex-col"
                   style={{
@@ -1235,10 +1236,10 @@ export default function WalletAnalyzer({
                     </div>
                   </div>
                 </div>
-              </div>
+              </div> */}
             </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:auto-rows-fr">
+{/* md:grid-cols-2 md:auto-rows-fr */}
+            <div className="grid grid-cols-1 gap-4 ">
               <div className="relative overflow-hidden border border-white/10 rounded-2xl h-full">
                 <div
                   className="rounded-2xl p-6 overflow-hidden relative shadow-2xl h-full flex flex-col"
@@ -1310,7 +1311,7 @@ export default function WalletAnalyzer({
                 </div>
               </div>
 
-              <div className="relative rounded-2xl border border-white/10 h-full">
+              {/* <div className="relative rounded-2xl border border-white/10 h-full">
                 <div
                   className="rounded-2xl p-6 overflow-hidden relative shadow-2xl h-full flex flex-col"
                   style={{
@@ -1343,7 +1344,7 @@ export default function WalletAnalyzer({
                     ))}
                   </div>
                 </div>
-              </div>
+              </div> */}
             </div>
           </div>
         </div>

@@ -11,6 +11,7 @@ import Providers from "./providers/cosmos-provider";
 import SiteMotion from "./components/SiteMotion";
 import LoadingWrapper from "./LoadingWrapper";
 import ImageFallbackHandler from "./components/ImageFallbackHandler";
+import ClickSpark from "./components/ClickSpark";
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
 
@@ -147,13 +148,9 @@ export default function RootLayout({
       >
         <ImageFallbackHandler />
         <Providers>
-          {/* LoadingWrapper now wraps the entire app. 
-              It will display the "DT" Pulse animation for 10 seconds 
-              before performing a cinematic blur-reveal of the children.
-          */}
-           {/* <LoadingWrapper> */}
+          {/* <ClickSpark> */}
             {children}
-           {/* </LoadingWrapper> */}
+            {/* </ClickSpark> */}
         </Providers>
       </body>
     </html>

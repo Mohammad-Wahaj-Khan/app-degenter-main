@@ -444,7 +444,7 @@ export default function WalletAnalyzerTable({
         <td className="px-4 py-3 text-center border-b border-white/15 text-white">
           {row.holdDuration}
         </td>
-        <td className="px-4 py-3 text-center border-b border-white/15">
+        {/* <td className="px-4 py-3 text-center border-b border-white/15">
           <div className="flex items-center justify-center gap-2">
             <button className="h-8 w-8 rounded-full border border-white/20 bg-black/40 text-xs text-white/70">
               ↻
@@ -453,7 +453,7 @@ export default function WalletAnalyzerTable({
               ⚡
             </button>
           </div>
-        </td>
+        </td> */}
       </tr>
     ));
   };
@@ -528,7 +528,7 @@ export default function WalletAnalyzerTable({
                   <th className="px-4 py-3 text-center">Avg Bought/Sold</th>
                   <th className="px-4 py-3 text-center">TXS</th>
                   <th className="px-4 py-3 text-center">Hold dur</th>
-                  <th className="px-4 py-3 text-center">Actions</th>
+                  {/* <th className="px-4 py-3 text-center">Actions</th> */}
                 </tr>
               </thead>
               <tbody>{renderTableRows()}</tbody>

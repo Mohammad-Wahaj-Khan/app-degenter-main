@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import { tokenAPI, API_BASE_URL, API_HEADERS } from "@/lib/api";
 import Navbar from "@/app/components/navbar";
 import SwapPanel from "@/app/components/swap-panel";
@@ -50,6 +50,18 @@ const API_BASE = API_BASE_URL.replace(/\/+$/, "");
 
 const normalizeDenom = (value?: string | null) =>
   decodeURIComponent(value ?? "").trim().toLowerCase();
+
+const normalizePathForCompare = (value?: string | null) => {
+  const raw = (value || "").replace(/\/+$/, "") || "/";
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+};
+
+const isSamePath = (a?: string | null, b?: string | null) =>
+  normalizePathForCompare(a) === normalizePathForCompare(b);
 
 const isZigAsset = (value?: string | null) => {
   const normalized = normalizeDenom(value);
@@ -205,7 +217,9 @@ type ViewTab =
 export default function PairDetails() {
   const { tokenDetails } = useParams();
   const router = useRouter();
+  const pathname = usePathname();
   const [token, setToken] = useState<Token | null>(null);
+  const tokenRef = useRef<Token | null>(null);
   const [resolvedDenom, setResolvedDenom] = useState<string | null>(null);
   const [resolvedQuoteDenom, setResolvedQuoteDenom] = useState<string | null>(
     null
@@ -240,9 +254,34 @@ export default function PairDetails() {
     poolId?: string | null;
   } | null>(null);
   const [selectedPairUrl, setSelectedPairUrl] = useState<string | null>(null);
-  const routeParts = Array.isArray(tokenDetails)
-    ? tokenDetails
-    : [tokenDetails];
+  useEffect(() => {
+    tokenRef.current = token;
+  }, [token]);
+  const pathnameRef = useRef(pathname || "");
+  useEffect(() => {
+    pathnameRef.current = pathname || "";
+  }, [pathname]);
+
+  const replaceTokenUrl = useCallback((url: string) => {
+    if (isSamePath(pathnameRef.current, url)) return false;
+    pathnameRef.current = url;
+    router.replace(url, { scroll: false });
+    return true;
+  }, [router]);
+  const tokenDetailsKey = useMemo(() => {
+    if (!tokenDetails) return "";
+    const parts = Array.isArray(tokenDetails) ? tokenDetails : [tokenDetails];
+    return JSON.stringify(parts.map((part) => String(part ?? "")));
+  }, [tokenDetails]);
+  const routeParts = useMemo(() => {
+    if (!tokenDetailsKey) return [];
+    try {
+      const parsed = JSON.parse(tokenDetailsKey);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, [tokenDetailsKey]);
   const routeBaseSymbol = routeParts[0] ?? null;
   const routeQuoteSymbol = routeParts[1] ?? null;
   const routePairContract =
@@ -251,26 +290,37 @@ export default function PairDetails() {
       : null;
   const displayBaseSymbol = resolvedBaseSymbol || routeBaseSymbol;
   const displayQuoteSymbol = resolvedQuoteSymbol || (routePairContract ? null : routeQuoteSymbol);
-  const selectedPairForSidebar =
-    displayBaseSymbol && displayQuoteSymbol
-      ? {
-          baseSymbol: displayBaseSymbol,
-          quoteSymbol: displayQuoteSymbol,
-          baseDenom: resolvedDenom,
-          quoteDenom: resolvedQuoteDenom,
-          pairContract: routePairContract,
-          poolId: null,
-        }
-      : resolvedDenom || resolvedQuoteDenom
-      ? {
-          baseDenom: resolvedDenom,
-          quoteDenom: resolvedQuoteDenom,
-          pairContract: routePairContract,
-          poolId: null,
-        }
-      : null;
-  const effectiveSelectedPair =
-    selectedPairOverride || resolvedRoutePair || selectedPairForSidebar;
+  const selectedPairForSidebar = useMemo(
+    () =>
+      displayBaseSymbol && displayQuoteSymbol
+        ? {
+            baseSymbol: displayBaseSymbol,
+            quoteSymbol: displayQuoteSymbol,
+            baseDenom: resolvedDenom,
+            quoteDenom: resolvedQuoteDenom,
+            pairContract: routePairContract,
+            poolId: null,
+          }
+        : resolvedDenom || resolvedQuoteDenom
+        ? {
+            baseDenom: resolvedDenom,
+            quoteDenom: resolvedQuoteDenom,
+            pairContract: routePairContract,
+            poolId: null,
+          }
+        : null,
+    [
+      displayBaseSymbol,
+      displayQuoteSymbol,
+      resolvedDenom,
+      resolvedQuoteDenom,
+      routePairContract,
+    ]
+  );
+  const effectiveSelectedPair = useMemo(
+    () => selectedPairOverride || resolvedRoutePair || selectedPairForSidebar,
+    [resolvedRoutePair, selectedPairForSidebar, selectedPairOverride]
+  );
   const effectiveQuoteSymbol =
     selectedPairOverride?.quoteSymbol ??
     resolvedQuoteSymbol ??
@@ -278,8 +328,8 @@ export default function PairDetails() {
     null;
 
   useEffect(() => {
-    if (!tokenDetails) return;
-    const parts = Array.isArray(tokenDetails) ? tokenDetails : [tokenDetails];
+    if (!tokenDetailsKey) return;
+    const parts = routeParts;
     const raw = parts[0];
     if (!raw || raw === "undefined" || raw === "null") return;
     const currentOverride = selectedPairOverrideRef.current;
@@ -302,7 +352,7 @@ export default function PairDetails() {
 
     let active = true;
     const load = async () => {
-      setLoading(true);
+      setLoading((current) => (tokenRef.current ? current : true));
       setError(null);
       setResolvedDenom(null);
       setResolvedQuoteDenom(null);
@@ -318,7 +368,6 @@ export default function PairDetails() {
       let quoteDenom: string | null = null;
       let matchedPoolId: string | null = null;
       let matchedPairContract: string | null = null;
-      let poolRedirectDone = false;
       if (parts.length >= 2 && parts[0] && parts[1]) {
         baseDenom = cachedBaseDenom || parts[0];
         const secondSegment = parts[1];
@@ -476,17 +525,25 @@ export default function PairDetails() {
                 const baseDen = fallbackPool?.base?.denom;
                 const quoteDen = fallbackPool?.quote?.denom;
                 if (baseDen && quoteDen && parts.length < 2) {
-                  const baseRef =
-                    getTokenRouteRef(baseDen, fallbackPool?.base?.symbol) || baseDen;
-                  const quoteRef =
-                    getTokenRouteRef(quoteDen, fallbackPool?.quote?.symbol) || quoteDen;
-                  poolRedirectDone = true;
-                  router.replace(
-                    `/token/${encodeURIComponent(baseRef)}/${encodeURIComponent(
-                      quoteRef
-                    )}`
-                  );
-                  return;
+                  matchedPoolId = getPoolId(fallbackPool);
+                  matchedPairContract = getPairContract(fallbackPool);
+                  baseDenom = baseDen;
+                  quoteDenom = quoteDen;
+                  lookupKey = baseDen;
+                  if (active) {
+                    setResolvedDenom(baseDen);
+                    setResolvedQuoteDenom(quoteDen);
+                    setResolvedBaseSymbol(fallbackPool?.base?.symbol || null);
+                    setResolvedQuoteSymbol(fallbackPool?.quote?.symbol || null);
+                    setResolvedRoutePair({
+                      baseSymbol: fallbackPool?.base?.symbol || null,
+                      quoteSymbol: fallbackPool?.quote?.symbol || null,
+                      baseDenom: baseDen,
+                      quoteDenom: quoteDen,
+                      pairContract: matchedPairContract,
+                      poolId: matchedPoolId,
+                    });
+                  }
                 }
               }
             }
@@ -497,7 +554,6 @@ export default function PairDetails() {
       }
 
       let data: Token | null = null;
-      if (poolRedirectDone) return;
       if (parts.length >= 2) {
         if (baseDenom) {
           data = await fetchTokenBySymbol(baseDenom, { poolId: matchedPoolId });
@@ -560,7 +616,7 @@ export default function PairDetails() {
               )}`
             : `/token/${encodeURIComponent(baseRouteRef)}`;
           if (normalizeDenom(currentBaseRef) === normalizeDenom(data.denom)) {
-            router.replace(desiredUrl);
+            replaceTokenUrl(desiredUrl);
           }
         }
         setToken(data);
@@ -579,7 +635,7 @@ export default function PairDetails() {
     return () => {
       active = false;
     };
-  }, [tokenDetails]);
+  }, [replaceTokenUrl, routeParts, tokenDetailsKey]);
 
   const handleSelectPair = (pair: {
     baseSymbol?: string | null;
@@ -604,7 +660,7 @@ export default function PairDetails() {
         const url = `/token/${encodeURIComponent(baseRouteRef)}`;
         if (selectedPairUrl !== url) {
           setSelectedPairUrl(url);
-          router.replace(url);
+          replaceTokenUrl(url);
         }
         return;
       }
@@ -615,7 +671,7 @@ export default function PairDetails() {
       )}`;
       if (selectedPairUrl !== url) {
         setSelectedPairUrl(url);
-        router.replace(url);
+        replaceTokenUrl(url);
       }
       return;
     }
@@ -627,7 +683,7 @@ export default function PairDetails() {
       )}`;
       if (selectedPairUrl !== url) {
         setSelectedPairUrl(url);
-        router.replace(url);
+        replaceTokenUrl(url);
       }
     }
   };
@@ -662,6 +718,127 @@ export default function PairDetails() {
 
   if (!loading && (error || !token)) {
     return <NotFoundPage />;
+  }
+
+  if (loading && !token) {
+    return (
+      <main className="flex min-h-screen flex-col bg-black relative overflow-hidden">
+        <div
+          className="absolute inset-0 z-1 h-60"
+          style={{
+            backgroundImage: `
+            linear-gradient(
+              120deg,
+              #14624F 0%,
+              #39C8A6 36.7%,
+              #FA4E30 66.8%,
+              #2D1B45 100%
+            )
+          `,
+            backgroundSize: "cover",
+            backgroundRepeat: "no-repeat",
+            filter: "saturate(120%) contrast(110%) brightness(0.9)",
+          }}
+        >
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage:
+                "linear-gradient(to bottom, rgba(0,0,0,0.0) 0%, rgba(0,0,0,0.65) 70%, rgba(0,0,0,0.9) 100%), radial-gradient(120% 120% at 50% 0%, rgba(0,0,0,0.0) 0%, rgba(0,0,0,0.45) 70%, rgba(0,0,0,0.75) 100%)",
+              mixBlendMode: "multiply",
+            }}
+          />
+          <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-b from-transparent to-black" />
+        </div>
+
+        <Navbar />
+        <TopMarketToken />
+
+        <div className="relative z-10 flex flex-col max-w-8xl mx-auto w-full px-4 md:px-6 lg:px-8 py-4 space-y-4">
+          <div className="flex flex-col lg:flex-row gap-4 w-full">
+            <div className="hidden lg:block lg:order-1 w-full lg:w-80 flex-shrink-0">
+              <div className="rounded-xl border border-white/10 bg-[#0D0D0D] p-4 animate-pulse">
+                <div className="h-11 rounded-lg bg-white/10 mb-4" />
+                <div className="h-[265px] rounded-lg bg-white/10 mb-3" />
+                <div className="grid grid-cols-2 gap-3">
+                  {Array.from({ length: 8 }).map((_, index) => (
+                    <div
+                      key={index}
+                      className="h-[72px] rounded-lg bg-white/10"
+                    />
+                  ))}
+                </div>
+                <div className="h-12 rounded-lg bg-white/10 mt-3" />
+              </div>
+            </div>
+
+            <div className="order-1 lg:order-2 flex-1 flex flex-col">
+              <div className="flex flex-col lg:flex-row w-full px-2 md:p-0 lg:gap-4">
+                <div className="flex-1">
+                  <div className="min-h-[520px] rounded-lg border border-white/10 bg-[#0D0D0D] p-4 animate-pulse">
+                    <div className="mb-4 flex items-center gap-3">
+                      <div className="h-12 w-12 rounded-full bg-white/10" />
+                      <div className="space-y-2">
+                        <div className="h-6 w-40 rounded bg-white/10" />
+                        <div className="h-4 w-24 rounded bg-white/10" />
+                      </div>
+                    </div>
+                    <div className="h-[390px] rounded bg-white/10" />
+                    <div className="mt-4 flex items-center gap-3">
+                      <div className="h-8 w-16 rounded bg-white/10" />
+                      <div className="h-8 w-16 rounded bg-white/10" />
+                      <div className="h-8 w-16 rounded bg-white/10" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="hidden lg:block flex-shrink-0 w-80">
+                  <div className="h-[520px] rounded-lg border border-white/10 bg-[#0D0D0D] p-4 animate-pulse">
+                    <div className="h-6 w-32 rounded bg-white/10 mb-5" />
+                    <div className="space-y-3">
+                      {Array.from({ length: 7 }).map((_, index) => (
+                        <div
+                          key={index}
+                          className="h-12 rounded-lg bg-white/10"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 w-full p-2 md:p-0">
+                <div className="relative mb-1 border-t border-x border-[#808080]/20 rounded-t-md py-2 px-4">
+                  <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-[#FA4E30] to-[#39C8A6]" />
+                  <div className="flex gap-4 animate-pulse">
+                    {Array.from({ length: 6 }).map((_, index) => (
+                      <div
+                        key={index}
+                        className="h-10 w-28 rounded bg-white/10"
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="min-h-[400px] rounded-b-lg border border-white/10 bg-[#0D0D0D] p-4 animate-pulse">
+                  <div className="mb-4 flex gap-3">
+                    <div className="h-9 w-28 rounded bg-white/10" />
+                    <div className="h-9 w-28 rounded bg-white/10" />
+                  </div>
+                  <div className="space-y-3">
+                    {Array.from({ length: 7 }).map((_, index) => (
+                      <div
+                        key={index}
+                        className="h-12 rounded-lg bg-white/10"
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   const tabButtons = [
