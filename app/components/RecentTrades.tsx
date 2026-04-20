@@ -16,7 +16,7 @@ import {
 import explorer from "../../public/explorer.png";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 import { useRouter } from "next/navigation";
-import { isIbcDenom } from "@/lib/token-routing";
+import { isIbcDenom, tokenApiRef } from "@/lib/token-routing";
 
 const API_BASE = API_BASE_URL;
 const TRADES_WS_URL = process.env.NEXT_PUBLIC_TRADES_WS_URL || "";
@@ -254,11 +254,13 @@ const poolMatchesSelectedPair = (
 };
 
 const buildPoolsLookupUrl = (tokenRef: string) =>
-  `${API_BASE}/tokens/${encodeURIComponent(tokenRef)}/pools?includeAllSides=1`;
+  `${API_BASE}/tokens/${encodeURIComponent(
+    tokenApiRef(tokenRef)
+  )}/pools?includeAllSides=1`;
 
 const buildTokenDetailsLookupUrl = (tokenRef: string) =>
   `${API_BASE}/tokens/${encodeURIComponent(
-    tokenRef
+    tokenApiRef(tokenRef)
   )}?priceSource=best&includePools=1`;
 
 const numericField = (...values: unknown[]) => {
@@ -460,7 +462,9 @@ const fetchTokenMeta = async (tokenId: string) => {
   }
 
   try {
-    const res = await fetchApi(`${API_BASE}/tokens/${encodeURIComponent(tokenId)}`);
+    const res = await fetchApi(
+      `${API_BASE}/tokens/${encodeURIComponent(tokenApiRef(tokenId))}`
+    );
     if (!res.ok) return null;
     const json = await res.json();
     if (!json?.success || !json?.data) return null;
@@ -1134,7 +1138,9 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
     async (id: string): Promise<string | null> => {
       try {
         const res = await fetchApi(
-          `${API_BASE}/tokens/${encodeURIComponent(id)}?priceSource=best`,
+          `${API_BASE}/tokens/${encodeURIComponent(
+            tokenApiRef(id)
+          )}?priceSource=best`,
           { cache: "no-store" }
         );
         if (!res.ok) return null;

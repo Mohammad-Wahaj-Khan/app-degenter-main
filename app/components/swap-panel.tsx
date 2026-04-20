@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import useSWR from "swr";
 import { tokenAPI, API_BASE_URL, API_HEADERS } from "@/lib/api";
+import { tokenApiRef } from "@/lib/token-routing";
 import AddLeft from "./add-left";
 import AllSpcPairs from "./AllSpcPairs";
 import { useChain } from "@cosmos-kit/react";
@@ -82,7 +83,7 @@ export default function SwapPanel({
       try {
         const res = await fetchApi(
           `${API_BASE}/tokens/${encodeURIComponent(
-            tokenSymbol
+            tokenApiRef(tokenSymbol)
           )}?priceSource=best&includePools=1`,
           { cache: "no-store" }
         );

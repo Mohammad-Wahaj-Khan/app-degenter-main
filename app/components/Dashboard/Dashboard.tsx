@@ -230,12 +230,7 @@ const Dashboard: React.FC = () => {
           ? respNL
           : respNL?.data ?? respNL?.tokens ?? respNL?.results ?? [];
 
-        // remove ZIG/UZIG from new listing
-        const filteredNL = rawNL.filter(
-          (t: any) =>
-            t.symbol &&
-            !["zig", "uzig"].includes(String(t.symbol).toLowerCase())
-        );
+        const filteredNL = rawNL.filter((t: any) => t.symbol);
 
         const newListingsData: Token[] = filteredNL.map((t: any) => ({
           id: t.tokenId?.toString() || t.id?.toString() || "",
@@ -266,12 +261,8 @@ const Dashboard: React.FC = () => {
         });
         setNewListings(newListingsData.slice(0, 10));
 
-        // Filter out ZIG and uzig tokens
         const filteredTokens = rawTokens.filter(
-          (token: any) =>
-            token &&
-            token.symbol &&
-            !["zig", "uzig"].includes(String(token.symbol).toLowerCase())
+          (token: any) => token && token.symbol
         );
 
         const tokensData: Token[] = filteredTokens.map((token: any) => ({

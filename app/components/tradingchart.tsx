@@ -17,7 +17,7 @@ import { ArrowLeftRight, Copy, Expand, RefreshCw, Share2 } from "lucide-react";
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import type { SignerFilterSummary } from "@/app/components/RecentTrades";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
-import { isIbcDenom } from "@/lib/token-routing";
+import { isIbcDenom, tokenApiRef } from "@/lib/token-routing";
 
 declare global {
   interface Window {
@@ -396,7 +396,8 @@ function buildOhlcvUrl(
     window?: number;
   }
 ): string {
-  let url = `${apiBase}/tokens/${encodeURIComponent(tokenId)}/ohlcv?tf=${params.tf}&from=${encodeURIComponent(params.from)}&to=${encodeURIComponent(params.to)}`;
+  const apiTokenId = tokenApiRef(tokenId);
+  let url = `${apiBase}/tokens/${encodeURIComponent(apiTokenId)}/ohlcv?tf=${params.tf}&from=${encodeURIComponent(params.from)}&to=${encodeURIComponent(params.to)}`;
 
   // Add fill parameter
   if (params.fill) {
@@ -436,14 +437,15 @@ function buildTokenUrl(
   dominant: PairSide = "quote",
   view: PairView = "auto"
 ): string {
+  const apiTokenId = tokenApiRef(tokenId);
   if (isPoolSelected && poolId) {
     return `${apiBase}/tokens/${encodeURIComponent(
-      tokenId
+      apiTokenId
     )}?priceSource=pool&poolId=${encodeURIComponent(
       poolId
     )}&dominant=${dominant}&view=${view}`;
   }
-  return `${apiBase}/tokens/${encodeURIComponent(tokenId)}?priceSource=best`;
+  return `${apiBase}/tokens/${encodeURIComponent(apiTokenId)}?priceSource=best`;
 }
 
 /* ---------- Datafeed bound to your API + Websocket ---------- */
@@ -1396,6 +1398,35 @@ export default function TradingChart({
     shouldUsePoolPricing && activePoolTokenDenom
       ? activePoolTokenDenom
       : denom ?? pairContract ?? token;
+  const isZigToken = useMemo(
+    () =>
+      !shouldUsePoolPricing &&
+      [
+        token,
+        denom,
+        chartTokenKey,
+        (tokenData as any)?.token?.denom,
+        tokenData?.symbol,
+        meta.symbol,
+      ].some((value) => isZigAsset(value)),
+    [
+      shouldUsePoolPricing,
+      token,
+      denom,
+      chartTokenKey,
+      (tokenData as any)?.token?.denom,
+      tokenData?.symbol,
+      meta.symbol,
+    ]
+  );
+
+  useEffect(() => {
+    if (!isZigToken) return;
+    if (unit !== "native" && priceDisplay !== "native") return;
+    setUnit("usd");
+    setPriceDisplay("usd");
+  }, [isZigToken, priceDisplay, unit]);
+
   const selectedChartSymbol = shouldUsePoolPricing
     ? selectedPoolView === "base"
       ? selectedPair?.baseSymbol ||
@@ -1844,7 +1875,7 @@ const applyTvWalletShapes = useCallback(async () => {
                 token;
               const poolRes = await fetchApi(
                 `${API_BASE}/tokens/${encodeURIComponent(
-                  poolsKey
+                  tokenApiRef(poolsKey)
                 )}/pools?dominant=base&bucket=24h&limit=100`,
                 { cache: "no-store" }
               );
@@ -2112,7 +2143,7 @@ const applyTvWalletShapes = useCallback(async () => {
             token;
           const response = await fetchApi(
             `${API_BASE}/tokens/${encodeURIComponent(
-              poolsKey
+              tokenApiRef(poolsKey)
             )}/pools?dominant=base&bucket=24h&limit=100`,
             { cache: "no-store" }
           );
@@ -2187,7 +2218,7 @@ const applyTvWalletShapes = useCallback(async () => {
       try {
         const response = await fetchApi(
           `${API_BASE}/tokens/${encodeURIComponent(
-            chartTokenKey
+            tokenApiRef(chartTokenKey)
           )}?priceSource=best&includePools=1`,
           { cache: "no-store" }
         );
@@ -3482,7 +3513,9 @@ const applyTvWalletShapes = useCallback(async () => {
               ).map(([u, label]) => {
                 const disableUsdForStzig =
                   !shouldUsePoolPricing && isStZigToken && u === "usd";
-                const disabled = disableUsdForStzig;
+                const disableNativeForZig =
+                  !shouldUsePoolPricing && isZigToken && u === "native";
+                const disabled = disableUsdForStzig || disableNativeForZig;
                 return (
                   <button
                     key={u}

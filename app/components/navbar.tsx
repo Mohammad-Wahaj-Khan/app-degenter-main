@@ -95,10 +95,6 @@ async function fetchAllPoolsOnce(): Promise<Token[]> {
     }
 
     const tokens: Token[] = json.data
-      .filter((token: any) => {
-        const tokenName = (token.name || "").toLowerCase();
-        return tokenName !== "zig" && tokenName !== "uzig";
-      })
       .map((token: any) => ({
         id: token.denom || token.tokenId,
         name: token.name || "Unknown Token",

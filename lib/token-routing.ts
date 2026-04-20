@@ -21,7 +21,7 @@ export const tokenRouteRef = (
   const cleanDenom = decodeTokenRef(denom).trim();
   const cleanSymbol = (symbol ?? "").trim();
   const cleanFallback = decodeTokenRef(fallback).trim();
-  if (cleanDenom) return isIbcDenom(cleanDenom) ? cleanSymbol || cleanFallback || cleanDenom : cleanDenom;
+  if (cleanDenom) return cleanDenom;
   return cleanSymbol || cleanFallback || "";
 };
 
@@ -32,6 +32,15 @@ export const tokenFetchRef = (
   const cleanDenom = decodeTokenRef(denom).trim();
   if (cleanDenom) return cleanDenom;
   return fallback == null ? "" : String(fallback).trim();
+};
+
+export const tokenApiRef = (value?: string | number | null) => {
+  const clean = decodeTokenRef(value == null ? "" : String(value)).trim();
+  if (!clean) return "";
+  if (isIbcDenom(clean)) return clean;
+
+  const lastPart = clean.split(".").pop()?.trim().toLowerCase();
+  return lastPart === "zig" || lastPart === "uzig" ? "uzig" : clean;
 };
 
 const ROUTE_DENOM_CACHE_KEY = "dt:token-route-denoms";
