@@ -17,7 +17,11 @@ import AddLeft from "@/app/components/add-left";
 import MySwaps from "@/app/components/MySwaps";
 import NotFoundPage from "@/app/not-found";
 import Markets from "@/app/components/Markets";
-import { resolveCachedTokenRouteDenom } from "@/lib/token-routing";
+import {
+  resolveCachedTokenRouteDenom,
+  storeTokenRoute,
+  storeTokenRouteDenom,
+} from "@/lib/token-routing";
 // import  HoldersBubble from "@/app/components/HoldersBubble";
 
 interface Token {
@@ -73,7 +77,7 @@ const isIbcDenom = (value?: string | null) =>
 
 const getTokenRouteRef = (denom?: string | null, symbol?: string | null) => {
   if (!denom) return null;
-  return isIbcDenom(denom) ? symbol || denom : denom;
+  return storeTokenRoute(denom, symbol);
 };
 
 const getPoolId = (pool: any): string | null => {
@@ -615,6 +619,7 @@ export default function PairDetails() {
       if (data) {
         if (data.denom) {
           setResolvedDenom((current) => current || data.denom || null);
+          storeTokenRouteDenom(data.symbol, data.denom);
         }
         setResolvedBaseSymbol((current) => current || data.symbol || null);
         const baseRouteRef = getTokenRouteRef(data.denom, data.symbol);

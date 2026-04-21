@@ -6,6 +6,7 @@ import { TrendingUp, TrendingDown, Activity, Crown, Clock } from 'lucide-react';
 import { createChart, ColorType, UTCTimestamp } from 'lightweight-charts';
 import Link from 'next/link';
 import { API_BASE_URL, API_HEADERS } from '@/lib/api';
+import { storeTokenRoute } from '@/lib/token-routing';
 
 interface Token {
   rank: number;
@@ -462,7 +463,7 @@ const FindGemsMain = () => {
     const isPos = change >= 0;
     const intensity = getIntensityColor(change);
     const tokenPath = encodeURIComponent(
-      token.tokenId?.startsWith('ibc/') ? token.symbol : token.tokenId || token.symbol
+      storeTokenRoute(token.tokenId, token.symbol)
     );
     const allowEntranceAnimation = hasRenderedInitialCards;
 
