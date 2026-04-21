@@ -2282,10 +2282,10 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           // borderLeft: isShark ? "4px solid #1EA76D" : "1px solid transparent",
         }}
       >
-        <td className="px-3 sm:px-4 py-3 text-md sm:text-base lg:text-lg text-gray-400 font-mono whitespace-nowrap">
+        <td className="px-3 sm:px-4 py-3 text-sm sm:text-base lg:text-sm text-gray-400 font-mono whitespace-nowrap">
           {formatTimeAgo(trade.time)}
         </td>
-        <td className={`px-3 sm:px-4 py-3 text-md sm:text-base lg:text-lg font-bold ${directionColor} whitespace-nowrap`}>
+        <td className={`px-3 sm:px-4 py-3 text-sm sm:text-base lg:text-md font-normal ${directionColor} whitespace-nowrap`}>
           <div className="flex items-center gap-2">
             <span className="uppercase tracking-wide">
               {trade.direction.toUpperCase()}
@@ -2297,7 +2297,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
             )} */}
           </div>
         </td>
-        <td className="px-3 sm:px-4 py-3 text-md sm:text-base lg:text-lg font-mono text-gray-200 whitespace-nowrap">
+        <td className="px-3 sm:px-4 py-3 text-md sm:text-base lg:text-lg font-normal text-gray-200 whitespace-nowrap">
           <span className={directionColor}>{priceText}</span>
         </td>
         <td className="px-3 sm:px-4 py-3 whitespace-nowrap">
@@ -2319,7 +2319,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
             <span className="text-gray-200 font-mono">{valueText}</span>
           </div>
         </td>
-        <td className="px-3 sm:px-4 py-3 text-base sm:text-[1.02rem] lg:text-[1.05rem] whitespace-nowrap">
+        <td className="px-3 sm:px-4 py-3 text-base sm:text-[1.05rem] lg:text-[1.10rem] whitespace-nowrap">
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2 text-[#1EA76D] font-medium text-base sm:text-[1.02rem] lg:text-[1.05rem] leading-tight whitespace-nowrap">
               <TradeTokenImage
@@ -2339,7 +2339,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
             </div>
           </div>
         </td>
-        <td className="px-3 sm:px-4 py-3 text-md sm:text-base lg:text-lg font-mono text-gray-400 whitespace-nowrap">
+        <td className="px-3 sm:px-4 py-3 text-sm sm:text-base lg:text-sm font-mono text-gray-400 whitespace-nowrap">
           <div className="flex items-center gap-2">
             {trade.signer ? (
               <Link
@@ -2389,7 +2389,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
             )}
           </div>
         </td>
-        <td className="px-3 sm:px-4 py-3 text-md sm:text-base lg:text-lg font-mono text-gray-400 whitespace-nowrap">
+        <td className="px-3 sm:px-4 py-3 text-sm sm:text-base lg:text-sm font-mono text-gray-400 whitespace-nowrap">
           {trade.txHash ? (
             <Link
               href={`https://zigscan.org/tx/${trade.txHash}`}
@@ -2463,7 +2463,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
         <div className="mb-4 flex flex-wrap gap-2 p-3 sm:p-4">
           <button
             onClick={() => setActiveFilter(null)}
-            className={`rounded-lg px-3 py-1 text-md sm:text-base lg:text-lg font-medium transition-colors ${
+            className={`rounded-lg px-3 py-1 text-sm sm:text-base lg:text-sm font-medium transition-colors ${
               activeFilter === null
                 ? "bg-[#1EA76D] text-white"
                 : "bg-gray-800 text-gray-300 hover:bg-gray-700"
@@ -2473,7 +2473,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           </button>
           <button
             onClick={() => setActiveFilter("whale")}
-            className={`flex items-center gap-1 rounded-lg px-3 py-1 text-md sm:text-base lg:text-lg font-medium transition-colors ${
+            className={`flex items-center gap-1 rounded-lg px-3 py-1 text-sm sm:text-base lg:text-sm font-medium transition-colors ${
               activeFilter === "whale"
                 ? "bg-blue-900/50 text-blue-300"
                 : "bg-gray-800 text-blue-400 hover:bg-gray-700"
@@ -2483,7 +2483,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           </button>
           <button
             onClick={() => setActiveFilter("shark")}
-            className={`flex items-center gap-1 rounded-lg px-3 py-1 text-md sm:text-base lg:text-lg font-medium transition-colors ${
+            className={`flex items-center gap-1 rounded-lg px-3 py-1 text-sm sm:text-base lg:text-sm font-medium transition-colors ${
               activeFilter === "shark"
                 ? "bg-red-900/50 text-red-300"
                 : "bg-gray-800 text-red-400 hover:bg-gray-700"
@@ -2493,7 +2493,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           </button>
           <button
             onClick={() => setActiveFilter("shrimp")}
-            className={`flex items-center gap-1 rounded-lg px-3 py-1 text-md sm:text-base lg:text-lg font-medium transition-colors ${
+            className={`flex items-center gap-1 rounded-lg px-3 py-1 text-sm sm:text-base lg:text-sm font-medium transition-colors ${
               activeFilter === "shrimp"
                 ? "bg-yellow-900/50 text-yellow-300"
                 : "bg-gray-800 text-yellow-400 hover:bg-gray-700"
@@ -2505,8 +2505,8 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
       )}
       {/* Table */}
       <div className="relative overflow-x-auto overflow-visible">
-        <table className="relative z-10 min-w-[1120px] lg:min-w-full w-full text-md sm:text-base lg:text-[1rem] text-white">
-          <thead className="bg-black/60 text-white uppercase text-md sm:text-base lg:text-lg tracking-wider">
+        <table className="relative z-10 min-w-[1120px] lg:min-w-full w-full text-sm sm:text-base lg:text-[1rem] text-white">
+          <thead className="bg-black/60 text-white uppercase text-sm sm:text-base lg:text-sm tmdcking-wider">
             <tr>
               <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Time</td>
               <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Type</td>
@@ -2515,7 +2515,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
               <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Amount</td>
               <td className="px-3 sm:px-4 py-2 whitespace-nowrap">
                 <div className="flex items-center gap-1 text-gray-400">
-                  <span className="flex items-center gap-1 text-md sm:text-base lg:text-lg whitespace-nowrap">
+                  <span className="flex items-center gap-1 text-sm sm:text-base lg:text-sm whimdspace-nowrap">
                     By address
                     <Search className="h-3 w-3 text-gray-500" />
                   </span>
@@ -2602,7 +2602,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="flex flex-col sm:flex-row justify-end items-center px-3 sm:px-4 py-2 text-white text-md sm:text-base lg:text-lg bg-black/40">
+      <div className="flex flex-col sm:flex-row justify-end items-center px-3 sm:px-4 py-2 text-white text-sm sm:text-base lg:texmdlg bg-black/40">
         <div className="flex items-center gap-1 mb-2 sm:mb-0 text-center sm:text-left">
           <button
             onClick={() => handlePageChange(1)}
@@ -2655,7 +2655,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
                   setActiveFilter(null);
                   setShowFilterDropdown(false);
                 }}
-                className={`block w-full px-4 py-2 text-lg text-left ${
+                className={`block w-full px-4 py-2 text-sm text-left ${
                   !activeFilter ? "bg-gray-100 dark:bg-gray-700" : ""
                 }`}
               >
@@ -2666,7 +2666,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
                   setActiveFilter("whale");
                   setShowFilterDropdown(false);
                 }}
-                className={`block w-full px-4 py-2 text-lg text-left ${
+                className={`block w-full px-4 py-2 text-sm text-left ${
                   activeFilter === "whale" ? "bg-gray-100 dark:bg-gray-700" : ""
                 }`}
               >
@@ -2677,7 +2677,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
                   setActiveFilter("shark");
                   setShowFilterDropdown(false);
                 }}
-                className={`block w-full px-4 py-2 text-lg text-left ${
+                className={`block w-full px-4 py-2 text-sm text-left ${
                   activeFilter === "shark" ? "bg-gray-100 dark:bg-gray-700" : ""
                 }`}
               >
@@ -2688,7 +2688,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
                   setActiveFilter("shrimp");
                   setShowFilterDropdown(false);
                 }}
-                className={`block w-full px-4 py-2 text-lg text-left ${
+                className={`block w-full px-4 py-2 text-sm text-left ${
                   activeFilter === "shrimp"
                     ? "bg-gray-100 dark:bg-gray-700"
                     : ""
