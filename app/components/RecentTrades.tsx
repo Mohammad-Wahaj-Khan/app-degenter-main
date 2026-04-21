@@ -27,14 +27,28 @@ import {
 const API_BASE = API_BASE_URL;
 const TRADES_WS_URL = process.env.NEXT_PUBLIC_TRADES_WS_URL || "";
 const MAX_TRADES = 500;
-const TRADE_LOOKBACK_DAYS = 7;
+const TRADE_LOOKBACK_DAYS = 1;
 const TRADE_LOOKBACK_MS = TRADE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
+const TRADES_FETCH_TIMEOUT_MS = 8000;
+const RECENT_TRADES_MEMORY_CACHE = new Map<string, Trade[]>();
 
-const fetchApi = (url: string, init: RequestInit = {}) =>
-  fetch(url, {
+const fetchApi = (url: string, init: RequestInit = {}) => {
+  const controller =
+    init.signal == null && typeof AbortController !== "undefined"
+      ? new AbortController()
+      : null;
+  const timeoutId = controller
+    ? setTimeout(() => controller.abort(), TRADES_FETCH_TIMEOUT_MS)
+    : null;
+
+  return fetch(url, {
     ...init,
+    signal: init.signal ?? controller?.signal,
     headers: { ...API_HEADERS, ...(init.headers || {}) },
+  }).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
   });
+};
 
 interface Trade {
   time: string;
@@ -138,6 +152,40 @@ const extractTokenRef = (value?: string | null) => {
 const getKnownPoolIdForPairContract = (pairContract?: string | null) => {
   const normalized = normalizeTokenRef(pairContract ?? undefined);
   return normalized ? PAIR_CONTRACT_POOL_IDS[normalized] ?? null : null;
+};
+
+const tradeTimestamp = (trade: Trade) => {
+  const ts = Date.parse(trade.time);
+  return Number.isFinite(ts) ? ts : 0;
+};
+
+const getTradeIdentity = (trade: Trade) =>
+  trade.tradeId ||
+  trade.txHash ||
+  `${trade.signer}-${trade.time}-${trade.offerDenom}-${trade.askDenom}`;
+
+const mergeLatestTradesList = (incoming: Trade[], existing: Trade[] = []) => {
+  const byKey = new Map<string, Trade>();
+  for (const trade of [...incoming, ...existing]) {
+    const key = getTradeIdentity(trade);
+    const current = byKey.get(key);
+    if (!current || tradeTimestamp(trade) >= tradeTimestamp(current)) {
+      byKey.set(key, trade);
+    }
+  }
+  return Array.from(byKey.values())
+    .sort((a, b) => tradeTimestamp(b) - tradeTimestamp(a))
+    .slice(0, MAX_TRADES);
+};
+
+const filterRecentTrades = (trades: Trade[]) => {
+  const cutoff = Date.now() - TRADE_LOOKBACK_MS;
+  return trades
+    .filter((trade) => {
+      const ts = tradeTimestamp(trade);
+      return ts > 0 && ts >= cutoff;
+    })
+    .slice(0, MAX_TRADES);
 };
 
 const getPoolIdFromPool = (pool: any): string | null => {
@@ -1298,72 +1346,112 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
     tradesTokenRef,
   ]);
 
-  const fetchTokenTradesBatch = useCallback(async (): Promise<Trade[]> => {
-    if (!resolvedTokenId) return [];
+  const fetchTokenTradesBatch = useCallback(
+    async (onFreshBatch?: (rows: Trade[]) => void): Promise<Trade[]> => {
+      if (!resolvedTokenId) return [];
+      const tokenRef = resolvedTokenId;
 
-    const candidates = Array.from(
-      new Set([
-        resolvedTokenId,
-        selectedBaseDenom,
-        tradesTokenRef,
-        resolvedTokenId.split(".").pop() || resolvedTokenId,
-        resolvedTokenId.toUpperCase(),
-      ])
-    ).filter(Boolean) as string[];
+      const candidates = Array.from(
+        new Set([
+          tokenRef,
+          selectedBaseDenom,
+          tradesTokenRef,
+          tokenRef.split(".").pop() || tokenRef,
+          tokenRef.toUpperCase(),
+        ])
+      ).filter(Boolean) as string[];
 
-    for (const candidate of candidates) {
-      try {
-        const response = await fetchApi(
-          buildTokenTradesUrl(candidate, { tf: "30d", limit: 500 }),
-          { cache: "no-store" }
-        );
-        if (!response.ok) continue;
-        const data = await response.json();
-        if (!data?.success || !Array.isArray(data.data) || !data.data.length) {
-          continue;
-        }
-        return data.data.map(mapApiTradeToLocal).slice(0, MAX_TRADES);
-      } catch (error) {
-        console.error("[RecentTrades] token batch fetch failed", {
-          candidate,
-          error,
+      const cacheKey = `token:${buildTokenTradesUrl(
+        candidates[0] ?? tokenRef,
+        { tf: "24h", limit: 500 }
+      )}`;
+      const cached = RECENT_TRADES_MEMORY_CACHE.get(cacheKey);
+      if (cached?.length) {
+        void fetchFresh(candidates).then((fresh) => {
+          if (!fresh.length) return;
+          RECENT_TRADES_MEMORY_CACHE.set(cacheKey, fresh);
+          onFreshBatch?.(fresh);
         });
+        return cached;
       }
-    }
 
-    const resolvedSymbol = await resolveSymbolFromTokenId(resolvedTokenId);
-    if (resolvedSymbol) {
-      try {
-        const response = await fetchApi(
-          buildTokenTradesUrl(resolvedSymbol, { tf: "30d", limit: 500 }),
-          { cache: "no-store" }
-        );
-        if (response.ok) {
+      async function fetchCandidate(
+        candidate: string,
+        tf = "24h"
+      ): Promise<Trade[]> {
+        try {
+          const response = await fetchApi(
+            buildTokenTradesUrl(candidate, { tf, limit: 500 }),
+            { cache: "no-store" }
+          );
+          if (!response.ok) return [];
           const data = await response.json();
-          if (data?.success && Array.isArray(data.data) && data.data.length) {
-            return data.data.map(mapApiTradeToLocal).slice(0, MAX_TRADES);
+          if (
+            !data?.success ||
+            !Array.isArray(data.data) ||
+            !data.data.length
+          ) {
+            return [];
           }
+          return filterRecentTrades(data.data.map(mapApiTradeToLocal));
+        } catch (error) {
+          console.error("[RecentTrades] token batch fetch failed", {
+            candidate,
+            error,
+          });
+          return [];
         }
-      } catch (error) {
-        console.error("[RecentTrades] symbol batch fetch failed", error);
       }
-    }
 
-    return [];
-  }, [
-    buildTokenTradesUrl,
-    resolvedTokenId,
-    resolveSymbolFromTokenId,
-    selectedBaseDenom,
-    tradesTokenRef,
-  ]);
+      async function raceCandidates(candidateList: string[], tf = "24h") {
+        const pending = new Set<{ request: Promise<Trade[]> }>();
+        for (const candidate of candidateList) {
+          pending.add({ request: fetchCandidate(candidate, tf) });
+        }
+        while (pending.size) {
+          const fastest = await Promise.race(
+            Array.from(pending, (item) =>
+              item.request.then((rows) => ({ item, rows }))
+            )
+          );
+          pending.delete(fastest.item);
+          if (fastest.rows.length) return fastest.rows;
+        }
+        return [];
+      }
+
+      async function fetchFresh(candidateList: string[]) {
+        const first24h = await raceCandidates(candidateList, "24h");
+        if (first24h.length) return first24h;
+
+        const first7d = await raceCandidates(candidateList, "7d");
+        if (first7d.length) return first7d;
+
+        const resolvedSymbol = await resolveSymbolFromTokenId(tokenRef);
+        return resolvedSymbol ? fetchCandidate(resolvedSymbol, "24h") : [];
+      }
+
+      const fresh = await fetchFresh(candidates);
+      if (fresh.length) {
+        RECENT_TRADES_MEMORY_CACHE.set(cacheKey, fresh);
+      }
+      return fresh;
+    },
+    [
+      buildTokenTradesUrl,
+      resolvedTokenId,
+      resolveSymbolFromTokenId,
+      selectedBaseDenom,
+      tradesTokenRef,
+    ]
+  );
 
   // Fetch initial batch of trades
   const fetchInitialTrades = useCallback(async () => {
     const runId = ++fetchRunIdRef.current;
     const applyBatch = (rows: Trade[]) => {
       if (fetchRunIdRef.current !== runId || !rows.length) return;
-      setTrades(rows.slice(0, MAX_TRADES));
+      setTrades((prev) => mergeLatestTradesList(rows, prev));
       setLastUpdated(new Date());
       initialLoadDone.current = true;
       initialFetchCompletedRef.current = true;
@@ -1372,8 +1460,9 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
 
     if (isPoolTradeContext) {
       setLoading(tradesLengthRef.current === 0);
+      const seedPromise = fetchTokenTradesBatch(applyBatch).then(applyBatch);
       if (!activePoolId) {
-        void fetchTokenTradesBatch().then(applyBatch);
+        void seedPromise;
       }
       try {
         const effectivePoolId =
@@ -1384,23 +1473,32 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           setPoolId(effectivePoolId);
         }
         if (!effectivePoolId) {
-          const fallbackTrades = await fetchTokenTradesBatch();
-          applyBatch(fallbackTrades);
+          await seedPromise;
           return;
         }
+        const cachedPoolTrades = RECENT_TRADES_MEMORY_CACHE.get(
+          `pool:${effectivePoolId}`
+        );
+        if (cachedPoolTrades?.length) applyBatch(cachedPoolTrades);
         const response = await fetchApi(
-          buildPoolTradesUrl(effectivePoolId, { tf: "60d", limit: 500 }),
+          buildPoolTradesUrl(effectivePoolId, { tf: "24h", limit: 500 }),
           { cache: "no-store" }
         );
         if (!response.ok) throw new Error("Failed to fetch pool trades");
         const data = await response.json();
         if (data?.success && Array.isArray(data.data)) {
-          const mappedTrades = data.data.map(mapApiTradeToLocal);
+          const mappedTrades = filterRecentTrades(
+            data.data.map(mapApiTradeToLocal)
+          );
+          RECENT_TRADES_MEMORY_CACHE.set(
+            `pool:${effectivePoolId}`,
+            mappedTrades
+          );
           applyBatch(mappedTrades);
         }
       } catch (error) {
         console.error("Error fetching initial pool trades:", error);
-        const fallbackTrades = await fetchTokenTradesBatch();
+        const fallbackTrades = await fetchTokenTradesBatch(applyBatch);
         applyBatch(fallbackTrades);
       } finally {
         if (fetchRunIdRef.current === runId) setLoading(false);
@@ -1411,7 +1509,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
 
     setLoading(tradesLengthRef.current === 0);
     try {
-      const mappedTrades = await fetchTokenTradesBatch();
+      const mappedTrades = await fetchTokenTradesBatch(applyBatch);
       applyBatch(mappedTrades);
     } catch (error) {
       console.error("Error fetching initial trades:", error);
@@ -1713,10 +1811,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
   const newTradeTimeoutsRef = useRef<Map<string, number>>(new Map());
 
   const getTradeKey = useCallback(
-    (trade: Trade) =>
-      trade.tradeId ||
-      trade.txHash ||
-      `${trade.signer}-${trade.time}-${trade.offerDenom}-${trade.askDenom}`,
+    (trade: Trade) => getTradeIdentity(trade),
     []
   );
 
@@ -1776,17 +1871,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
       if (!uniqueIncoming.length) return prevTrades;
 
       markNewTradesRef.current(uniqueIncoming);
-      
-      // CRITICAL FIX: Replace old trades with new ones, maintaining max of 500
-      // Add new trades to the top, remove oldest ones from the bottom
-      const updatedTrades = [...uniqueIncoming, ...prevTrades];
-      
-      // Only keep the most recent 500 trades
-      if (updatedTrades.length > MAX_TRADES) {
-        return updatedTrades.slice(0, MAX_TRADES);
-      }
-      
-      return updatedTrades;
+      return mergeLatestTradesList(uniqueIncoming, prevTrades);
     });
 
     setLastUpdated(new Date());
@@ -1904,12 +1989,6 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
 
         ws.onmessage = async (event) => {
           try {
-            // Wait for initial API fetch to complete before processing WebSocket updates
-            if (!initialFetchCompletedRef.current) {
-              // Still loading initial trades, skip WebSocket updates for now
-              return;
-            }
-
             const msg = JSON.parse(event.data);
             const { trades: parsedTrades } =
               await parseTradesFromStreamMessage(msg);
@@ -1926,8 +2005,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
             pendingLiveTradesRef.current.push(...tradesFromMessage);
             if (pendingLiveTradesRef.current.length > MAX_TRADES) {
               pendingLiveTradesRef.current = pendingLiveTradesRef.current.slice(
-                0,
-                MAX_TRADES
+                -MAX_TRADES
               );
             }
             scheduleLiveTradesFlush();

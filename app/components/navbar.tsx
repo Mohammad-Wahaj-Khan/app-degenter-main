@@ -500,11 +500,11 @@ export default function Navbar() {
                 <ExploreNavItem />
 
                 <Link href={"/wallet-tracker"}>
-                  <NavItem label="Wallet Tracker" showBlinker/>
+                  <NavItem label="Wallet Analyzer" showBlinker/>
                 </Link>
-                <NavItem label="Earn" hasDropdown />
+                {/* <NavItem label="Earn" hasDropdown />
                 <NavItem label="Terminal" hasDropdown />
-                <NavItem label="Resources" hasDropdown />
+                <NavItem label="Resources" hasDropdown /> */}
                 {/* <Link href={'https://leaderboard.degenter.io'} target="_blank"><NavItem label="Leaderboard" showBlinker /></Link> */}
                 {/* <TerminalNavItem /> */}
                 {/* <LeaderboardNavItem /> */}
@@ -693,12 +693,12 @@ export default function Navbar() {
               <Link href={"/createtoken"}>
                 <NavItem label="Create Token" showBlinker />
               </Link>
-              <ExploreNavItem />
-              <NavItem label="Wallet Tracker" hasDropdown />
-              <NavItem label="Earn" hasDropdown />
-              <NavItem label="Terminal" hasDropdown />
+              <ExploreNavItem mobile />
+              <NavItem label="Wallet Analyzer" hasDropdown />
+              {/* <NavItem label="Earn" hasDropdown />
+              <NavItem label="Terminal" hasDropdown /> */}
               {/* <TerminalNavItem /> */}
-              <NavItem label="Resources" hasDropdown />
+              {/* <NavItem label="Resources" hasDropdown /> */}
               <LeaderboardNavItem mobile />
               <Link
                 href="http://zigscan.org/"
@@ -938,7 +938,7 @@ function ExploreNavItem({ mobile }: { mobile?: boolean }) {
 
       {isOpen && (
         <div
-          className="absolute left-0 mt-1 w-[600px] rounded-lg bg-black border border-gray-800 p-4 shadow-2xl z-[1000]"
+          className="absolute right-0 mt-1 w-[min(600px,calc(100vw-2rem))] rounded-lg bg-black border border-gray-800 p-4 shadow-2xl z-[1000]"
           onMouseEnter={openMenu}
           onMouseLeave={closeMenu}
         >
@@ -1147,7 +1147,7 @@ function TerminalNavItem({ mobile }: { mobile?: boolean }) {
 
       {isOpen && (
         <div
-          className="absolute left-0 mt-1 w-[600px] rounded-lg bg-black border border-gray-800 p-4 shadow-2xl z-[1000]"
+          className="absolute right-0 mt-1 w-[min(600px,calc(100vw-2rem))] rounded-lg bg-black border border-gray-800 p-4 shadow-2xl z-[1000]"
           onMouseEnter={openMenu}
           onMouseLeave={closeMenu}
         >
