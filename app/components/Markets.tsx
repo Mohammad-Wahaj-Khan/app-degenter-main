@@ -19,7 +19,7 @@ import {
   X
 } from "lucide-react";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
-import { tokenApiRef } from "@/lib/token-routing";
+import { storeTokenRoute, tokenApiRef } from "@/lib/token-routing";
 
 interface MarketsProps {
   denom?: string;
@@ -85,12 +85,9 @@ const isZigDenom = (value?: string | null) => {
   return normalized === "zig" || normalized === "uzig";
 };
 
-const isIbcDenom = (value?: string | null) =>
-  (value ?? "").trim().toLowerCase().startsWith("ibc/");
-
 const getTokenRouteRef = (denom?: string | null, symbol?: string | null) => {
   if (!denom) return null;
-  return isIbcDenom(denom) ? symbol || denom : denom;
+  return storeTokenRoute(denom, symbol);
 };
 
 const buildPoolsUrl = (denom: string) =>
