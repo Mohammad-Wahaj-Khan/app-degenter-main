@@ -87,6 +87,10 @@ const fmtUSD = (n?: number) =>
   Number.isFinite(n as number) ? `$${(n as number).toFixed(2)}` : "$0.00";
 const truncMid = (s: string, left = 6, right = 6) =>
   s.length > left + right + 3 ? `${s.slice(0, left)}...${s.slice(-right)}` : s;
+const isZigRef = (value?: string | null) => {
+  const normalized = (value ?? "").trim().toLowerCase();
+  return normalized === "zig" || normalized === "uzig";
+};
 
 const toRouterPairType = (s?: string) => {
   const x = (s || "").trim().toLowerCase();
@@ -350,6 +354,40 @@ export default function SwapInterface({
     [tokenList, tokenIcon]
   );
 
+  const defaultCounterAsset = useMemo(() => {
+    const preferred = ["USDC", "USDT"];
+    const pick = (token: TokenListItem): SwapAsset =>
+      isCw20Contract(token.denom)
+        ? {
+            type: "cw20",
+            contract: token.denom.trim(),
+            symbol: token.symbol,
+            icon: token.imageUri || tokenIcon,
+            decimals: token.exponent ?? 6,
+          }
+        : {
+            type: "native",
+            denom: cleanDenom(token.denom),
+            symbol: token.symbol,
+            icon: token.imageUri || tokenIcon,
+            decimals: token.exponent ?? 6,
+          };
+
+    const nonZigTokens = tokenList.filter(
+      (token) => !isZigRef(token.denom) && !isZigRef(token.symbol)
+    );
+
+    for (const symbol of preferred) {
+      const match = nonZigTokens.find(
+        (token) => token.symbol?.toUpperCase() === symbol
+      );
+      if (match) return pick(match);
+    }
+
+    const first = nonZigTokens[0];
+    return first ? pick(first) : null;
+  }, [tokenList, tokenIcon]);
+
   const fromRef =
     activePay.type === "native"
       ? (activePay as any).denom
@@ -423,6 +461,26 @@ export default function SwapInterface({
       setDirection("payToReceive"); // pay = base (other)
     }
   }, [selectedPair, PAGE_TOKEN, assetMatches, resolveAssetFromKey]);
+
+  useEffect(() => {
+    if (!isZigRef(PAGE_TOKEN.symbol) && !isZigRef((PAGE_TOKEN as any).denom)) {
+      return;
+    }
+    if (!defaultCounterAsset) return;
+
+    const pageKey =
+      PAGE_TOKEN.type === "native"
+        ? (PAGE_TOKEN as any).denom
+        : (PAGE_TOKEN as any).contract;
+    const otherKey =
+      other.type === "native" ? (other as any).denom : (other as any).contract;
+    const otherIsSameAsPage = otherKey === pageKey;
+
+    if (otherIsSameAsPage) {
+      setOther(defaultCounterAsset);
+      setDirection("receiveToPay");
+    }
+  }, [PAGE_TOKEN, other, defaultCounterAsset]);
 
   const keyOf = (a: SwapAsset) => (a.type === "native" ? a.denom : a.contract);
   const iconForDenom = useCallback(
