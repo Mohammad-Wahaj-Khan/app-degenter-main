@@ -14,7 +14,7 @@ import {
   UTCTimestamp,
 } from "lightweight-charts";
 import { ArrowLeftRight, Copy, Expand, RefreshCw, Share2 } from "lucide-react";
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo, SetStateAction } from "react";
 import type { SignerFilterSummary } from "@/app/components/RecentTrades";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 import { isIbcDenom, tokenApiRef } from "@/lib/token-routing";
@@ -377,6 +377,13 @@ type ChartView = "price" | "marketCap";
 type PriceDisplay = ChartUnit;
 type PairView = "auto" | "base" | "quote";
 type PairSide = "base" | "quote";
+type ZigUsdcPoolSource = {
+  poolId: string;
+  tokenRef: string;
+};
+const ZIG_USDC_POOL_ID = "3";
+const ZIG_USDC_TOKEN_REF =
+  "ibc/6490A7EAB61059BFC1CDDEB05917DD70BDF3A611654162A1A47DB930D40D8AF4";
 
 // Helper function to build OHLCV URL with proper parameters
 function buildOhlcvUrl(
@@ -448,6 +455,35 @@ function buildTokenUrl(
   return `${apiBase}/tokens/${encodeURIComponent(apiTokenId)}?priceSource=best`;
 }
 
+function normalizeZigUsdQuote(value: number): number | null {
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return 1 / value;
+}
+
+function normalizeZigUsdcCandle(bar: FeedCandle): FeedCandle | null {
+  if (
+    !Number.isFinite(bar.open) ||
+    !Number.isFinite(bar.high) ||
+    !Number.isFinite(bar.low) ||
+    !Number.isFinite(bar.close) ||
+    bar.open <= 0 ||
+    bar.high <= 0 ||
+    bar.low <= 0 ||
+    bar.close <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    time: bar.time,
+    open: 1 / bar.open,
+    high: 1 / bar.low,
+    low: 1 / bar.high,
+    close: 1 / bar.close,
+    volume: bar.volume,
+  };
+}
+
 /* ---------- Datafeed bound to your API + Websocket ---------- */
 function makeDatafeed(
   tokenId: string,
@@ -464,6 +500,8 @@ function makeDatafeed(
   getTokenExponent: () => number,
   getContractAddress: () => string | null,
   getPoolId: () => string | null,
+  getZigUsdcPoolSource: () => ZigUsdcPoolSource | null,
+  setZigUsdCb: (price: number) => void,
   setLivePriceCb: (p: { zig: number; ts: number }) => void,
   enableRealtimeWs = true
 ) {
@@ -488,30 +526,36 @@ function makeDatafeed(
     const mode = getMode();
     const unit = getUnit();
     const poolConfig = getPoolConfig();
+    const zigUsdcPoolSource = getZigUsdcPoolSource();
     const fromIso = new Date(fromSec * 1000).toISOString();
     const toIso = new Date(toSec * 1000).toISOString();
-
-    const url = buildOhlcvUrl(
-      API_BASE,
-      tokenId,
-      {
-        tf,
-        from: fromIso,
-        to: toIso,
-        mode,
-        unit,
-        isPoolSelected: poolConfig.isPoolSelected,
-        poolId: poolConfig.poolId,
-        dominant: poolConfig.dominant,
-        view: poolConfig.view,
-        fill: "prev"
-      }
-    );
+    const url = zigUsdcPoolSource
+      ? `${API_BASE}/tokens/${encodeURIComponent(
+          tokenApiRef(zigUsdcPoolSource.tokenRef)
+        )}/ohlcv?tf=${tf}&from=${encodeURIComponent(
+          fromIso
+        )}&to=${encodeURIComponent(
+          toIso
+        )}&fill=prev&unit=zig&priceSource=pool&poolId=${encodeURIComponent(
+          zigUsdcPoolSource.poolId
+        )}`
+      : buildOhlcvUrl(API_BASE, tokenId, {
+          tf,
+          from: fromIso,
+          to: toIso,
+          mode,
+          unit,
+          isPoolSelected: poolConfig.isPoolSelected,
+          poolId: poolConfig.poolId,
+          dominant: poolConfig.dominant,
+          view: poolConfig.view,
+          fill: "prev",
+        });
 
     const r = await fetchApi(url, { cache: "no-store" });
     const j = await r.json();
     const data = Array.isArray(j?.data) ? j.data : [];
-    return data
+    const bars = data
       .map((b: any) => ({
         time: Number(b.ts_sec ?? b.ts ?? b.time) * 1000,
         open: Number(b.open),
@@ -526,6 +570,26 @@ function makeDatafeed(
           [x.open, x.high, x.low, x.close].every(Number.isFinite)
       )
       .sort((a: { time: number }, b: { time: number }) => a.time - b.time);
+
+    if (!zigUsdcPoolSource) return bars;
+
+    const supply = mode === "mcap" ? getSupply() : null;
+    return bars
+      .map((bar: FeedCandle) => {
+        const inverted = normalizeZigUsdcCandle(bar);
+        if (!inverted) return null;
+        if (!supply || !Number.isFinite(supply) || supply <= 0 || mode !== "mcap") {
+          return inverted;
+        }
+        return {
+          ...inverted,
+          open: inverted.open * supply,
+          high: inverted.high * supply,
+          low: inverted.low * supply,
+          close: inverted.close * supply,
+        };
+      })
+      .filter((bar: any): bar is FeedCandle => Boolean(bar));
   }
 
   const uniqueTfs = () => Array.from(new Set(Array.from(subs.values()).map((s) => s.tf)));
@@ -600,9 +664,10 @@ function makeDatafeed(
   const sendSubs = () => {
     if (!enableRealtimeWs) return;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const poolId = getPoolId();
+    const zigUsdcPoolSource = getZigUsdcPoolSource();
+    const poolId = zigUsdcPoolSource?.poolId ?? getPoolId();
     if (!poolId) return;
-    const unit = getUnit() === "native" ? "zig" : "usd";
+    const unit = zigUsdcPoolSource ? "zig" : getUnit() === "native" ? "zig" : "usd";
     const baseTf: TfKey = "1m";
     try {
       ws!.send(
@@ -777,25 +842,30 @@ function makeDatafeed(
       }
       if (msg?.type !== "candle") return;
       console.debug("Candles WS message:", msg);
-      const poolId = getPoolId();
+      const zigUsdcPoolSource = getZigUsdcPoolSource();
+      const poolId = zigUsdcPoolSource?.poolId ?? getPoolId();
       if (!poolId || String(msg?.pool_id) !== String(poolId)) return;
       const tf = msg?.tf as TfKey | undefined;
       if (!tf || !(tf in STEP_SEC)) return;
       const unit = msg?.unit;
-      const expectedUnit = getUnit() === "native" ? "zig" : "usd";
+      const expectedUnit = zigUsdcPoolSource
+        ? "zig"
+        : getUnit() === "native"
+        ? "zig"
+        : "usd";
       if (unit && unit !== expectedUnit) return;
       const data = msg?.data || {};
       const bucketStart = data?.bucket_start || msg?.bucket_start;
       const timeMs = bucketStart ? Date.parse(bucketStart) : NaN;
       if (!Number.isFinite(timeMs)) return;
-      const open = Number(data?.open);
-      const high = Number(data?.high);
-      const low = Number(data?.low);
-      const close = Number(data?.close);
+      let open = Number(data?.open);
+      let high = Number(data?.high);
+      let low = Number(data?.low);
+      let close = Number(data?.close);
       if (![open, high, low, close].every(Number.isFinite)) return;
 
       const volume = Number(data?.volume ?? 0);
-      const candle: FeedCandle = {
+      let candle: FeedCandle = {
         time: timeMs,
         open,
         high,
@@ -803,6 +873,17 @@ function makeDatafeed(
         close,
         volume: Number.isFinite(volume) ? volume : 0,
       };
+
+      if (zigUsdcPoolSource) {
+        const inverted = normalizeZigUsdcCandle(candle);
+        if (!inverted) return;
+        candle = inverted;
+        open = inverted.open;
+        high = inverted.high;
+        low = inverted.low;
+        close = inverted.close;
+        setZigUsdCb(close);
+      }
 
       const tsSec = Math.floor(timeMs / 1000);
       const applyCandleToTf = (targetTf: TfKey, base: FeedCandle) => {
@@ -854,12 +935,13 @@ function makeDatafeed(
       }
 
       const zigUsd = getZigUsd();
-      const zigPrice =
-        expectedUnit === "zig"
-          ? close
-          : zigUsd > 0
-          ? close / zigUsd
-          : null;
+      const zigPrice = zigUsdcPoolSource
+        ? 1
+        : expectedUnit === "zig"
+        ? close
+        : zigUsd > 0
+        ? close / zigUsd
+        : null;
       if (zigPrice && Number.isFinite(zigPrice) && zigPrice > 0) {
         setLivePriceCb({ zig: zigPrice, ts: timeMs });
       }
@@ -1287,6 +1369,8 @@ export default function TradingChart({
   const [livePrice, setLivePrice] = useState<{ zig: number; ts: number } | null>(
     null
   );
+  const [zigUsdcPoolSource, setZigUsdcPoolSource] =
+    useState<ZigUsdcPoolSource | null>(null);
   const selectedPairContract =
     selectedPair?.pairContract ||
     (isLikelyPairContract(selectedPair?.quoteDenom)
@@ -1426,6 +1510,20 @@ export default function TradingChart({
     setUnit("usd");
     setPriceDisplay("usd");
   }, [isZigToken, priceDisplay, unit]);
+
+  useEffect(() => {
+    if (!isZigToken || shouldUsePoolPricing) {
+      setZigUsdcPoolSource(null);
+      return;
+    }
+    const nextSource = {
+      poolId: ZIG_USDC_POOL_ID,
+      tokenRef: ZIG_USDC_TOKEN_REF,
+    };
+    poolIdRef.current = nextSource.poolId;
+    setPoolId(nextSource.poolId);
+    setZigUsdcPoolSource(nextSource);
+  }, [isZigToken, shouldUsePoolPricing]);
 
   const selectedChartSymbol = shouldUsePoolPricing
     ? selectedPoolView === "base"
@@ -1732,20 +1830,54 @@ const applyTvWalletShapes = useCallback(async () => {
 
   const fetchZigQuote = useCallback(async () => {
     try {
-      const r = await fetchApi(`${API_BASE}/tokens/uzig?priceSource=best`, {
-        cache: "no-store",
-      });
+      const url = zigUsdcPoolSource
+        ? `${API_BASE}/tokens/${encodeURIComponent(
+            tokenApiRef(zigUsdcPoolSource.tokenRef)
+          )}?priceSource=pool&poolId=${encodeURIComponent(
+            zigUsdcPoolSource.poolId
+          )}`
+        : `${API_BASE}/tokens/uzig?priceSource=best`;
+      const r = await fetchApi(url, { cache: "no-store" });
       const j = await r.json();
-      const p =
-        Number(j?.data?.priceInUsd) ||
+      const poolPriceNative =
+        Number(j?.data?.price?.native) ||
+        Number(j?.data?.priceInNative) ||
         Number(j?.data?.close) ||
-        Number(j?.data?.price?.usd) ||
         0;
-      if (Number.isFinite(p) && p > 0) setZigUsd(p);
+      const p = zigUsdcPoolSource
+        ? normalizeZigUsdQuote(poolPriceNative) || 0
+        : Number(j?.data?.priceInUsd) ||
+          Number(j?.data?.close) ||
+          Number(j?.data?.price?.usd) ||
+          0;
+      if (Number.isFinite(p) && p > 0) {
+        setZigUsd(p);
+        if (isZigToken) {
+          setTokenData((prev) => {
+            if (!prev) return prev;
+            const supplyVal = Number(
+              prev?.circulatingSupply ?? supplyRef.current ?? 0
+            );
+            return {
+              ...prev,
+              priceInNative: 1,
+              priceInUsd: p,
+              mcNative:
+                Number.isFinite(supplyVal) && supplyVal > 0
+                  ? supplyVal
+                  : prev.mcNative,
+              mc:
+                Number.isFinite(supplyVal) && supplyVal > 0
+                  ? p * supplyVal
+                  : prev.mc,
+            };
+          });
+        }
+      }
     } catch (e) {
       console.debug("Unable to refresh ZIG quote", e);
     }
-  }, []);
+  }, [isZigToken, zigUsdcPoolSource]);
 
   const getMode = useCallback(() => modeRef.current, []);
   const getUnit = useCallback(() => unitRef.current, []);
@@ -1758,6 +1890,10 @@ const applyTvWalletShapes = useCallback(async () => {
     []
   );
   const getPoolId = useCallback(() => getActivePoolId(), [getActivePoolId]);
+  const getZigUsdcPoolSource = useCallback(
+    () => (isZigToken && !shouldUsePoolPricing ? zigUsdcPoolSource : null),
+    [isZigToken, shouldUsePoolPricing, zigUsdcPoolSource]
+  );
   const getPoolConfig = useCallback(
     () => ({
       isPoolSelected: shouldUsePoolPricing,
@@ -1956,6 +2092,25 @@ const applyTvWalletShapes = useCallback(async () => {
             }
           }
 
+          if (isZigToken && zigUsdcPoolSource) {
+            const zigUsd = getZigUsd();
+            if (Number.isFinite(zigUsd) && zigUsd > 0) {
+              normalized.priceInNative = 1;
+              normalized.priceInUsd = zigUsd;
+              const supplyVal = Number(
+                normalized?.circulatingSupply ?? supplyRef.current ?? 0
+              );
+              if (Number.isFinite(supplyVal) && supplyVal > 0) {
+                normalized.mcNative = supplyVal;
+                normalized.mc = zigUsd * supplyVal;
+              }
+            }
+            if (poolIdRef.current !== zigUsdcPoolSource.poolId) {
+              poolIdRef.current = zigUsdcPoolSource.poolId;
+              setPoolId(zigUsdcPoolSource.poolId);
+            }
+          }
+
           setTokenData(normalized);
           setError(null);
           setLoading(false);
@@ -1996,6 +2151,8 @@ const applyTvWalletShapes = useCallback(async () => {
     activePoolDominant,
     chartTokenKey,
     getActivePoolId,
+    getZigUsd,
+    isZigToken,
     poolViewParam,
     shouldUsePoolPricing,
     selectedPair,
@@ -2004,6 +2161,7 @@ const applyTvWalletShapes = useCallback(async () => {
     selectedQuoteDenom,
     token,
     tokenId,
+    zigUsdcPoolSource,
   ]);
 
   const fetchFromRPC = async () => {
@@ -2372,7 +2530,9 @@ const applyTvWalletShapes = useCallback(async () => {
           getTokenExponent,
           getContractAddress,
           getPoolId,
-          (p) => setLivePrice(p),
+          getZigUsdcPoolSource,
+          setZigUsd,
+          (p: SetStateAction<{ zig: number; ts: number; } | null>) => setLivePrice(p),
           realtimeWsEnabled
         );
         datafeedRef.current = datafeed;
@@ -2442,7 +2602,7 @@ const applyTvWalletShapes = useCallback(async () => {
       } catch {}
       datafeedRef.current = null;
     };
-  }, [activePoolDominant, token, getMode, getUnit, getPoolConfig, getZigUsd, getSupply, getTokenExponent, getContractAddress, getPoolId, deferInit, displaySymbol, chartTokenKey, shouldUsePoolPricing, getActivePoolId, poolViewParam]);
+  }, [activePoolDominant, token, getMode, getUnit, getPoolConfig, getZigUsd, getSupply, getTokenExponent, getContractAddress, getPoolId, getZigUsdcPoolSource, deferInit, displaySymbol, chartTokenKey, shouldUsePoolPricing, getActivePoolId, poolViewParam]);
 
   useEffect(() => {
     void applyTvWalletShapesRef.current();

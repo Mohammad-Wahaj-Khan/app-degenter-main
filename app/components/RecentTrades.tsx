@@ -17,6 +17,12 @@ import explorer from "../../public/explorer.png";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { isIbcDenom, tokenApiRef } from "@/lib/token-routing";
+import {
+  canAttemptWebSocket,
+  getWebSocketCooldownMs,
+  markWebSocketFailure,
+  markWebSocketHealthy,
+} from "@/lib/ws-health";
 
 const API_BASE = API_BASE_URL;
 const TRADES_WS_URL = process.env.NEXT_PUBLIC_TRADES_WS_URL || "";
@@ -589,11 +595,20 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
   const symbolMapRef = useRef<Record<string, string>>({});
   const [wsConnected, setWsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const wsStreamKeyRef = useRef<string | null>(null);
+  const wsManualCloseRef = useRef(false);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const hasLiveTradesRef = useRef(false);
   const fetchRunIdRef = useRef(0);
   const tradesLengthRef = useRef(0);
+  const flushLiveTradesTimeoutRef = useRef<number | null>(null);
+  const pendingLiveTradesRef = useRef<Trade[]>([]);
+  const markNewTradesRef = useRef<(trades: Trade[]) => void>(() => {});
+  const isTradeForSelectedTokenRef = useRef<
+    (rawItem: any, trade: Trade) => boolean
+  >(() => false);
+  const fetchInitialTradesRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     symbolMapRef.current = symbolMap;
@@ -1501,6 +1516,10 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
     tradesTokenRef,
   ]);
 
+  useEffect(() => {
+    fetchInitialTradesRef.current = fetchInitialTrades;
+  }, [fetchInitialTrades]);
+
   const processedTrades = useMemo(() => {
     let filtered = trades;
     if (activeFilter) {
@@ -1866,6 +1885,50 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
     [getTradeKey]
   );
 
+  const flushPendingLiveTrades = useCallback(() => {
+    flushLiveTradesTimeoutRef.current = null;
+    const pending = pendingLiveTradesRef.current;
+    if (!pending.length) return;
+    pendingLiveTradesRef.current = [];
+
+    setTrades((prevTrades) => {
+      const existingTradeIds = new Set(
+        prevTrades.map((trade) => getTradeKey(trade))
+      );
+      const uniqueIncoming: Trade[] = [];
+
+      for (const trade of pending) {
+        const key = getTradeKey(trade);
+        if (existingTradeIds.has(key)) continue;
+        existingTradeIds.add(key);
+        uniqueIncoming.push(trade);
+      }
+
+      if (!uniqueIncoming.length) return prevTrades;
+
+      markNewTradesRef.current(uniqueIncoming);
+      return [...uniqueIncoming, ...prevTrades].slice(0, MAX_TRADES);
+    });
+
+    setLastUpdated(new Date());
+    setLoading(false);
+  }, [getTradeKey]);
+
+  const scheduleLiveTradesFlush = useCallback(() => {
+    if (flushLiveTradesTimeoutRef.current != null) return;
+    flushLiveTradesTimeoutRef.current = window.setTimeout(() => {
+      flushPendingLiveTrades();
+    }, 75);
+  }, [flushPendingLiveTrades]);
+
+  useEffect(() => {
+    markNewTradesRef.current = markNewTrades;
+  }, [markNewTrades]);
+
+  useEffect(() => {
+    isTradeForSelectedTokenRef.current = isTradeForSelectedToken;
+  }, [isTradeForSelectedToken]);
+
   useEffect(() => {
     tradesLengthRef.current = trades.length;
     if (trades.length === 0) return;
@@ -1878,6 +1941,11 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
         window.clearTimeout(timeoutId);
       }
       newTradeTimeoutsRef.current.clear();
+      if (flushLiveTradesTimeoutRef.current != null) {
+        window.clearTimeout(flushLiveTradesTimeoutRef.current);
+        flushLiveTradesTimeoutRef.current = null;
+      }
+      pendingLiveTradesRef.current = [];
     };
   }, []);
 
@@ -1886,30 +1954,64 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
     if (isPoolTradeContext) return;
     if (!resolvedTokenId) return;
 
+    const streamKey = `token:${resolvedTokenId}`;
+
     // Reset stale trades when selected token changes.
     setTrades([]);
     setCurrentPage(1);
     initialLoadDone.current = false;
+    pendingLiveTradesRef.current = [];
+    if (flushLiveTradesTimeoutRef.current != null) {
+      window.clearTimeout(flushLiveTradesTimeoutRef.current);
+      flushLiveTradesTimeoutRef.current = null;
+    }
 
     // Fetch initial trades immediately
     if (!initialLoadDone.current) {
-      fetchInitialTrades();
+      void fetchInitialTradesRef.current();
     }
 
     const connectWebSocket = () => {
       try {
+        if (!TRADES_WS_URL || !canAttemptWebSocket(TRADES_WS_URL)) {
+          const cooldown = getWebSocketCooldownMs(TRADES_WS_URL);
+          if (
+            reconnectTimeoutRef.current == null &&
+            Number.isFinite(cooldown) &&
+            cooldown > 0
+          ) {
+            reconnectTimeoutRef.current = setTimeout(() => {
+              reconnectTimeoutRef.current = null;
+              connectWebSocket();
+            }, cooldown);
+          }
+          return;
+        }
+        wsManualCloseRef.current = false;
+        if (
+          wsRef.current &&
+          wsStreamKeyRef.current === streamKey &&
+          (wsRef.current.readyState === WebSocket.OPEN ||
+            wsRef.current.readyState === WebSocket.CONNECTING)
+        ) {
+          return;
+        }
+
         // Close existing connection if any
-        if (wsRef.current) {
+        if (wsRef.current && wsStreamKeyRef.current !== streamKey) {
+          wsManualCloseRef.current = true;
           wsRef.current.close();
           wsRef.current = null;
         }
 
         const ws = new WebSocket(TRADES_WS_URL);
         wsRef.current = ws;
+        wsStreamKeyRef.current = streamKey;
 
         ws.onopen = () => {
           setWsConnected(true);
           reconnectAttemptsRef.current = 0;
+          markWebSocketHealthy(TRADES_WS_URL);
 
           // Subscribe to trades stream for this token
           const subscribeMessage = {
@@ -1928,65 +2030,69 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
             if (!parsedTrades.length) return;
 
             const tradesFromMessage = parsedTrades.filter((trade, index) =>
-              isTradeForSelectedToken(
+              isTradeForSelectedTokenRef.current(
                 Array.isArray(msg?.data) ? msg.data[index] : msg?.data ?? msg,
                 trade
               )
             );
             if (!tradesFromMessage.length) return;
 
-            setTrades((prevTrades) => {
-              // Filter out any existing trades with the same ID/hash to prevent duplicates
-              const existingTradeIds = new Set(
-                prevTrades.map((t) => t.tradeId || t.txHash)
-              );
-              const uniqueNewTrades = tradesFromMessage.filter(
-                (t) => !existingTradeIds.has(t.tradeId || t.txHash)
-              );
-
-              if (uniqueNewTrades.length === 0) return prevTrades;
-              markNewTrades(uniqueNewTrades);
-
-              // Prepend new trades and keep only the most recent MAX_TRADES
-              const updatedTrades = [...uniqueNewTrades, ...prevTrades].slice(
+            pendingLiveTradesRef.current.push(...tradesFromMessage);
+            if (pendingLiveTradesRef.current.length > MAX_TRADES) {
+              pendingLiveTradesRef.current = pendingLiveTradesRef.current.slice(
                 0,
                 MAX_TRADES
               );
-              return updatedTrades;
-            });
-
-            setLastUpdated(new Date());
+            }
+            scheduleLiveTradesFlush();
           } catch (error) {
             console.error("Error processing WebSocket message:", error);
           }
         };
 
-        ws.onerror = (error) => {
-          console.error("WebSocket error:", error);
+        ws.onerror = () => {
           setWsConnected(false);
         };
 
         ws.onclose = (event) => {
           setWsConnected(false);
-          wsRef.current = null;
+          if (wsRef.current === ws) {
+            wsRef.current = null;
+          }
+          if (wsStreamKeyRef.current === streamKey) {
+            wsStreamKeyRef.current = null;
+          }
+
+          const wasManualClose =
+            wsManualCloseRef.current ||
+            event.code === 1000 ||
+            event.code === 1001;
+          if (wasManualClose) {
+            wsManualCloseRef.current = false;
+            return;
+          }
+
+          const cooldown = markWebSocketFailure(TRADES_WS_URL);
 
           // Attempt to reconnect with exponential backoff
           if (reconnectAttemptsRef.current < 5) {
-            const delay = Math.min(
-              1000 * Math.pow(2, reconnectAttemptsRef.current),
-              30000
+            const delay = Math.max(
+              cooldown,
+              Math.min(
+                1000 * Math.pow(2, reconnectAttemptsRef.current),
+                30000
+              )
             );
             reconnectAttemptsRef.current++;
 
             reconnectTimeoutRef.current = setTimeout(() => {
+              reconnectTimeoutRef.current = null;
               connectWebSocket();
             }, delay);
-          } else {
-            console.error("Max reconnection attempts reached");
           }
         };
       } catch (error) {
-        console.error("Error setting up WebSocket:", error);
+        markWebSocketFailure(TRADES_WS_URL);
       }
     };
 
@@ -1997,20 +2103,20 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
       if (wsRef.current) {
+        wsManualCloseRef.current = true;
         wsRef.current.close();
         wsRef.current = null;
       }
+      wsStreamKeyRef.current = null;
       setWsConnected(false);
     };
   }, [
-    resolvedTokenId,
-    activePoolId,
-    fetchInitialTrades,
     isPoolTradeContext,
-    markNewTrades,
-    isTradeForSelectedToken,
+    resolvedTokenId,
+    scheduleLiveTradesFlush,
   ]);
 
   useEffect(() => {

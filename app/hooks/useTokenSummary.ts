@@ -2,6 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { tokenAPI, type TokenDetailResponse } from "@/lib/api";
+import {
+  canAttemptWebSocket,
+  getWebSocketCooldownMs,
+  markWebSocketFailure,
+  markWebSocketHealthy,
+} from "@/lib/ws-health";
 
 type TokenSummaryData = TokenDetailResponse["data"] & {
   token?: TokenDetailResponse["data"]["token"];
@@ -30,6 +36,7 @@ const sharedSummaryConnection = {
   wsUrl: "",
   connected: false,
   connecting: false,
+  manualClose: false,
   reconnectTimer: null as number | null,
   listeners: new Map<number, Set<TokenSummaryListener>>(),
   connectionListeners: new Set<ConnectionListener>(),
@@ -59,6 +66,16 @@ const sendSubscribe = (tokenId: number) => {
 
 const connectShared = (wsUrl: string) => {
   if (!wsUrl) return;
+  if (!canAttemptWebSocket(wsUrl)) {
+    const cooldown = getWebSocketCooldownMs(wsUrl);
+    if (sharedSummaryConnection.reconnectTimer == null && cooldown > 0) {
+      sharedSummaryConnection.reconnectTimer = window.setTimeout(() => {
+        sharedSummaryConnection.reconnectTimer = null;
+        connectShared(wsUrl);
+      }, cooldown);
+    }
+    return;
+  }
   if (
     sharedSummaryConnection.ws &&
     (sharedSummaryConnection.connected || sharedSummaryConnection.connecting) &&
@@ -68,6 +85,7 @@ const connectShared = (wsUrl: string) => {
   }
 
   if (sharedSummaryConnection.ws) {
+    sharedSummaryConnection.manualClose = true;
     sharedSummaryConnection.ws.close();
     sharedSummaryConnection.ws = null;
     sharedSummaryConnection.subscribed.clear();
@@ -81,6 +99,8 @@ const connectShared = (wsUrl: string) => {
 
   ws.onopen = () => {
     sharedSummaryConnection.connecting = false;
+    sharedSummaryConnection.manualClose = false;
+    markWebSocketHealthy(wsUrl);
     notifyConnection(true);
     sharedSummaryConnection.subscribed.clear();
     Array.from(sharedSummaryConnection.listeners.keys()).forEach((tokenId) =>
@@ -109,18 +129,30 @@ const connectShared = (wsUrl: string) => {
       if (!listeners) return;
       listeners.forEach((listener) => listener(msg.data as TokenSummaryData, ts));
     } catch (err) {
-      console.error("Token summary parse error:", err);
+      // Ignore malformed realtime payloads; passive consumers can keep using cached data.
     }
   };
 
-  ws.onclose = () => {
+  ws.onclose = (event) => {
     sharedSummaryConnection.ws = null;
     sharedSummaryConnection.connecting = false;
     notifyConnection(false);
+    if (
+      sharedSummaryConnection.manualClose ||
+      event.code === 1000 ||
+      event.code === 1001
+    ) {
+      sharedSummaryConnection.manualClose = false;
+      return;
+    }
     if (sharedSummaryConnection.listeners.size === 0) return;
+    const cooldown = markWebSocketFailure(wsUrl);
     sharedSummaryConnection.reconnectTimer = window.setTimeout(
-      () => connectShared(wsUrl),
-      3000
+      () => {
+        sharedSummaryConnection.reconnectTimer = null;
+        connectShared(wsUrl);
+      },
+      cooldown
     );
   };
 
@@ -169,6 +201,7 @@ const subscribeToTokenSummary = (
         sharedSummaryConnection.reconnectTimer = null;
       }
       if (sharedSummaryConnection.ws) {
+        sharedSummaryConnection.manualClose = true;
         sharedSummaryConnection.ws.close();
         sharedSummaryConnection.ws = null;
       }
