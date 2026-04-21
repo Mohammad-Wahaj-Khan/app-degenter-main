@@ -5,83 +5,93 @@ import TopMarketToken from "../components/TopMarketToken";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 
 async function getTokenData() {
-  const endpoint = `${API_BASE_URL}/tokens?bucket=24h&priceSource=best&dir=desc&includeChange=1&limit=300&offset=0&sort=volume`;
-  const res = await fetch(endpoint, {
-    headers: API_HEADERS,
-    next: { revalidate: 60 },
-  });
+  const baseUrl = API_BASE_URL.replace(/\/+$/, "");
+  const endpoint = `${baseUrl}/tokens?bucket=24h&priceSource=best&dir=desc&includeChange=1&limit=300&offset=0&sort=volume`;
 
-  if (!res.ok) {
-    console.warn("Insights token feed failed", res.status, res.statusText);
+  try {
+    const res = await fetch(endpoint, {
+      headers: API_HEADERS,
+      next: { revalidate: 60 },
+    });
+
+    if (!res.ok) {
+      console.warn("Insights token feed failed", res.status, res.statusText);
+      return [];
+    }
+
+    const json = await res.json();
+
+    const items = Array.isArray(json)
+      ? json
+      : Array.isArray(json?.data)
+      ? json.data
+      : Array.isArray(json?.data?.tokens)
+      ? json.data.tokens
+      : Array.isArray(json?.data?.items)
+      ? json.data.items
+      : [];
+    const hasValidChange = (change: any) => {
+      if (typeof change === "number") return true;
+      if (!change || typeof change !== "object") return false;
+      return Object.values(change).some(
+        (value) => typeof value === "number" && value !== 0
+      );
+    };
+
+    const normalized = await Promise.all(
+      items.map(async (item: any) => {
+        const symbol = item.symbol ?? item?.token?.symbol;
+        const tokenId = item.tokenId ?? item?.token?.tokenId;
+        const denom = item.denom ?? item?.token?.denom;
+        const fetchRef = denom || tokenId;
+        let priceChange =
+          item?.price?.changePct ?? item?.priceChange ?? item?.price?.change;
+
+        if (!hasValidChange(priceChange) && fetchRef) {
+          try {
+            const detailRes = await fetch(
+              `${baseUrl}/tokens/${encodeURIComponent(fetchRef)}`,
+              {
+                headers: API_HEADERS,
+                next: { revalidate: 60 },
+              }
+            );
+            if (detailRes.ok) {
+              const detailJson = await detailRes.json();
+              priceChange =
+                detailJson?.data?.price?.changePct ??
+                detailJson?.data?.priceChange ??
+                priceChange;
+            }
+          } catch {
+            // Leave fallback as-is when detail fetch fails.
+          }
+        }
+
+        return {
+          symbol,
+          name: item.name ?? item?.token?.name,
+          imageUri: item.imageUri ?? item?.token?.imageUri,
+          mcapUsd: item.mcapUsd,
+          priceUsd: item.priceUsd ?? item?.price?.usd,
+          volume: item.volume,
+          volumeUSD: item.volumeUSD,
+          volUsd: item.volUsd,
+          priceChange,
+        };
+      })
+    );
+
+    return normalized
+      .sort(
+        (a: { volUsd: any }, b: { volUsd: any }) =>
+          (b.volUsd ?? 0) - (a.volUsd ?? 0)
+      )
+      .slice(0, 200);
+  } catch (error) {
+    console.warn("Insights token feed threw during build", error);
     return [];
   }
-
-  const json = await res.json();
-
-  const items = Array.isArray(json)
-    ? json
-    : Array.isArray(json?.data)
-    ? json.data
-    : Array.isArray(json?.data?.tokens)
-    ? json.data.tokens
-    : Array.isArray(json?.data?.items)
-    ? json.data.items
-    : [];
-  const hasValidChange = (change: any) => {
-    if (typeof change === "number") return true;
-    if (!change || typeof change !== "object") return false;
-    return Object.values(change).some(
-      (value) => typeof value === "number" && value !== 0
-    );
-  };
-
-  const normalized = await Promise.all(
-    items.map(async (item: any) => {
-      const symbol = item.symbol ?? item?.token?.symbol;
-      const tokenId = item.tokenId ?? item?.token?.tokenId;
-      const denom = item.denom ?? item?.token?.denom;
-      const fetchRef = denom || tokenId;
-      let priceChange =
-        item?.price?.changePct ?? item?.priceChange ?? item?.price?.change;
-
-      if (!hasValidChange(priceChange) && fetchRef) {
-        try {
-          const detailRes = await fetch(
-            `${process.env.NEXT_PUBLIC_API_BASE_URL}/tokens/${encodeURIComponent(fetchRef)}`,
-            { next: { revalidate: 60 } }
-          );
-          if (detailRes.ok) {
-            const detailJson = await detailRes.json();
-            priceChange =
-              detailJson?.data?.price?.changePct ??
-              detailJson?.data?.priceChange ??
-              priceChange;
-          }
-        } catch {
-          // Leave fallback as-is when detail fetch fails.
-        }
-      }
-
-      return {
-        symbol,
-        name: item.name ?? item?.token?.name,
-        imageUri: item.imageUri ?? item?.token?.imageUri,
-        mcapUsd: item.mcapUsd,
-        priceUsd: item.priceUsd ?? item?.price?.usd,
-        volume: item.volume,
-        volumeUSD: item.volumeUSD,
-        volUsd: item.volUsd,
-        priceChange,
-      };
-    })
-  );
-
-  return normalized
-    .sort(
-      (a: { volUsd: any }, b: { volUsd: any }) =>
-        (b.volUsd ?? 0) - (a.volUsd ?? 0)
-    )
-    .slice(0, 200);
 }
 
 export default async function InsightsPage() {

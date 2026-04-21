@@ -38,6 +38,9 @@ type Pool = {
   poolId?: string;
 };
 
+const normalizeAssetRef = (value?: string | null) =>
+  (value ?? "").trim().toLowerCase();
+
 const fetchApi = (url: string, init: RequestInit = {}) =>
   fetch(url, {
     ...init,
@@ -55,6 +58,7 @@ export default function SwapPanel({
     quoteSymbol?: string | null;
     baseDenom?: string | null;
     quoteDenom?: string | null;
+    pairContract?: string | null;
   } | null;
 }) {
   // async function resolvePairBySymbol(symbol: string) {
@@ -76,14 +80,18 @@ export default function SwapPanel({
   // }
 
   const tokenSymbol = params.token;
+  const selectedBaseDenom = selectedPair?.baseDenom ?? null;
+  const selectedQuoteDenom = selectedPair?.quoteDenom ?? null;
+  const selectedPairContract = selectedPair?.pairContract ?? null;
+  const tokenLookupRef = selectedBaseDenom || tokenSymbol;
 
   const { data, isLoading, error } = useSWR<{ pool: Pool }>(
-    tokenSymbol ? `token-${tokenSymbol}` : null,
+    tokenLookupRef ? `token-${tokenLookupRef}-${selectedPairContract || ""}` : null,
     async () => {
       try {
         const res = await fetchApi(
           `${API_BASE}/tokens/${encodeURIComponent(
-            tokenApiRef(tokenSymbol)
+            tokenApiRef(tokenLookupRef)
           )}?priceSource=best&includePools=1`,
           { cache: "no-store" }
         );
@@ -95,20 +103,42 @@ export default function SwapPanel({
         if (!token) throw new Error("No token data found");
 
         // Use first pool if available
+        const allPools = [
+          ...(Array.isArray(detail?.poolsDetailed) ? detail.poolsDetailed : []),
+          ...(Array.isArray(detail?.pools) ? detail.pools : []),
+          ...(Array.isArray(token?.poolsDetailed) ? token.poolsDetailed : []),
+          ...(Array.isArray(token?.pools) ? token.pools : []),
+        ];
         const firstPool =
-          detail?.poolsDetailed?.[0] ||
-          detail?.pools?.[0] ||
-          token?.poolsDetailed?.[0] ||
-          token?.pools?.[0] ||
+          allPools.find((pool: any) => {
+            const poolPairContract =
+              pool?.pairContract || pool?.pair_contract || null;
+            if (
+              selectedPairContract &&
+              normalizeAssetRef(poolPairContract) ===
+                normalizeAssetRef(selectedPairContract)
+            ) {
+              return true;
+            }
+            const poolBaseDenom = pool?.base?.denom || null;
+            const poolQuoteDenom = pool?.quote?.denom || null;
+            return (
+              normalizeAssetRef(poolBaseDenom) ===
+                normalizeAssetRef(selectedBaseDenom) &&
+              normalizeAssetRef(poolQuoteDenom) ===
+                normalizeAssetRef(selectedQuoteDenom)
+            );
+          }) ||
+          allPools[0] ||
           null;
         const price = detail?.price;
         const change = detail?.priceChange ?? price?.changePct;
 
         return {
           pool: {
-            denom: token.denom,
+            denom: selectedBaseDenom || token.denom,
             exponent: token.exponent,
-            symbol: token.symbol,
+            symbol: selectedPair?.baseSymbol || token.symbol,
             name: token.name,
             imageUri: token.imageUri,
             priceInNative: token.priceInNative ?? price?.native,
@@ -124,7 +154,7 @@ export default function SwapPanel({
             pairContract:
               firstPool?.pairContract ||
               firstPool?.pair_contract ||
-              token.denom ||
+              selectedPairContract ||
               null,
           },
         };
@@ -144,6 +174,7 @@ export default function SwapPanel({
 
     return {
       pairContract: pool.pairContract || pool.denom,
+      denom: selectedBaseDenom || pool.denom,
       symbol: pool.symbol || "TOKEN",
       image: pool.imageUri || "/zigicon.png",
       priceInZigPerToken: price || 0,
@@ -151,7 +182,7 @@ export default function SwapPanel({
       // This preserves a genuine 0 exponent if present.
       exponent: pool.exponent ?? 6,
     };
-  }, [data]);
+  }, [data, selectedBaseDenom]);
 
   // const { data: securityData } = useSWR<{ security: Security  }>(
   //   tokenSymbol ? `security-${tokenSymbol}` : null,
@@ -364,7 +395,7 @@ export default function SwapPanel({
               <SwapInterface
                 apiBase={API_BASE}
                 tokenSymbol={token.symbol} // "HELLO"
-                tokenDenom={token.pairContract} // "coin.zig1... .uzm"  ✅ not the symbol
+                tokenDenom={token.denom || token.pairContract}
                 tokenDecimals={token.exponent} // 6
                 tokenIcon={token.image}
                 chainId={CHAIN_ID}
