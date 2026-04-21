@@ -21,6 +21,9 @@ export const tokenRouteRef = (
   const cleanDenom = decodeTokenRef(denom).trim();
   const cleanSymbol = (symbol ?? "").trim();
   const cleanFallback = decodeTokenRef(fallback).trim();
+  if (cleanDenom && isIbcDenom(cleanDenom)) {
+    return cleanSymbol || cleanFallback || cleanDenom;
+  }
   if (cleanDenom) return cleanDenom;
   return cleanSymbol || cleanFallback || "";
 };
@@ -38,6 +41,8 @@ export const tokenApiRef = (value?: string | number | null) => {
   const clean = decodeTokenRef(value == null ? "" : String(value)).trim();
   if (!clean) return "";
   if (isIbcDenom(clean)) return clean;
+  const cachedDenom = resolveCachedTokenRouteDenom(clean);
+  if (isIbcDenom(cachedDenom)) return cachedDenom;
 
   const lastPart = clean.split(".").pop()?.trim().toLowerCase();
   return lastPart === "zig" || lastPart === "uzig" ? "uzig" : clean;
