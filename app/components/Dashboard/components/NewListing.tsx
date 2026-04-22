@@ -87,9 +87,9 @@ const NewListing: React.FC<{ LatestListing: DashboardToken[] }> = ({
   const latestTen = sortedTokens.slice(0, 10);
 
   return (
-    <div className="bg-black/30 rounded-lg border border-[#808080]/20  shadow-2xl relative overflow-hidden  ">
+    <div className="bg-black/30 rounded-lg border border-[#808080]/20 shadow-2xl relative overflow-hidden">
     {/* //   <div className="w-[1000px] h-[600px] absolute z-[-10] top-[-80px] right-[-350px] rounded-xl bg-[radial-gradient(circle,_rgba(57,200,166,0.2)_0%,_rgba(57,200,166,0.6)_10%,_transparent_70%)] blur-2xl shadow-[0_0_40px_rgba(57,200,166,0.5)]"></div> */}
-    <div className="relative z-10 mx-auto w-full py-4 px-2 "
+    <div className="relative z-10 mx-auto w-full py-4 px-2 sm:px-3"
       style={{ background: `linear-gradient(110deg, #000000 0%, #0a2e1f 80%, #095c39ff 100%)` }}>
       <div className="flex items-center justify-between pl-2">
         <div className="flex items-center space-x-2">
@@ -100,7 +100,7 @@ const NewListing: React.FC<{ LatestListing: DashboardToken[] }> = ({
             height={16}
             className="w-5 h-5 rounded-full object-cover "
           />
-          <h2 className="text-white text-lg font-medium">New Listing</h2>
+          <h2 className="text-white text-lg sm:text-xl font-medium">New Listing</h2>
         </div>
       </div>
 
@@ -108,7 +108,7 @@ const NewListing: React.FC<{ LatestListing: DashboardToken[] }> = ({
         ref={scrollContainerRef}
         // enable iOS momentum and hint to browser for smoother scrolling
         style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y", scrollbarGutter: "stable", overscrollBehavior: "contain" }}
-        className="space-y-4 mt-2 h-[525px] min-w-auto 2xl:min-w-[500px] px-2 overflow-y-auto overflow-hidden rounded-xl scroll-smooth
+        className="space-y-4 mt-2 h-[460px] sm:h-[525px] px-1 sm:px-2 overflow-y-auto overflow-hidden rounded-xl scroll-smooth
       [&::-webkit-scrollbar]:w-2
       [&::-webkit-scrollbar-track]:bg-transparent
       [&::-webkit-scrollbar-thumb]:bg-[#FDFDFD]/10
@@ -124,10 +124,10 @@ const NewListing: React.FC<{ LatestListing: DashboardToken[] }> = ({
             }}
             // hint to the browser to use GPU for transforms & opacity changes
             style={{ willChange: "transform, opacity", transform: "translateZ(0)", backfaceVisibility: "hidden" }}
-            className="sticky top-0 bg-black rounded-lg p-2 hover:bg-black/90 transition-colors origin-top z-20"
+            className="sticky top-0 bg-black rounded-lg p-2 sm:p-3 hover:bg-black/90 transition-colors origin-top z-20"
           >
-            <div className="flex 2xl:flex-row flex-col items-center gap-8 w-full">
-              <div className="w-[88px] h-[88px] 2xl:w-[104px] 2xl:h-[104px] overflow-hidden rounded-lg bg-white shrink-0">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6 w-full">
+              <div className="w-[72px] h-[72px] sm:w-[88px] sm:h-[88px] 2xl:w-[104px] 2xl:h-[104px] overflow-hidden rounded-lg bg-white shrink-0 self-center sm:self-auto">
                 <Image
                   src={token.image || "/Bitcoin.webp"}
                   alt={getDisplayName(token)}
@@ -137,28 +137,29 @@ const NewListing: React.FC<{ LatestListing: DashboardToken[] }> = ({
                 />
               </div>
 
-              <div className="flex flex-col justify-between w-full">
-                <div className="flex justify-between w-full">
-                  <div className="flex flex-col justify-center">
+              <div className="flex flex-col justify-between w-full min-w-0">
+                <div className="flex flex-col lg:flex-row lg:justify-between gap-3 w-full">
+                  <div className="flex flex-col justify-center min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <div className="text-white font-medium text-[1.35rem]">
+                      <div className="text-white font-medium text-xl sm:text-[1.35rem] break-words">
                         {getDisplayName(token)}
                       </div>
                       {hasLowLiquidity(token) && <LowLiquidityBadge />}
                       {isTokenNew(token.creationTime) && <NewTokenBadge />}
                     </div>
-                    <div className="text-[#919191] text-sm">
+                    <div className="text-[#919191] text-sm break-all">
                       {formatZigShort(token.symbol || "")}
                     </div>
-                    <div className="text-[#919191] text-xs">
+                    <div className="text-[#919191] text-xs break-all">
                       {formatDenom(token.denom || "")}
                     </div>
                   </div>
-                  <div className="flex flex-col items-start overflow-hidden">
+                  <div className="flex flex-col items-stretch sm:items-start overflow-hidden w-full lg:w-auto">
                     <Link
                       href={`/token/${storeTokenRoute(token.denom, token.symbol)}`}
+                      className="w-full lg:w-auto"
                     >
-                      <button className="bg-[#FA4E30] text-[#FFFFFF] px-12 py-2 rounded-lg">
+                      <button className="bg-[#FA4E30] text-[#FFFFFF] w-full lg:w-auto px-6 sm:px-12 py-2 rounded-lg">
                         Trade
                       </button>
                     </Link>

@@ -281,7 +281,7 @@ const LargeTradersTable: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="bg-black/30 rounded-lg pt-4 px-6 min-h-[600px] relative border border-[#808080]/20 overflow-hidden">
+      <div className="bg-black/30 rounded-lg pt-4 px-4 sm:px-6 min-h-[600px] relative border border-[#808080]/20 overflow-hidden">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
             <div className="w-5 h-5 bg-white/10 rounded-full animate-pulse"></div>
@@ -321,10 +321,10 @@ const LargeTradersTable: React.FC = () => {
   }
 
   return (
-    <div className="bg-black/40 backdrop-blur-sm rounded-2xl pt-6 px-6 h-[600px] relative border border-white/10 overflow-hidden">
+    <div className="bg-black/40 backdrop-blur-sm rounded-2xl pt-5 sm:pt-6 px-3 sm:px-4 lg:px-5 xl:px-6 min-h-[420px] lg:min-h-[600px] xl:h-[600px] relative border border-white/10 overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-br from-orange-500/5 via-transparent to-emerald-500/5 pointer-events-none"></div>
       <div className="w-[800px] h-[400px] absolute z-[-10] bottom-[-20px] right-[-450px] rounded-xl bg-[radial-gradient(circle,_rgba(250,78,48,0.2)_0%,_rgba(250,78,48,0.3)_10%,_transparent_70%)] blur-2xl shadow-[0_0_40px_rgba(250,78,48,0.5)]"></div>
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] xl:flex xl:items-center xl:justify-between gap-3 items-start">
         <div className="flex items-center gap-3">
           <Image
             src="/fire.png"
@@ -333,13 +333,13 @@ const LargeTradersTable: React.FC = () => {
             height={16}
             className="w-5 h-auto rounded-full object-cover"
           />
-          <h2 className="text-[#EDEDED] w-auto text-[24px] font-medium">
+          <h2 className="text-[#EDEDED] w-auto text-xl sm:text-[24px] font-medium leading-none">
             Large Traders
           </h2>
         </div>
 
         {/* Class filter buttons */}
-        <div className="flex flex-wrap justify-start gap-2 text-xs font-normal mt-1 w-full sm:w-auto">
+        <div className="flex flex-wrap justify-start lg:justify-end xl:justify-end gap-2 text-[11px] sm:text-xs font-normal mt-1 w-full lg:w-auto max-w-full">
           {[
             { id: "all", label: " All", color: "#FF6F00", labelIcon: ">" },
             { id: "shrimp", label: " 1000", color: "#FF6F00", labelIcon: "<" },
@@ -375,7 +375,7 @@ const LargeTradersTable: React.FC = () => {
       </div>
 
       {/* Gradient Divider */}
-      <div className="absolute left-6 right-6 h-[2px] bg-gradient-to-r from-[#FA4E30] via-[#FFA500] to-[#39C8A6] opacity-60 rounded-full"></div>
+      <div className="absolute left-3 sm:left-6 right-3 sm:right-6 h-[2px] bg-gradient-to-r from-[#FA4E30] via-[#FFA500] to-[#39C8A6] opacity-60 rounded-full"></div>
 
       {/* Error state */}
       {error && (
@@ -404,10 +404,10 @@ const LargeTradersTable: React.FC = () => {
         </div>
       ) : (
         /* Enhanced Table */
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full border-collapse">
+        <div className="mt-4 overflow-x-auto pb-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10">
+          <table className="w-full min-w-[620px] md:min-w-[700px] lg:min-w-[760px] xl:min-w-0 border-collapse">
           <thead>
-            <tr className="text-left text-white/60 text-sm ">
+            <tr className="text-left text-white/60 text-xs sm:text-sm ">
                 <th className="pb-1 pl-2 w-[60px]">
                   <Clock className="w-4 h-4 text-[#919191]" />
                 </th>
@@ -420,7 +420,7 @@ const LargeTradersTable: React.FC = () => {
                 <th className="pb-1 text-center text-[#919191] text-xs font-medium uppercase tracking-wider w-[40px]">
                   {/* Class */}
                 </th>
-                <th className="pb-1 text-left text-[#919191] text-xs font-medium uppercase tracking-wider pl-4">
+                <th className="pb-1 text-left text-[#919191] text-xs font-medium uppercase tracking-wider pl-2 sm:pl-4">
                   Amount
                 </th>
                 <th className="pb-1 text-center text-[#919191] text-xs font-medium uppercase tracking-wider w-[50px]">
@@ -496,43 +496,43 @@ const LargeTradersTable: React.FC = () => {
                     </td>
 
                     {/* Amount - Stacked Layout */}
-                    <td className="py-2 pl-4 relative z-10">
+                    <td className="py-2 pl-2 sm:pl-4 relative z-10">
 
-                      <div className="flex flex-col gap-1.5">
+                      <div className="flex flex-col gap-1.5 min-w-0">
                         {/* Received */}
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
 
-                          <div className="relative">
+                          <div className="relative shrink-0 flex-none w-[18px] h-[18px]">
                             <Image
                               src={getTokenIcon(trade.askDenom)}
                               alt="Token"
                               width={18}
                               height={18}
-                              className="w-[18px] h-[18px] rounded-full ring-2 ring-black"
+                              className="w-[18px] h-[18px] rounded-full ring-2 ring-black object-cover shrink-0"
                               unoptimized
                             />
                             <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-[#20D87C] rounded-full border-2 border-black"></div>
                           </div>
-                          <span className="text-[#20D87C] font-semibold text-sm tabular-nums tracking-tight">
+                          <span className="text-[#20D87C] font-semibold text-xs sm:text-sm tabular-nums tracking-tight whitespace-nowrap shrink-0">
                             +{compact2(trade.returnAmount)} {symbolFor(trade.askDenom)}
                           </span>
                         </div>
                         
                         {/* Sent */}
-                        <div className="flex items-center gap-2">
-                          <div className="relative">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="relative shrink-0 flex-none w-[18px] h-[18px]">
                             <Image
                               src={getTokenIcon(trade.offerDenom)}
                               alt="Token"
                               width={18}
                               height={18}
-                              className="w-[18px] h-[18px] rounded-full ring-2 ring-black opacity-70"
+                              className="w-[18px] h-[18px] rounded-full ring-2 ring-black opacity-70 object-cover shrink-0"
                               unoptimized
                             />
                             <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-[#F64F39] rounded-full border-2 border-black"></div>
                           </div>
-                          <span className="text-[#F64F39] font-medium text-sm tabular-nums tracking-tight opacity-80">
+                          <span className="text-[#F64F39] font-medium text-xs sm:text-sm tabular-nums tracking-tight opacity-80 whitespace-nowrap shrink-0">
                             -{compact2(trade.offerAmount)} {symbolFor(trade.offerDenom)}
                           </span>
                         </div>
