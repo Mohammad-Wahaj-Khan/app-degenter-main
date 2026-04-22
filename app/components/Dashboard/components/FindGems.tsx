@@ -228,7 +228,7 @@ const FindGems: React.FC = () => {
 
   if (loading || tokens.length === 0) {
     return (
-      <div className="bg-black/30 rounded-lg pt-4 px-6 min-h-[600px] relative border border-[#808080]/20 overflow-hidden">
+      <div className="bg-black/30 rounded-lg pt-4 px-4 sm:px-6 min-h-[600px] relative border border-[#808080]/20 overflow-hidden">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
             <div className="w-5 h-5 bg-white/10 rounded-full animate-pulse"></div>
@@ -268,12 +268,12 @@ const FindGems: React.FC = () => {
   }
 
   return (
-    <div className="bg-black/30 rounded-lg pt-4 px-6 min-h-[600px] relative border border-[#808080]/20 overflow-hidden">
+    <div className="bg-black/30 rounded-lg pt-4 px-3 sm:px-4 lg:px-6 min-h-[420px] xl:min-h-[600px] relative border border-[#808080]/20 overflow-hidden">
       <div className="w-[800px] h-[400px] absolute z-[-10] bottom-[-20px] right-[-450px] rounded-xl bg-[radial-gradient(circle,_rgba(250,78,48,0.2)_0%,_rgba(250,78,48,0.3)_10%,_transparent_70%)] blur-2xl shadow-[0_0_40px_rgba(250,78,48,0.5)]"></div>
 
       {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-3 min-w-0">
           <Image
             src="/fire.png"
             alt="Fire Icon"
@@ -281,9 +281,11 @@ const FindGems: React.FC = () => {
             height={16}
             className="w-5 h-auto rounded-full object-cover"
           />
-          <h2 className="text-[#EDEDED] text-[24px] font-medium">Find Gems</h2>
+          <h2 className="text-[#EDEDED] text-xl sm:text-[24px] font-medium leading-none whitespace-nowrap">
+            Find Gems
+          </h2>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 md:justify-end">
           {FIND_GEMS_FILTERS.map((filter) => {
             const isActive = activeFilter === filter.id;
             return (
@@ -320,10 +322,10 @@ const FindGems: React.FC = () => {
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto px-1">
-          <table className="w-full mt-4 table-fixed text-base min-w-[600px]">
+      <div className="overflow-x-auto px-0 sm:px-1">
+          <table className="w-full mt-4 table-fixed text-sm sm:text-base min-w-[640px]">
             <thead>
-              <tr className="text-left text-white/60 text-base border-b border-white/10">
+              <tr className="text-left text-white/60 text-xs sm:text-sm lg:text-base border-b border-white/10">
                 <th
                   className="pb-4 font-normal text-right cursor-pointer hover:text-white transition-colors w-[40%]"
                   onClick={() => handleSort("symbol")}
@@ -381,7 +383,7 @@ const FindGems: React.FC = () => {
             {sortedTokens.map((token, index) => (
               <tr key={`${token.id}-${index}`} className="transition-colors">
                 <td className="py-2 border-b border-[#AEB9E1]/20 w-[40%]">
-                  <div className="flex items-center space-x-3">
+                  <div className="flex items-center gap-2 sm:gap-3">
                     <div className="w-6 h-6 bg-white/10 flex items-center justify-center rounded-full flex-shrink-0">
                       {token.image ? (
                         <Image
@@ -410,15 +412,16 @@ const FindGems: React.FC = () => {
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <div className="flex flex-wrap items-center gap-2 mb-2 min-w-0">
                         <Link
                           href={`/token/${
                             token.denom.startsWith("ibc/")
                               ? token.symbol
                               : token.denom
                           }`}
+                          className="min-w-0"
                         >
-                          <div className="text-white font-medium truncate">
+                          <div className="text-white font-medium truncate max-w-[170px] sm:max-w-[220px] lg:max-w-[250px]">
                             {isStakedZig(token)
                               ? `${token.symbol?.toUpperCase()} (Liquid Staked Token)`
                               : token.symbol?.toUpperCase() || "N/A"}
@@ -480,7 +483,7 @@ const FindGems: React.FC = () => {
           </tbody>
         </table>
 
-        <div className="absolute top-[3.3rem] left-6 right-6 h-[1px] [background-image:linear-gradient(to_right,#FA4E30_37%,#39C8A6_67%)]"></div>
+        <div className="absolute top-[3.3rem] left-3 sm:left-6 right-3 sm:right-6 h-[1px] [background-image:linear-gradient(to_right,#FA4E30_37%,#39C8A6_67%)]"></div>
       </div>
     </div>
   );
