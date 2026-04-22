@@ -846,13 +846,13 @@ function ExploreNavItem({ mobile }: { mobile?: boolean }) {
       locked: false,
       isNew: true,
     },
-    {
-      icon: FaChartLine,
-      title: "Insight",
-      subtitle: "Market insights and analytics",
-      href: "/",
-      locked: true,
-    },
+    // {
+    //   icon: FaChartLine,
+    //   title: "Insight",
+    //   subtitle: "Market insights and analytics",
+    //   href: "/",
+    //   locked: true,
+    // },
   ];
 
   if (mobile) {
@@ -1055,13 +1055,13 @@ function TerminalNavItem({ mobile }: { mobile?: boolean }) {
       href: "/",
       locked: true,
     },
-    {
-      icon: FaChartLine,
-      title: "Insight",
-      subtitle: "Market insights and analytics",
-      href: "/",
-      locked: true,
-    },
+    // {
+    //   icon: FaChartLine,
+    //   title: "Insight",
+    //   subtitle: "Market insights and analytics",
+    //   href: "/",
+    //   locked: true,
+    // },
   ];
 
   if (mobile) {
