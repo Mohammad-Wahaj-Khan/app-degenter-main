@@ -4,14 +4,17 @@ import Navbar from "../components/navbar";
 import TopMarketToken from "../components/TopMarketToken";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 async function getTokenData() {
   const baseUrl = API_BASE_URL.replace(/\/+$/, "");
-  const endpoint = `${baseUrl}/tokens?bucket=24h&priceSource=best&dir=desc&includeChange=1&limit=300&offset=0&sort=volume`;
+  const endpoint = `${baseUrl}/tokens?bucket=24h&priceSource=best&dir=desc&includeChange=1&limit=200&offset=0&sort=volume`;
 
   try {
     const res = await fetch(endpoint, {
       headers: API_HEADERS,
-      next: { revalidate: 60 },
+      cache: "no-store",
     });
 
     if (!res.ok) {
@@ -38,49 +41,21 @@ async function getTokenData() {
       );
     };
 
-    const normalized = await Promise.all(
-      items.map(async (item: any) => {
-        const symbol = item.symbol ?? item?.token?.symbol;
-        const tokenId = item.tokenId ?? item?.token?.tokenId;
-        const denom = item.denom ?? item?.token?.denom;
-        const fetchRef = denom || tokenId;
-        let priceChange =
-          item?.price?.changePct ?? item?.priceChange ?? item?.price?.change;
-
-        if (!hasValidChange(priceChange) && fetchRef) {
-          try {
-            const detailRes = await fetch(
-              `${baseUrl}/tokens/${encodeURIComponent(fetchRef)}`,
-              {
-                headers: API_HEADERS,
-                next: { revalidate: 60 },
-              }
-            );
-            if (detailRes.ok) {
-              const detailJson = await detailRes.json();
-              priceChange =
-                detailJson?.data?.price?.changePct ??
-                detailJson?.data?.priceChange ??
-                priceChange;
-            }
-          } catch {
-            // Leave fallback as-is when detail fetch fails.
-          }
-        }
-
-        return {
-          symbol,
-          name: item.name ?? item?.token?.name,
-          imageUri: item.imageUri ?? item?.token?.imageUri,
-          mcapUsd: item.mcapUsd,
-          priceUsd: item.priceUsd ?? item?.price?.usd,
-          volume: item.volume,
-          volumeUSD: item.volumeUSD,
-          volUsd: item.volUsd,
-          priceChange,
-        };
-      })
-    );
+    const normalized = items.map((item: any) => ({
+      symbol: item.symbol ?? item?.token?.symbol,
+      name: item.name ?? item?.token?.name,
+      imageUri: item.imageUri ?? item?.token?.imageUri,
+      mcapUsd: item.mcapUsd,
+      priceUsd: item.priceUsd ?? item?.price?.usd,
+      volume: item.volume,
+      volumeUSD: item.volumeUSD,
+      volUsd: item.volUsd,
+      priceChange: hasValidChange(
+        item?.price?.changePct ?? item?.priceChange ?? item?.price?.change
+      )
+        ? item?.price?.changePct ?? item?.priceChange ?? item?.price?.change
+        : undefined,
+    }));
 
     return normalized
       .sort(
