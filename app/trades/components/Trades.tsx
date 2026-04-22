@@ -162,6 +162,43 @@ const TIME_RANGE_API: Record<TradesFilter["timeRange"], string> = {
 
 const WALLET_ADDRESS_PATTERN = /^zig1[0-9a-z]{20,}$/i;
 
+const parseTradeTimestamp = (time?: string) => {
+  if (!time) return NaN;
+  const normalized = String(time).trim();
+  if (!normalized) return NaN;
+
+  const numeric = Number(normalized);
+  if (!Number.isNaN(numeric)) {
+    return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
+  }
+
+  const parsed = Date.parse(normalized);
+  if (!Number.isNaN(parsed)) return parsed;
+
+  const normalizedUtc = normalized.includes("T")
+    ? `${normalized.replace(" ", "T").replace(/Z?$/, "Z")}`
+    : normalized;
+  const parsedUtc = Date.parse(normalizedUtc);
+  return Number.isNaN(parsedUtc) ? NaN : parsedUtc;
+};
+
+const compareTradesByNewest = (a: Trade, b: Trade) => {
+  const aTime = parseTradeTimestamp(a.time);
+  const bTime = parseTradeTimestamp(b.time);
+
+  if (!Number.isNaN(aTime) && !Number.isNaN(bTime) && aTime !== bTime) {
+    return bTime - aTime;
+  }
+  if (!Number.isNaN(bTime) && Number.isNaN(aTime)) return 1;
+  if (!Number.isNaN(aTime) && Number.isNaN(bTime)) return -1;
+
+  if (a.txHash && b.txHash && a.txHash !== b.txHash) {
+    return b.txHash.localeCompare(a.txHash);
+  }
+
+  return 0;
+};
+
 interface TradesProps {
   filters: TradesFilter;
   onAvailableTokens?: (options: TokenOption[]) => void;
@@ -357,12 +394,30 @@ const Trades = ({
     });
   };
 
-  const symbolFor = (denom?: string) => {
+  const tokenOptionSymbolMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    allTokenOptions.forEach((option) => {
+      const denom = String(option.denom ?? "").trim();
+      const label = String(option.label ?? "").trim();
+      if (!denom || !label) return;
+      map[denom] = label;
+      map[denom.toLowerCase()] = label;
+    });
+    return map;
+  }, [allTokenOptions]);
+
+  const symbolFor = (denom?: string, explicitSymbol?: string) => {
     if (!denom) return "";
+    if (explicitSymbol?.trim()) return explicitSymbol.trim().toUpperCase();
     const lower = denom.toLowerCase();
     if (lower.includes("uzig")) return "ZIG";
-    const found = symbolMap[denom] ?? symbolMap[lower];
+    const found =
+      symbolMap[denom] ??
+      symbolMap[lower] ??
+      tokenOptionSymbolMap[denom] ??
+      tokenOptionSymbolMap[lower];
     if (found) return found;
+    if (lower.startsWith("ibc/")) return "IBC";
     const cleaned = denom.replace(/ibc\/\w+\//i, "");
     const parts = cleaned.split(/[./]/);
     const last = parts[parts.length - 1] || denom;
@@ -377,8 +432,8 @@ const Trades = ({
   const isZigDenom = (denom?: string) => denom?.toLowerCase().includes("uzig");
 
   const getTradeTokenSymbol = (trade: Trade, side: "ask" | "offer") => {
-    if (side === "ask") return trade.askSymbol || symbolFor(trade.askDenom);
-    return trade.offerSymbol || symbolFor(trade.offerDenom);
+    if (side === "ask") return symbolFor(trade.askDenom, trade.askSymbol);
+    return symbolFor(trade.offerDenom, trade.offerSymbol);
   };
 
   const getTradeTokenIcon = (trade: Trade, side: "ask" | "offer") => {
@@ -446,13 +501,18 @@ const Trades = ({
     ): { trades: Trade[]; incoming: Trade[] } => {
       if (!incoming.length) return { trades: prevTrades, incoming: [] };
       if (isSnapshot && !prevTrades.length) {
-        const sliced = incoming.slice(0, MAX_TRADES);
+        const sliced = incoming
+          .slice()
+          .sort(compareTradesByNewest)
+          .slice(0, MAX_TRADES);
         return { trades: sliced, incoming: sliced };
       }
       const seen = new Set(prevTrades.map(tradeKey));
       const unique = incoming.filter((trade) => !seen.has(tradeKey(trade)));
       if (!unique.length) return { trades: prevTrades, incoming: [] };
-      const merged = [...unique, ...prevTrades].slice(0, MAX_TRADES);
+      const merged = [...unique, ...prevTrades]
+        .sort(compareTradesByNewest)
+        .slice(0, MAX_TRADES);
       return { trades: merged, incoming: unique };
     },
     []
@@ -674,7 +734,9 @@ const Trades = ({
       [trade.askDenom, trade.offerDenom].forEach((denom) => {
         if (!denom) return;
         if (!uniqueTokens.has(denom)) {
-          uniqueTokens.set(denom, symbolFor(denom));
+          const explicitSymbol =
+            trade.askDenom === denom ? trade.askSymbol : trade.offerSymbol;
+          uniqueTokens.set(denom, symbolFor(denom, explicitSymbol));
         }
       });
     });
@@ -685,7 +747,7 @@ const Trades = ({
         tokenId: undefined,
       }))
       .filter(({ denom }) => denom);
-  }, [trades, symbolMap]);
+  }, [trades, symbolMap, tokenOptionSymbolMap]);
 
   const resolvedTokenOption = useMemo(() => {
     const tokenQuery = filters.tokenDenom.trim().toLowerCase();
@@ -756,13 +818,18 @@ const Trades = ({
         setSymbolMap((prev) => {
           const next = { ...prev };
           apiTrades.forEach((trade: any) => {
-            if (trade?.offerDenom && trade?.offerSymbol) {
-              next[trade.offerDenom] = trade.offerSymbol;
-              next[String(trade.offerDenom).toLowerCase()] = trade.offerSymbol;
+            const offerDenom = trade?.offerDenom ?? trade?.offer_denom;
+            const offerSymbol = trade?.offerSymbol ?? trade?.offer_symbol;
+            const askDenom = trade?.askDenom ?? trade?.ask_denom;
+            const askSymbol = trade?.askSymbol ?? trade?.ask_symbol;
+
+            if (offerDenom && offerSymbol) {
+              next[offerDenom] = offerSymbol;
+              next[String(offerDenom).toLowerCase()] = offerSymbol;
             }
-            if (trade?.askDenom && trade?.askSymbol) {
-              next[trade.askDenom] = trade.askSymbol;
-              next[String(trade.askDenom).toLowerCase()] = trade.askSymbol;
+            if (askDenom && askSymbol) {
+              next[askDenom] = askSymbol;
+              next[String(askDenom).toLowerCase()] = askSymbol;
             }
           });
           return next;
@@ -770,18 +837,23 @@ const Trades = ({
         setTokenImageMap((prev) => {
           const next = { ...prev };
           apiTrades.forEach((trade: any) => {
-            if (trade?.offerDenom && trade?.offerImage) {
-              next[trade.offerDenom] = trade.offerImage;
-              next[String(trade.offerDenom).toLowerCase()] = trade.offerImage;
+            const offerDenom = trade?.offerDenom ?? trade?.offer_denom;
+            const offerImage = trade?.offerImage ?? trade?.offer_image;
+            const askDenom = trade?.askDenom ?? trade?.ask_denom;
+            const askImage = trade?.askImage ?? trade?.ask_image;
+
+            if (offerDenom && offerImage) {
+              next[offerDenom] = offerImage;
+              next[String(offerDenom).toLowerCase()] = offerImage;
             }
-            if (trade?.askDenom && trade?.askImage) {
-              next[trade.askDenom] = trade.askImage;
-              next[String(trade.askDenom).toLowerCase()] = trade.askImage;
+            if (askDenom && askImage) {
+              next[askDenom] = askImage;
+              next[String(askDenom).toLowerCase()] = askImage;
             }
           });
           return next;
         });
-        const mapped = apiTrades.map(mapApiTradeToLocal);
+        const mapped = apiTrades.map(mapApiTradeToLocal).sort(compareTradesByNewest);
         setTrades(mapped);
       } else {
         setTrades([]);
@@ -894,16 +966,6 @@ const Trades = ({
     };
   }, [fetchTradesFromApi, filters.timeRange]);
 
-  const parseTradeTimestamp = (time?: string) => {
-    if (!time) return NaN;
-    const numeric = Number(time);
-    if (!Number.isNaN(numeric)) {
-      return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
-    }
-    const parsed = Date.parse(time);
-    return Number.isNaN(parsed) ? NaN : parsed;
-  };
-
   const copyAddress = async (address: string) => {
     if (!address || typeof navigator === "undefined") return;
     try {
@@ -925,7 +987,8 @@ const Trades = ({
     const now = Date.now();
     const walletFilter = filters.wallet.trim().toLowerCase();
 
-    return trades.filter((trade) => {
+    return trades
+      .filter((trade) => {
       if (filters.assetMode === "token") {
         if (isZigDenom(trade.askDenom) && isZigDenom(trade.offerDenom)) {
           return false;
@@ -969,7 +1032,8 @@ const Trades = ({
       }
 
       return true;
-    });
+    })
+      .sort(compareTradesByNewest);
   }, [trades, filters, resolvedTokenOption]);
   useEffect(() => {
     onFilteredTradesChange?.(filteredTrades);

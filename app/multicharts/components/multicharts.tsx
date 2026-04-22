@@ -173,7 +173,7 @@ type WsStatusListener = (connected: boolean) => void;
 type StatsListener = (payload: any) => void;
 
 const MAX_SLOTS = 15;
-const MAX_RECENT_TRADES = 50;
+const MAX_RECENT_TRADES = 20;
 const HIGHLIGHT_DURATION_MS = 4000;
 const API_BASE = API_BASE_URL;
 const TRADES_WS_URL = process.env.NEXT_PUBLIC_TRADES_WS_URL || "";
@@ -2614,17 +2614,43 @@ const TokenLogoLoop = ({ tokens, onTokenClick }: { tokens: TokenOption[]; onToke
   const offsetRef = useRef(0);
   const lastTimestampRef = useRef<number | null>(null);
   const [sequenceWidth, setSequenceWidth] = useState(0);
+  const [containerWidth, setContainerWidth] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
 
   useEffect(() => {
     const measure = () => {
+      setContainerWidth(containerRef.current?.clientWidth ?? 0);
       setSequenceWidth(sequenceRef.current?.scrollWidth ?? 0);
     };
 
     measure();
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => measure())
+        : null;
+
+    if (containerRef.current) resizeObserver?.observe(containerRef.current);
+    if (sequenceRef.current) resizeObserver?.observe(sequenceRef.current);
+
     window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
   }, [tokens]);
+
+  const repeatCount = useMemo(() => {
+    if (sequenceWidth <= 0) return 3;
+    return Math.max(3, Math.ceil((containerWidth * 2) / sequenceWidth) + 1);
+  }, [containerWidth, sequenceWidth]);
+
+  useEffect(() => {
+    offsetRef.current = 0;
+    lastTimestampRef.current = null;
+    if (trackRef.current) {
+      trackRef.current.style.transform = "translate3d(0, 0, 0)";
+    }
+  }, [tokens, sequenceWidth, containerWidth]);
 
   useEffect(() => {
     const track = trackRef.current;
@@ -2651,6 +2677,7 @@ const TokenLogoLoop = ({ tokens, onTokenClick }: { tokens: TokenOption[]; onToke
     return () => {
       window.cancelAnimationFrame(frameId);
       lastTimestampRef.current = null;
+      track.style.transform = "translate3d(0, 0, 0)";
     };
   }, [isHovered, sequenceWidth]);
 
@@ -2663,7 +2690,7 @@ const TokenLogoLoop = ({ tokens, onTokenClick }: { tokens: TokenOption[]; onToke
         onMouseLeave={() => setIsHovered(false)}
       >
         <div ref={trackRef} className="flex w-max will-change-transform">
-          {[0, 1].map((copyIndex) => (
+          {Array.from({ length: repeatCount }, (_, copyIndex) => (
             <div
               key={copyIndex}
               ref={copyIndex === 0 ? sequenceRef : undefined}
@@ -2744,6 +2771,9 @@ const AnimatedModal = ({ isOpen, onClose, children }: { isOpen: boolean; onClose
 };
 
 export default function Multicharts() {
+  const TOKEN_BAR_LIMIT = 15;
+  const TOKEN_MODAL_LIMIT = 50;
+
   const [slots, setSlots] = useState<SlotItem[]>([]);
   const [cacheReady, setCacheReady] = useState(false);
   const [tokens, setTokens] = useState<TokenOption[]>([]);
@@ -2756,7 +2786,7 @@ export default function Multicharts() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const canvasScrollRef = useRef<HTMLDivElement>(null);
   const cacheSaveTimer = useRef<number | null>(null);
-  const [canvasHeight, setCanvasHeight] = useState(800);
+  const [canvasHeight, setCanvasHeight] = useState(1800);
   const [canvasWidth, setCanvasWidth] = useState(1200);
   const [showTokenBar, setShowTokenBar] = useState(true);
 
@@ -3017,14 +3047,20 @@ export default function Multicharts() {
   };
 
   const filteredTokens = useMemo(() => {
-    if (!searchQuery) return tokens;
+    const modalTokens = tokens.slice(0, TOKEN_MODAL_LIMIT);
+    if (!searchQuery) return modalTokens;
     const query = searchQuery.toLowerCase();
-    return tokens.filter(t => 
+    return modalTokens.filter(t => 
       t.symbol.toLowerCase().includes(query) || 
       t.name.toLowerCase().includes(query) ||
       (t.denom ?? "").toLowerCase().includes(query)
     );
-  }, [tokens, searchQuery]);
+  }, [tokens, searchQuery, TOKEN_MODAL_LIMIT]);
+
+  const tokenBarTokens = useMemo(
+    () => tokens.slice(0, TOKEN_BAR_LIMIT),
+    [tokens, TOKEN_BAR_LIMIT]
+  );
 
   const handleTokenClick = (token: TokenOption) => {
     setSelectedTokenForModal(token);
@@ -3070,9 +3106,9 @@ export default function Multicharts() {
       </div>
 
       {/* Animated Token Bar */}
-      {tokens.length > 0 && showTokenBar && (
+      {tokenBarTokens.length > 0 && showTokenBar && (
         <div className="relative mb-4">
-          <TokenLogoLoop tokens={tokens.slice(0, 30)} onTokenClick={handleTokenClick} />
+          <TokenLogoLoop tokens={tokenBarTokens} onTokenClick={handleTokenClick} />
           <button
             onClick={() => setShowTokenBar(false)}
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-1 text-zinc-400 hover:bg-white/10 hover:text-white transition-all z-10"
@@ -3101,7 +3137,7 @@ export default function Multicharts() {
         </div>
         
         <div className="flex items-center gap-2">
-          {!showTokenBar && tokens.length > 0 && (
+          {!showTokenBar && tokenBarTokens.length > 0 && (
             <button
               onClick={() => setShowTokenBar(true)}
               className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-400 transition-all hover:border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-400"

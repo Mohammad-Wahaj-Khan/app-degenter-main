@@ -255,7 +255,7 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
 
   if (loading || tokens.length === 0) {
     return (
-      <div className="bg-black/30 rounded-lg pt-4 px-6 min-h-[400px] relative border border-[#808080]/20 overflow-hidden">
+      <div className="bg-black/30 rounded-lg pt-4 px-4 sm:px-6 min-h-[400px] relative border border-[#808080]/20 overflow-hidden">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
             <div className="w-5 h-5 bg-white/10 rounded-full animate-pulse"></div>
@@ -295,14 +295,14 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
   }
 
   return (
-    <div className="bg-black/30 rounded-lg pt-3 px-6 min-h-[500px] max-h-[500px] relative border border-[#808080]/20 overflow-hidden flex flex-col">
+    <div className="bg-black/30 rounded-lg pt-3 px-3 sm:px-4 lg:px-6 min-h-[420px] xl:min-h-[500px] xl:max-h-[500px] relative border border-[#808080]/20 overflow-hidden flex flex-col">
       <div className="w-[1400px] h-[600px] absolute z-[-10] bottom-0 right-[-450px] rounded-xl bg-[radial-gradient(circle,_rgba(250,78,48,0.2)_0%,_rgba(250,78,48,0.3)_10%,_transparent_70%)] blur-2xl shadow-[0_0_40px_rgba(250,78,48,0.5)]"></div>
       <div className="overflow-x-auto flex-1">
-        <table className="w-full min-w-[600px] space-y-4 text-base">
+        <table className="w-full min-w-[720px] space-y-4 text-sm sm:text-base">
           <thead className="">
-            <tr className="text-left text-white/60 text-base">
+            <tr className="text-left text-white/60 text-xs sm:text-sm lg:text-base">
               <th>
-                <div className="flex items-center gap-3 pb-6">
+                <div className="flex items-center gap-2 sm:gap-3 pb-4 sm:pb-6">
                   <Image
                     src="/fire.png"
                     alt="Fire Icon"
@@ -311,7 +311,7 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
                     className="w-5 h-auto rounded-full object-cover"
                   />
 
-                  <h2 className="text-[#EDEDED] text-[22px] font-medium">
+                  <h2 className="text-[#EDEDED] text-lg sm:text-xl lg:text-[22px] font-medium">
                     Top Tokens
                   </h2>
                 </div>
@@ -400,7 +400,7 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
                     {(currentPage - 1) * itemsPerPage + index + 1}
                   </td> */}
                     <td className="py-2 border-b border-[#AEB9E1]/20">
-                      <div className="flex items-center space-x-3 ">
+                      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                         <div className="w-6 h-6 bg-white/10 flex items-center justify-center rounded-full">
                           {token.image ? (
                             <Image
@@ -430,25 +430,26 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
                             </span>
                           )}
                         </div>
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-2">
+                        <div className="flex flex-col min-w-0">
+                          <div className="flex items-center gap-2 min-w-0 flex-wrap">
                             <Link
                               href={`/token/${storeTokenRoute(
                                 token.denom,
                                 token.symbol
                               )}`}
+                              className="min-w-0"
                             >
-                            <span className="text-white font-normal">
-                              {isStakedZig(token)
-                                ? `${token.symbol} (Liquid Staked Token)`
-                                : token.symbol}
-                            </span>
-                          </Link>
-                          {hasLowLiquidity(token) && <LowLiquidityBadge />}
-                          {isTokenNew(token.creationTime) && (
-                            <NewTokenBadge />
-                          )}
-                        </div>
+                              <span className="text-white font-normal block truncate max-w-[180px] sm:max-w-[240px] lg:max-w-[280px]">
+                                {isStakedZig(token)
+                                  ? `${token.symbol} (Liquid Staked Token)`
+                                  : token.symbol}
+                              </span>
+                            </Link>
+                            {hasLowLiquidity(token) && <LowLiquidityBadge />}
+                            {isTokenNew(token.creationTime) && (
+                              <NewTokenBadge />
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -581,18 +582,18 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
                 ))}
           </tbody>
         </table>
-        <div className="absolute top-[3.4rem] left-6 right-6 h-[1px] [background-image:linear-gradient(to_right,#FA4E30_37%,#39C8A6_67%)]"></div>
+        <div className="absolute top-[3.2rem] sm:top-[3.4rem] left-3 sm:left-6 right-3 sm:right-6 h-[1px] [background-image:linear-gradient(to_right,#FA4E30_37%,#39C8A6_67%)]"></div>
       </div>
 
       {/* Footer with Pagination - Fixed at bottom */}
-      <div className="sticky bottom-0 left-0 right-0  backdrop-blur-sm py-2 px-4">
-        <div className="flex flex-col sm:flex-row justify-between items-center">
-          <span className="text-[#919191] text-sm mb-2 sm:mb-0">
+      <div className="sticky bottom-0 left-0 right-0 backdrop-blur-sm py-2 px-2 sm:px-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
+          <span className="text-[#919191] text-xs sm:text-sm text-center sm:text-left">
             Showing {Math.min((currentPage - 1) * itemsPerPage + 1, totalItems)}
             -{Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems}{" "}
             pairs
           </span>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center justify-center gap-1 flex-wrap">
             <button
               onClick={() => handlePageChange(1)}
               disabled={currentPage === 1}
