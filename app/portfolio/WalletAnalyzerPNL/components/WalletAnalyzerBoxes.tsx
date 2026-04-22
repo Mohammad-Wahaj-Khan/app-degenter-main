@@ -16,6 +16,7 @@ import {
   Tooltip,
   ReferenceLine,
 } from "recharts";
+import type { TooltipValueType } from "recharts";
 
 export const analyzerTabs = [
   { id: "trading", label: "Trading PNL" },
@@ -1014,10 +1015,16 @@ export default function WalletAnalyzer({
                           labelFormatter={(value) =>
                             new Date(value).toLocaleDateString()
                           }
-                          formatter={(value: number | undefined) => {
-                            const amount =
-                              value == null ? 0 : Number(value.toFixed(4));
-                            const label = value == null || value >= 0 ? "Profit" : "Loss";
+                          formatter={(value: TooltipValueType | undefined) => {
+                            const normalizedValue = Array.isArray(value)
+                              ? Number(value[0] ?? 0)
+                              : typeof value === "number"
+                                ? value
+                                : value == null
+                                  ? 0
+                                  : Number(value);
+                            const amount = Number(normalizedValue.toFixed(4));
+                            const label = normalizedValue >= 0 ? "Profit" : "Loss";
                             return [`$${amount.toFixed(4)}`, label];
                           }}
                         />
