@@ -1,4 +1,5 @@
 /** @type {import('next').NextConfig} */
+const path = require("path");
 const isPwaEnabled = process.env.NEXT_ENABLE_PWA === "true";
 
 const withPWA = require("next-pwa")({
@@ -10,6 +11,7 @@ const withPWA = require("next-pwa")({
 
 const nextConfig = {
   reactStrictMode: true,
+  outputFileTracingRoot: path.join(__dirname),
   experimental: {
     webpackBuildWorker: true,
   },
@@ -37,10 +39,6 @@ const nextConfig = {
     return config;
   },
   images: {
-    domains: [
-      'degenter-profile-mainnet.s3.ap-southeast-2.amazonaws.com',
-      'degenter-token-profile.s3.ap-southeast-2.amazonaws.com',
-    ],
     remotePatterns: [
       {
         protocol: 'https',
