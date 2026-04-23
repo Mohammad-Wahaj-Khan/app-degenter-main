@@ -2461,21 +2461,21 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
         <table className="relative z-10 min-w-[1120px] lg:min-w-full w-full text-sm sm:text-base lg:text-[1rem] text-white">
           <thead className="bg-black/60 text-white uppercase text-sm sm:text-base lg:text-sm tracking-wider">
             <tr>
-              <th className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Time</th>
-              <th className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Type</th>
-              <th className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Price</th>
-              <th className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Value</th>
-              <th className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Amount</th>
-              <th className="px-3 sm:px-4 py-2 whitespace-nowrap">
+              <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Time</td>
+              <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Type</td>
+              <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Price</td>
+              <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Value</td>
+              <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Amount</td>
+              <td className="px-3 sm:px-4 py-2 whitespace-nowrap">
                 <div className="flex items-center gap-1 text-gray-400">
                   <span className="flex items-center gap-1 text-sm sm:text-base lg:text-sm whitespace-nowrap">
                     By address
                     <Search className="h-3 w-3 text-gray-500" />
                   </span>
                 </div>
-              </th>
-              <th className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Transaction</th>
-              <th className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Action</th>
+              </td>
+              <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Transaction</td>
+              <td className="px-3 sm:px-4 py-2 text-left text-gray-400 whitespace-nowrap">Action</td>
             </tr>
           </thead>
 

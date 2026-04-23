@@ -3,7 +3,15 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { ArrowUpDown, Search, ShieldCheck, X } from "lucide-react";
+import {
+  ArrowUpDown,
+  Copy,
+  Route as RouteIcon,
+  Search,
+  Settings2,
+  ShieldCheck,
+  X,
+} from "lucide-react";
 import React, {
   memo,
   useCallback,
@@ -12,6 +20,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import PriceDisplay from "./PriceDisplay";
 import { API_HEADERS } from "@/lib/api";
 
@@ -43,6 +52,10 @@ type TokenListItem = {
   imageUri?: string;
   pairContract?: string | null;
   verified?: boolean; // optional badge
+  volUsd?: number;
+  volNative?: number;
+  volume?: number | Record<string, number>;
+  volumeUSD?: number | Record<string, number>;
 };
 
 type RoutePair = {
@@ -55,9 +68,37 @@ type RoutePair = {
   price_usd?: number; // leg USD per 1 of leg's "from" token (sell) or per 1 of leg's "to" token (buy) depending on your API
   amount_in?: number;
   amount_out?: number;
+  amountIn?: number;
+  amountOut?: number;
+  midPriceOutPerIn?: number;
+  execPriceOutPerIn?: number;
+  priceImpact?: number;
   price_impact?: number;
   fee?: number;
 };
+
+type RouteToken = {
+  tokenId: string;
+  denom: string;
+  symbol: string;
+  imageUri?: string;
+};
+
+type SmartRouteQuote = {
+  route: string[];
+  routeTokens: RouteToken[];
+  pairs: RoutePair[];
+  amountIn: number;
+  amountOut: number;
+  priceNative?: number;
+  priceUsd?: number;
+  priceImpact?: number;
+  totalFeeRate?: number;
+  hops?: number;
+  source?: string;
+  selectedByMode?: string;
+};
+type SwapMode = "best_price" | "low_fees" | "fast" | "balanced";
 
 type Props = {
   apiBase: string;
@@ -85,12 +126,41 @@ const isCw20Contract = (s: string) =>
 const cleanDenom = (s: string) => s.trim();
 const fmtUSD = (n?: number) =>
   Number.isFinite(n as number) ? `$${(n as number).toFixed(2)}` : "$0.00";
+const fmtPct = (n?: number) =>
+  Number.isFinite(n as number) ? `${(Number(n) * 100).toFixed(2)}%` : "--";
 const truncMid = (s: string, left = 6, right = 6) =>
   s.length > left + right + 3 ? `${s.slice(0, left)}...${s.slice(-right)}` : s;
+const numericValue = (...values: unknown[]) => {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
+};
+const tokenVolume24 = (token: TokenListItem) =>
+  numericValue(
+    token.volUsd,
+    typeof token.volumeUSD === "number" ? token.volumeUSD : token.volumeUSD?.["24h"],
+    token.volNative,
+    typeof token.volume === "number" ? token.volume : token.volume?.["24h"]
+  );
 const isZigRef = (value?: string | null) => {
   const normalized = (value ?? "").trim().toLowerCase();
   return normalized === "zig" || normalized === "uzig";
 };
+const swapRouteParam = (asset: SwapAsset) =>
+  isZigRef(asset.symbol) ||
+  isZigRef(asset.type === "native" ? asset.denom : asset.contract)
+    ? "zig"
+    : asset.type === "native"
+    ? asset.denom
+    : asset.contract;
+const SWAP_MODES: Array<{ value: SwapMode; label: string }> = [
+  { value: "low_fees", label: "Low fees" },
+  { value: "fast", label: "Fast" },
+  { value: "balanced", label: "Balanced" },
+  { value: "best_price", label: "Best price" },
+];
 
 const toRouterPairType = (s?: string) => {
   const x = (s || "").trim().toLowerCase();
@@ -237,7 +307,10 @@ export default function SwapInterface({
 
   const [tokenList, setTokenList] = useState<TokenListItem[]>([]);
   const [showSlippageModal, setShowSlippageModal] = useState(false);
+  const [showModeMenu, setShowModeMenu] = useState(false);
+  const [selectedMode, setSelectedMode] = useState<SwapMode>("best_price");
   const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const modeDropdownRef = useRef<HTMLDivElement | null>(null);
 
   const slippagePct = useMemo(
     () => (slippageBps / 100).toFixed(2),
@@ -266,6 +339,20 @@ export default function SwapInterface({
     return () => window.removeEventListener("mousedown", onDown);
   }, [showSlippageModal]);
 
+  useEffect(() => {
+    if (!showModeMenu) return;
+    const onDown = (e: MouseEvent) => {
+      if (
+        modeDropdownRef.current &&
+        !modeDropdownRef.current.contains(e.target as Node)
+      ) {
+        setShowModeMenu(false);
+      }
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [showModeMenu]);
+
   const PAGE_TOKEN = useMemo(() => {
     const t = tokenList.find((x) => {
       if (!TOKEN_IS_CW20) return x.denom === (PAGE_TOKEN_INIT as any).denom;
@@ -289,6 +376,9 @@ export default function SwapInterface({
   const [other, setOther] = useState<SwapAsset>({ ...ZIG });
 
   const [routePairs, setRoutePairs] = useState<RoutePair[]>([]);
+  const [smartRouteQuote, setSmartRouteQuote] = useState<SmartRouteQuote | null>(
+    null
+  );
   const [priceNative, setPriceNative] = useState<number | undefined>(undefined);
   const [usdPerFrom, setUsdPerFrom] = useState<number | undefined>(undefined);
 
@@ -305,6 +395,8 @@ export default function SwapInterface({
 
   const [payDDOpen, setPayDDOpen] = useState(false);
   const [recvDDOpen, setRecvDDOpen] = useState(false);
+  const [showRouteModal, setShowRouteModal] = useState(false);
+  const [copiedPairContract, setCopiedPairContract] = useState("");
 
   const activePay: SwapAsset =
     direction === "payToReceive" ? other : PAGE_TOKEN;
@@ -483,6 +575,25 @@ export default function SwapInterface({
   }, [PAGE_TOKEN, other, defaultCounterAsset]);
 
   const keyOf = (a: SwapAsset) => (a.type === "native" ? a.denom : a.contract);
+  const tokenFromDenom = useCallback(
+    (denom: string, fallbackSymbol?: string): RouteToken => {
+      const match = tokenList.find((t) => t.denom === denom);
+      return {
+        tokenId: match?.tokenId ?? "",
+        denom,
+        symbol:
+          match?.symbol ||
+          fallbackSymbol ||
+          (isZigRef(denom) ? "ZIG" : truncMid(denom, 4, 4)),
+        imageUri:
+          match?.imageUri ||
+          (fallbackSymbol?.toUpperCase() === "ZIG" || isZigRef(denom)
+            ? ZIG_ICON
+            : undefined),
+      };
+    },
+    [tokenList]
+  );
   const iconForDenom = useCallback(
     (denom: string, fallbackSym?: string) =>
       tokenList.find((t) => t.denom === denom)?.imageUri ||
@@ -498,11 +609,35 @@ export default function SwapInterface({
   const runRouteFetch = useCallback(async () => {
     try {
       setErr("");
-      const url = `${apiBase}/swap?from=${encodeURIComponent(
-        fromRef
-      )}&to=${encodeURIComponent(toRef)}`;
+      const quoteAmount = Number.parseFloat(amountIn || "0");
+      if (!Number.isFinite(quoteAmount) || quoteAmount <= 0) {
+        setRoutePairs([]);
+        setSmartRouteQuote(null);
+        setPriceNative(undefined);
+        setUsdPerFrom(undefined);
+        setUsdPerPay(undefined);
+        setUsdPerRecv(undefined);
+        setRecvPriceZig(undefined);
+        setRecvPriceUsd(undefined);
+        setSimQuoteOut(0);
+        return;
+      }
+
+      const params = new URLSearchParams({
+        amt: String(quoteAmount),
+        maxHops: "5",
+        maxBranches: "12",
+        maxRoutes: "5",
+        mode: selectedMode,
+        from: swapRouteParam(activePay),
+        to: swapRouteParam(activeReceive),
+      });
+      const url = `${apiBase}/swap?${params.toString()}`;
       const r = await fetchApi(url);
       const j = await r.json();
+      if (!j?.success) {
+        throw new Error(j?.error || "Failed to fetch route");
+      }
 
       // --- NEW: take mid-USD baselines straight from the API ---
       const baselineFromUsd = Number(j?.data?.usd_baseline?.from_usd);
@@ -555,6 +690,45 @@ export default function SwapInterface({
       }
       setRoutePairs(pairs);
 
+      const routeTokens: RouteToken[] = Array.isArray(j?.data?.route_tokens)
+        ? j.data.route_tokens.map((token: any) => ({
+            tokenId: String(token?.tokenId ?? ""),
+            denom: String(token?.denom ?? ""),
+            symbol: String(token?.symbol ?? ""),
+            imageUri: token?.imageUri,
+          }))
+        : [];
+      const amountOut = Number(j?.data?.amount_out);
+      const routePriceImpact = Number(j?.data?.meta?.price_impact);
+      const totalFeeRate = Number(j?.data?.meta?.total_fee_rate);
+      setSmartRouteQuote({
+        route: Array.isArray(j?.data?.route) ? j.data.route : [],
+        routeTokens,
+        pairs,
+        amountIn: Number(j?.data?.amount_in ?? quoteAmount),
+        amountOut: Number.isFinite(amountOut) ? amountOut : 0,
+        priceNative: Number.isFinite(Number(j?.data?.price_native))
+          ? Number(j.data.price_native)
+          : undefined,
+        priceUsd: Number.isFinite(Number(j?.data?.price_usd))
+          ? Number(j.data.price_usd)
+          : undefined,
+        priceImpact: Number.isFinite(routePriceImpact)
+          ? routePriceImpact
+          : undefined,
+        totalFeeRate: Number.isFinite(totalFeeRate) ? totalFeeRate : undefined,
+        hops: Number.isFinite(Number(j?.data?.meta?.hops))
+          ? Number(j.data.meta.hops)
+          : pairs.length,
+        source: j?.data?.source ? String(j.data.source) : undefined,
+        selectedByMode: j?.data?.selected_by_mode
+          ? String(j.data.selected_by_mode)
+          : undefined,
+      });
+      if (Number.isFinite(amountOut) && amountOut > 0) {
+        setSimQuoteOut(amountOut);
+      }
+
       // top-level price_native (B per A on token→token routes; for ZIG routes it’s the ZIG ratio form)
       const pn = j?.data?.price_native ?? undefined;
       setPriceNative(pn);
@@ -602,22 +776,35 @@ export default function SwapInterface({
         setRecvPriceUsd(undefined);
       }
     } catch (e: any) {
+      setRoutePairs([]);
+      setSmartRouteQuote(null);
       setErr(e?.message || "Failed to fetch route");
     }
-  }, [apiBase, fromRef, toRef, fetchApi, pairContractForRef]);
+  }, [
+    activePay,
+    activeReceive,
+    amountIn,
+    apiBase,
+    fetchApi,
+    fromRef,
+    pairContractForRef,
+    selectedMode,
+    toRef,
+  ]);
 
   useEffect(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
+    if (payDDOpen || recvDDOpen) return;
     void runRouteFetch();
     if (!autoRefresh) return;
     pollRef.current = setInterval(() => void runRouteFetch(), 5000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [runRouteFetch, autoRefresh]);
+  }, [runRouteFetch, autoRefresh, payDDOpen, recvDDOpen]);
 
   /* =========================
    * Balances (helpers)
@@ -837,6 +1024,15 @@ export default function SwapInterface({
         setSimQuoteOut(0);
         return;
       }
+      if (
+        smartRouteQuote &&
+        Number.isFinite(smartRouteQuote.amountOut) &&
+        smartRouteQuote.amountOut > 0 &&
+        Math.abs(smartRouteQuote.amountIn - a) < 1e-9
+      ) {
+        setSimQuoteOut(smartRouteQuote.amountOut);
+        return;
+      }
       if (!qClientRef.current || routePairs.length === 0) return;
       try {
         const amountInMicro =
@@ -915,7 +1111,7 @@ export default function SwapInterface({
       cancelled = true;
       clearTimeout(t);
     };
-  }, [amountIn, routePairs, activePay, activeReceive]);
+  }, [amountIn, routePairs, activePay, activeReceive, smartRouteQuote]);
 
   /* =========================
    * USD calculations (Pay / Receive)
@@ -938,6 +1134,29 @@ export default function SwapInterface({
       return undefined;
     return simQuoteOut * (usdPerRecv as number);
   }, [simQuoteOut, usdPerRecv]);
+
+  const quoteDetails = useMemo(() => {
+    if (!smartRouteQuote || !(amountInNum > 0)) return null;
+    return {
+      source: smartRouteQuote.source,
+      selectedByMode: smartRouteQuote.selectedByMode,
+      minimumReceive: smartRouteQuote.amountOut,
+      feeRate: smartRouteQuote.totalFeeRate,
+      priceImpact: smartRouteQuote.priceImpact,
+      hops: smartRouteQuote.hops || smartRouteQuote.pairs.length || 1,
+    };
+  }, [amountInNum, smartRouteQuote]);
+
+  const modalRouteTokens = useMemo(() => {
+    if (!smartRouteQuote) return [];
+    if (smartRouteQuote.routeTokens.length) return smartRouteQuote.routeTokens;
+    return smartRouteQuote.route.map((denom, index) =>
+      tokenFromDenom(
+        denom,
+        index === 0 ? activePay.symbol : index === smartRouteQuote.route.length - 1 ? activeReceive.symbol : undefined
+      )
+    );
+  }, [activePay.symbol, activeReceive.symbol, smartRouteQuote, tokenFromDenom]);
 
   /* =========================
    * SWAP (single hop direct pair OR router via operations)
@@ -1172,6 +1391,25 @@ export default function SwapInterface({
       } else {
         // router path
         // console.log("[swap] router path", ROUTER_CONTRACT);
+        const totalAmount = BigInt(amountInMicro);
+        let feeAmount =
+          (totalAmount * BigInt(Math.floor(FEE_PERCENTAGE * 1000000))) /
+          BigInt(1000000);
+        if (feeAmount < BigInt(1)) feeAmount = BigInt(1);
+        if (totalAmount - feeAmount < BigInt(1))
+          feeAmount = totalAmount - BigInt(1);
+        const swapAmount = totalAmount - feeAmount;
+        const adjustedMinimumReceive = String(
+          Math.max(
+            0,
+            Math.floor(
+              Number(expectedOutMicro) *
+                (Number(swapAmount) / Number(totalAmount)) *
+                (1 - Math.max(0.005, chosenSlippage))
+            )
+          )
+        );
+
         const operations = routePairs.map((p, idx) => {
           const isFirst = idx === 0;
           const isLast = idx === routePairs.length - 1;
@@ -1202,7 +1440,7 @@ export default function SwapInterface({
         const msgNative = {
           execute_swap_operations: {
             operations,
-            minimum_receive,
+            minimum_receive: adjustedMinimumReceive,
             max_spread: max_spread_str,
             to: address,
           },
@@ -1210,15 +1448,35 @@ export default function SwapInterface({
 
         if (activePay.type === "native") {
           const { coins } = await import("@cosmjs/stargate");
-          const funds = coins(amountInMicro, (activePay as any).denom);
+          const funds = coins(swapAmount.toString(), (activePay as any).denom);
+          const feeMsg = {
+            typeUrl: "/cosmos.bank.v1beta1.MsgSend",
+            value: {
+              fromAddress: address,
+              toAddress: FEE_RECEIVER_ADDRESS,
+              amount: [
+                {
+                  denom: (activePay as any).denom,
+                  amount: feeAmount.toString(),
+                },
+              ],
+            },
+          };
+          const swapMsg = {
+            typeUrl: "/cosmwasm.wasm.v1.MsgExecuteContract",
+            value: {
+              sender: address,
+              contract: ROUTER_CONTRACT,
+              msg: Buffer.from(JSON.stringify(msgNative)),
+              funds,
+            },
+          };
           // console.log("[swap] router native funds", funds);
-          const res = await client.execute(
+          const res = await client.signAndBroadcast(
             address,
-            ROUTER_CONTRACT,
-            msgNative as any,
+            feeAmount > BigInt(0) ? [feeMsg, swapMsg] : [swapMsg],
             "auto",
-            MEMO,
-            funds
+            MEMO
           );
           setTxHash(res.transactionHash);
           // console.log("[swap] txHash", res.transactionHash);
@@ -1227,17 +1485,42 @@ export default function SwapInterface({
         } else {
           // console.log("[swap] router cw20", (activePay as any).contract);
           const msg64 = b64(msgNative);
-          const sendMsg = {
-            send: {
-              contract: ROUTER_CONTRACT,
-              amount: amountInMicro,
-              msg: msg64,
+          const feeMsg = {
+            typeUrl: "/cosmwasm.wasm.v1.MsgExecuteContract",
+            value: {
+              sender: address,
+              contract: (activePay as any).contract,
+              msg: Buffer.from(
+                JSON.stringify({
+                  transfer: {
+                    recipient: FEE_RECEIVER_ADDRESS,
+                    amount: feeAmount.toString(),
+                  },
+                })
+              ),
+              funds: [],
             },
           };
-          const res = await client.execute(
+          const swapMsg = {
+            typeUrl: "/cosmwasm.wasm.v1.MsgExecuteContract",
+            value: {
+              sender: address,
+              contract: (activePay as any).contract,
+              msg: Buffer.from(
+                JSON.stringify({
+                  send: {
+                    contract: ROUTER_CONTRACT,
+                    amount: swapAmount.toString(),
+                    msg: msg64,
+                  },
+                })
+              ),
+              funds: [],
+            },
+          };
+          const res = await client.signAndBroadcast(
             address,
-            (activePay as any).contract,
-            sendMsg as any,
+            feeAmount > BigInt(0) ? [feeMsg, swapMsg] : [swapMsg],
             "auto",
             MEMO
           );
@@ -1309,6 +1592,38 @@ export default function SwapInterface({
 
   const payBalance = balances[keyOf(activePay)] ?? 0;
 
+  const copyPairContract = useCallback((pairContract: string) => {
+    const markCopied = () => {
+      setCopiedPairContract(pairContract);
+      setTimeout(() => setCopiedPairContract(""), 1200);
+    };
+
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(pairContract).then(markCopied).catch(() => {
+        const textarea = document.createElement("textarea");
+        textarea.value = pairContract;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+        markCopied();
+      });
+      return;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = pairContract;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+    markCopied();
+  }, []);
+
   /* =========================
    * Token selector (with lazy balances)
    * ========================= */
@@ -1329,7 +1644,11 @@ export default function SwapInterface({
       (t.symbol || t.name || t.denom || "").toString();
     return tokenList
       .slice()
-      .sort((a, b) => toKey(a).localeCompare(toKey(b)));
+      .sort((a, b) => {
+        const byVolume = tokenVolume24(b) - tokenVolume24(a);
+        if (byVolume !== 0) return byVolume;
+        return toKey(a).localeCompare(toKey(b));
+      });
   }, [tokenList]);
 
   const Selector = memo(function Selector({
@@ -1345,23 +1664,43 @@ export default function SwapInterface({
   }: SelectorProps) {
     const inputRef = useRef<HTMLInputElement | null>(null);
     const listRef = useRef<HTMLDivElement | null>(null);
+    const selectorModalRef = useRef<HTMLDivElement | null>(null);
     const [q, setQ] = useState("");
+    const [debouncedQ, setDebouncedQ] = useState("");
     const [cursor, setCursor] = useState(0);
     const [page, setPage] = useState(1); // 40 per page
 
+    useEffect(() => {
+      const timer = window.setTimeout(() => setDebouncedQ(q), 150);
+      return () => window.clearTimeout(timer);
+    }, [q]);
+
     const normalized = useMemo(() => {
-      const lower = q.trim().toLowerCase();
+      const lower = debouncedQ.trim().toLowerCase();
       const base = ddItems.filter((t) => !disabledDenoms.includes(t.denom));
       const filtered = !lower
         ? base
-        : base.filter(
-            (t) =>
-              t.symbol.toLowerCase().includes(lower) ||
-              t.denom.toLowerCase().includes(lower) ||
-              (t.name || "").toLowerCase().includes(lower)
-          );
+        : [
+            ...base.filter(
+              (t) =>
+                t.symbol.toLowerCase().startsWith(lower) ||
+                t.denom.toLowerCase().startsWith(lower) ||
+                (t.name || "").toLowerCase().startsWith(lower)
+            ),
+            ...base.filter(
+              (t) =>
+                (t.symbol.toLowerCase().includes(lower) ||
+                  t.denom.toLowerCase().includes(lower) ||
+                  (t.name || "").toLowerCase().includes(lower)) &&
+                !(
+                  t.symbol.toLowerCase().startsWith(lower) ||
+                  t.denom.toLowerCase().startsWith(lower) ||
+                  (t.name || "").toLowerCase().startsWith(lower)
+                )
+            ),
+          ];
       return filtered.slice(0, page * 40);
-    }, [q, page, ddItems, disabledDenoms]);
+    }, [debouncedQ, page, ddItems, disabledDenoms]);
 
     const [rowBalances, setRowBalances] = useState<Record<string, number>>({});
     const busySet = useRef<Set<string>>(new Set());
@@ -1403,14 +1742,24 @@ export default function SwapInterface({
       if (!open) return;
       const onDown = (e: MouseEvent) => {
         if (
-          dropdownRef.current &&
-          !dropdownRef.current.contains(e.target as Node)
+          selectorModalRef.current &&
+          !selectorModalRef.current.contains(e.target as Node)
         ) {
           setOpen(false);
         }
       };
       window.addEventListener("mousedown", onDown);
       return () => window.removeEventListener("mousedown", onDown);
+    }, [open, setOpen]);
+
+    useEffect(() => {
+      if (!open) return;
+      setQ("");
+      setDebouncedQ("");
+      setCursor(0);
+      setPage(1);
+      const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 50);
+      return () => window.clearTimeout(focusTimer);
     }, [open]);
 
     useEffect(() => {
@@ -1476,13 +1825,16 @@ export default function SwapInterface({
           i={i}
           cursor={cursor}
           setCursor={setCursor}
-          onChange={onChange}
+          onChange={(token) => {
+            onChange(token);
+            setOpen(false);
+          }}
           balance={rowBalances[t.denom]}
           tokenIcon={tokenIcon}
           isActive={i === cursor}
         />
       ));
-    }, [normalized, cursor, onChange, rowBalances, tokenIcon]);
+    }, [normalized, cursor, onChange, rowBalances, setOpen, tokenIcon]);
 
     return (
       <div className="">
@@ -1503,11 +1855,19 @@ export default function SwapInterface({
           <span className="text-sm">{valueLabel}</span>
         </button>
 
-        {open && !disabled && (
-          <div className="absolute z-[100000] w-full h-full top-[320px] left-0">
+        {open &&
+          !disabled &&
+          createPortal(
+            <>
+              <div
+                className="fixed inset-0 z-[100000] bg-black/70 backdrop-blur-sm"
+                onClick={() => setOpen(false)}
+              />
+              <div className="fixed inset-0 z-[100010] flex items-center justify-center p-4">
             <div
               id={`${id}-menu`}
-              className=" mt-2 w-[320px] rounded-xl border border-neutral-800 bg-[#0b0b0b]/95 shadow-xl z-50"
+                    ref={selectorModalRef}
+                    className="w-[320px] overflow-hidden rounded-xl border border-neutral-800 bg-[#0b0b0b]/95 shadow-2xl"
             >
               <div className="flex items-center justify-between px-3 pt-3 pb-2">
                 <div className="flex items-center gap-2 flex-1 bg-black/40 border border-neutral-800 rounded-lg px-2 py-1.5">
@@ -1534,9 +1894,9 @@ export default function SwapInterface({
 
               <div className="px-3 pb-2 flex items-center gap-2 flex-wrap">
                 {["ZIG", "USDC", "USDT"].map((sym) => {
-                  const t = ddItems.find(
-                    (x) => x.symbol.toUpperCase() === sym.toUpperCase()
-                  );
+                  const t = ddItems
+                    .filter((x) => x.symbol.toUpperCase() === sym.toUpperCase())
+                    .sort((a, b) => tokenVolume24(b) - tokenVolume24(a))[0];
                   if (!t) return null;
                   return (
                     <button
@@ -1583,8 +1943,10 @@ export default function SwapInterface({
                 </span>
               </div>
             </div>
-          </div>
-        )}
+              </div>
+            </>,
+            document.body
+          )}
       </div>
     );
   });
@@ -1673,25 +2035,61 @@ export default function SwapInterface({
           <p>Swap</p>
         </div>
 
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setShowSlippageModal((v) => !v)}
-            className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-black/50 px-3 py-1.5 text-sm text-white hover:bg-black/70"
-            title="Slippage tolerance"
-          >
-            <span className="opacity-80">Slippage</span>
-            <span className="rounded-lg bg-emerald-500/15 px-2 py-0.5 text-emerald-300 tabular-nums">
-              {slippagePct}%
-            </span>
-            <svg
-              viewBox="0 0 20 20"
-              className="h-4 w-4 opacity-70"
-              fill="currentColor"
+        <div className="flex items-center gap-2">
+          <div className="relative" ref={modeDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setShowModeMenu((v) => !v)}
+              className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-black/50 px-3 py-1.5 text-xs font-medium text-white hover:bg-black/70"
+              title="Routing mode"
             >
-              <path d="M6 8l4 4 4-4H6z" />
-            </svg>
-          </button>
+              <span>
+                {SWAP_MODES.find((mode) => mode.value === selectedMode)?.label}
+              </span>
+              <svg
+                viewBox="0 0 20 20"
+                className="h-4 w-4 opacity-70"
+                fill="currentColor"
+              >
+                <path d="M6 8l4 4 4-4H6z" />
+              </svg>
+            </button>
+
+            {showModeMenu && (
+              <div className="absolute right-0 z-[1000] mt-2 w-40 overflow-hidden rounded-xl border border-white/10 bg-[#0b0b0b]/95 p-1 shadow-2xl backdrop-blur">
+                {SWAP_MODES.map((mode) => (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    onClick={() => {
+                      setSelectedMode(mode.value);
+                      setShowModeMenu(false);
+                    }}
+                    className={`block w-full rounded-lg px-3 py-2 text-left text-xs transition ${
+                      selectedMode === mode.value
+                        ? "bg-emerald-500/15 text-emerald-300"
+                        : "text-white/75 hover:bg-white/10 hover:text-white"
+                    }`}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowSlippageModal((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-black/50 px-2.5 py-1.5 text-sm text-white hover:bg-black/70"
+              title="Slippage tolerance"
+            >
+              <Settings2 className="h-3.5 w-3.5 text-white/70" />
+              <span className="text-white/90 tabular-nums">
+                {slippagePct}%
+              </span>
+            </button>
 
           {showSlippageModal && (
             <div
@@ -1743,7 +2141,8 @@ export default function SwapInterface({
                 worse price.
               </div>
             </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
@@ -1915,7 +2314,207 @@ export default function SwapInterface({
           qClientRef={qClientRef}
           recvPriceUsd={receiveUsd}
         />
+
+        {quoteDetails && (
+          <div className="relative mt-3 overflow-hidden rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(0,0,0,0.34))] px-4 py-3 text-xs text-neutral-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#39C8A6]/60 to-transparent" />
+            <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-[#39C8A6]/8 blur-2xl" />
+            <div className="grid">
+              {/* <div className="flex items-center justify-between gap-4">
+                <span>Source</span>
+                <span className="max-w-[170px] truncate text-white">
+                  {quoteDetails.source || "--"}
+                </span>
+              </div> */}
+              <div className="flex items-center justify-between gap-4 py-1.5">
+                <span className="text-white/55">Price Impact</span>
+                <span className="font-medium tabular-nums text-white">
+                  {quoteDetails.priceImpact != null
+                    ? `-${fmtPct(Math.abs(quoteDetails.priceImpact))}`
+                    : "--"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4 border-t border-white/[0.06] py-1.5">
+                <span className="text-white/55">Route</span>
+                <button
+                  type="button"
+                  onClick={() => setShowRouteModal(true)}
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-[#5EA1FF] transition hover:bg-[#5EA1FF]/10 hover:text-[#8EBEFF]"
+                >
+                  {quoteDetails.hops} {quoteDetails.hops === 1 ? "step" : "steps"}
+                  <RouteIcon className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="flex items-center justify-between gap-4 border-t border-white/[0.06] py-1.5">
+                <span className="text-white/55">Minimum receive</span>
+                <span className="max-w-[170px] truncate text-right font-medium tabular-nums text-white/85">
+                  {Number.isFinite(quoteDetails.minimumReceive)
+                    ? `${fmt(
+                        quoteDetails.minimumReceive,
+                        Math.min(6, activeReceive.decimals)
+                      )} ${activeReceive.symbol}`
+                    : "--"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4 border-t border-white/[0.06] py-1.5">
+                <span className="text-white/55">Fee</span>
+                <span className="font-medium tabular-nums text-white/85">
+                  {quoteDetails.feeRate != null
+                    ? fmtPct(quoteDetails.feeRate)
+                    : "--"}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+
+      {showRouteModal &&
+        smartRouteQuote &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[100000] bg-black/75 backdrop-blur-sm"
+              onClick={() => setShowRouteModal(false)}
+            />
+            <div className="fixed inset-0 z-[100010] flex items-center justify-center overflow-y-auto p-4">
+              <div className="relative my-4 w-full max-w-[820px] overflow-hidden rounded-xl border border-[#d4af37]/25 bg-[#050505]/95 p-6 text-white shadow-[0_28px_100px_rgba(0,0,0,0.84)] sm:p-8">
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_18%,rgba(212,175,55,0.10),transparent_30%),radial-gradient(circle_at_78%_48%,rgba(57,200,166,0.10),transparent_34%),radial-gradient(circle_at_40%_100%,rgba(255,64,40,0.055),transparent_36%)]" />
+                <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-[#d4af37]/70 to-transparent" />
+                <button
+                  type="button"
+                  onClick={() => setShowRouteModal(false)}
+                  className="absolute right-5 top-5 rounded-full border border-[#d4af37]/25 bg-black/40 p-1.5 text-white/50 transition hover:border-[#d4af37]/60 hover:bg-[#d4af37]/10 hover:text-[#f3df9a]"
+                  aria-label="Close route"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+
+                <h3 className="relative mb-7 text-2xl font-bold tracking-[0.16em] text-[#f3df9a]">
+                  ROUTE
+                </h3>
+
+                <div className="relative overflow-x-auto rounded-lg border border-[#d4af37]/35 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(0,0,0,0.35))] px-5 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),inset_0_0_34px_rgba(57,200,166,0.08)] backdrop-blur-xl sm:px-8">
+                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_28%_52%,rgba(212,175,55,0.12),transparent_26%),radial-gradient(circle_at_72%_52%,rgba(57,200,166,0.10),transparent_28%)]" />
+                  <div className="flex min-w-max items-center justify-center sm:min-w-full">
+                    {modalRouteTokens.map((token, index) => {
+                      const pair =
+                        smartRouteQuote.pairs[Math.max(0, index - 1)];
+                      const isFirst = index === 0;
+                      const isLast = index === modalRouteTokens.length - 1;
+                      const tokenMeta = tokenList.find(
+                        (item) => item.denom === token.denom
+                      );
+                      const tokenSubLabel =
+                        tokenMeta?.name ||
+                        (token.symbol.toUpperCase() === "USDT"
+                          ? "Tether"
+                          : truncMid(token.denom, 5, 5));
+                      const isZigToken = token.symbol.toUpperCase() === "ZIG";
+
+                      return (
+                        <React.Fragment key={`${token.denom}-${index}`}>
+                          {!isFirst && (
+                            <div className="group relative z-10 flex h-[112px] w-14 shrink-0 items-center justify-center text-base text-white/70 sm:w-16">
+                              <div className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 bg-gradient-to-r from-[#b39045]/20 via-[#f2d27a]/95 to-[#b39045]/20 shadow-[0_0_18px_rgba(212,175,55,0.35)]" />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (pair?.pairContract) {
+                                    copyPairContract(pair.pairContract);
+                                  }
+                                }}
+                                className="relative flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-[#d4af37]/40 bg-[#15130f] text-xs text-[#f5df9a] shadow-[0_0_22px_rgba(212,175,55,0.22)] transition group-hover:scale-105 group-hover:border-[#f6dda0] group-hover:text-white"
+                                aria-label="Copy pair contract"
+                              >
+                                &gt;
+                              </button>
+                              {pair?.pairContract && (
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    copyPairContract(pair.pairContract);
+                                  }}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    copyPairContract(pair.pairContract);
+                                  }}
+                                  className="pointer-events-none absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-lg border border-[#d4af37]/45 bg-[#111]/95 px-3 py-2 text-xs text-white opacity-0 shadow-[0_16px_42px_rgba(0,0,0,0.65),0_0_22px_rgba(212,175,55,0.12)] backdrop-blur transition hover:border-[#f3df9a]/70 hover:bg-[#17130b] group-hover:pointer-events-auto group-hover:opacity-100"
+                                  aria-label="Copy pair contract"
+                                >
+                                  <span className="max-w-[128px] truncate font-mono text-white/90">
+                                    {truncMid(pair.pairContract, 6, 5)}
+                                  </span>
+                                  <span className="rounded-md border border-white/10 bg-black/30 p-1 text-white/60 transition group-hover:text-[#f3df9a]">
+                                    <Copy className="h-3.5 w-3.5" />
+                                  </span>
+                                  {copiedPairContract ===
+                                    pair.pairContract && (
+                                    <span className="text-[10px] text-[#39C8A6]">
+                                      Copied
+                                    </span>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          <div
+                            className={`relative z-10 flex h-[112px] w-[156px] shrink-0 items-center justify-center gap-3 transition sm:w-[180px] ${
+                              isFirst || isLast
+                                ? "px-3"
+                                : "rounded-xl border border-[#d4af37]/20 bg-black/20 px-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_10px_28px_rgba(0,0,0,0.24)]"
+                            }`}
+                          >
+                            <div
+                              className={`relative h-12 w-12 shrink-0 rounded-full p-[2px] ${
+                                isZigToken
+                                  ? "bg-[radial-gradient(circle,#ffffff_0%,#dff9ff_38%,#39C8A6_70%,#1f4bff_100%)] shadow-[0_0_30px_rgba(57,200,166,0.45)]"
+                                  : "bg-[linear-gradient(145deg,#f2d27a,#7a5d24_52%,#1d160b)] shadow-[0_0_22px_rgba(212,175,55,0.28)]"
+                              }`}
+                            >
+                              <div className="absolute inset-0 rounded-full bg-white/10 blur-[2px]" />
+                              <img
+                                src={
+                                  token.imageUri ||
+                                  (token.symbol === "ZIG" ? ZIG_ICON : tokenIcon)
+                                }
+                                alt={token.symbol}
+                                className="relative h-full w-full rounded-full bg-black object-cover"
+                              />
+                            </div>
+                            <div className="min-w-0 text-left">
+                              <div className="truncate text-base font-semibold text-[#f7f1df] drop-shadow-[0_0_12px_rgba(212,175,55,0.16)]">
+                                {token.symbol}
+                              </div>
+                              <div className="mt-1 truncate text-[11px] text-[#e6c875]/80">
+                                {tokenSubLabel}
+                              </div>
+                              {!isFirst && !isLast && (
+                                <div className="mt-2 flex items-center gap-3 text-xs text-white/55">
+                                  <span className="max-w-[74px] truncate text-white/45">
+                                    {(pair?.pairType || "POOL")
+                                      .replace("custom-", "")
+                                      .toUpperCase()}
+                                  </span>
+                                  <span className="text-white/75">100%</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>,
+          document.body
+        )}
 
       {err && (
         <div className="mt-2 text-xs text-red-400 break-all mb-2">{err}</div>
