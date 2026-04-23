@@ -7,7 +7,12 @@ import React, {
 } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ChevronFirst, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  ChevronFirst,
+  ChevronLast,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { tokenAPI } from "@/lib/api";
 import { storeTokenRoute } from "@/lib/token-routing";
 import { isTokenNew } from "@/lib/tokenUtils";
@@ -586,44 +591,48 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
       </div>
 
       {/* Footer with Pagination - Fixed at bottom */}
-      <div className="sticky bottom-0 left-0 right-0 backdrop-blur-sm py-2 px-2 sm:px-4">
+      <div className="-mx-3 sm:-mx-4 lg:-mx-6 mt-auto  bg-[#120706] px-3 py-2 text-[#EDEDED] shadow-[0_-12px_24px_rgba(0,0,0,0.35)] sm:px-4 lg:px-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
           <span className="text-[#919191] text-xs sm:text-sm text-center sm:text-left">
             Showing {Math.min((currentPage - 1) * itemsPerPage + 1, totalItems)}
             -{Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems}{" "}
             pairs
           </span>
-          <div className="flex items-center justify-center gap-1 flex-wrap">
+          <div className="flex items-center justify-center gap-1 flex-wrap text-[#EDEDED]">
             <button
               onClick={() => handlePageChange(1)}
               disabled={currentPage === 1}
-              className="px-2 py-1 rounded disabled:opacity-50 hover:bg-white/10 transition-colors"
+              aria-label="First page"
+              className="inline-flex h-8 w-8 items-center justify-center rounded text-[#EDEDED] hover:bg-white/10 disabled:cursor-not-allowed disabled:text-white/30 disabled:hover:bg-transparent transition-colors"
             >
-              ⏮
+              <ChevronFirst className="w-4 h-4" />
             </button>
             <button
               onClick={() => handlePageChange(currentPage - 1)}
               disabled={currentPage === 1}
-              className="px-2 py-1 rounded disabled:opacity-50 hover:bg-white/10 transition-colors"
+              aria-label="Previous page"
+              className="inline-flex h-8 w-8 items-center justify-center rounded text-[#EDEDED] hover:bg-white/10 disabled:cursor-not-allowed disabled:text-white/30 disabled:hover:bg-transparent transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="mx-2 text-sm">
+            <span className="mx-2 text-sm font-semibold text-white">
               Page {currentPage} of {totalPages || 1}
             </span>
             <button
               onClick={() => handlePageChange(currentPage + 1)}
               disabled={currentPage >= totalPages}
-              className="px-2 py-1 rounded disabled:opacity-50 hover:bg-white/10 transition-colors"
+              aria-label="Next page"
+              className="inline-flex h-8 w-8 items-center justify-center rounded text-[#EDEDED] hover:bg-white/10 disabled:cursor-not-allowed disabled:text-white/30 disabled:hover:bg-transparent transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
             <button
               onClick={() => handlePageChange(totalPages)}
               disabled={currentPage >= totalPages}
-              className="px-2 py-1 rounded disabled:opacity-50 hover:bg-white/10 transition-colors"
+              aria-label="Last page"
+              className="inline-flex h-8 w-8 items-center justify-center rounded text-[#EDEDED] hover:bg-white/10 disabled:cursor-not-allowed disabled:text-white/30 disabled:hover:bg-transparent transition-colors"
             >
-              ⏭
+              <ChevronLast className="w-4 h-4" />
             </button>
           </div>
         </div>

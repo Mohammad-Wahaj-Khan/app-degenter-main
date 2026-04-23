@@ -50,9 +50,12 @@ interface Trade {
 const API_BASE = API_BASE_URL;
 const LARGE_TRADES_TIMEFRAME = "60m";
 const LARGE_TRADES_UNIT = "usd";
-const itemsPerPage = 8;
+const itemsPerPage = 7;
 const POLLING_BASE_INTERVAL_MS = 15000;
 const POLLING_MAX_INTERVAL_MS = 120000;
+
+const shortSigner = (address: string): string =>
+  address ? `${address.slice(0, 4)}...${address.slice(-3)}` : "";
 
 const LargeTradersTable: React.FC = () => {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -405,25 +408,25 @@ const LargeTradersTable: React.FC = () => {
       ) : (
         /* Enhanced Table */
         <div className="mt-4 overflow-x-auto pb-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10">
-          <table className="w-full min-w-[620px] md:min-w-[700px] lg:min-w-[760px] xl:min-w-0 border-collapse">
+          <table className="w-full min-w-[680px] md:min-w-[720px] lg:min-w-[760px] xl:min-w-0 border-collapse">
           <thead>
             <tr className="text-left text-white/60 text-xs sm:text-sm ">
-                <th className="pb-1 pl-2 w-[60px]">
+                <th className="pb-1 pl-2 pr-2 w-[52px]">
                   <Clock className="w-4 h-4 text-[#919191]" />
                 </th>
-                <th className="pb-1 text-[#919191] text-xs font-medium uppercase tracking-wider w-[140px]">
+                <th className="pb-1 px-3 text-[#919191] text-[11px] xl:text-xs font-medium uppercase tracking-wider w-[118px] xl:w-[132px]">
                   Signer
                 </th>
-                <th className="pb-1 text-center text-[#919191] text-xs font-medium uppercase tracking-wider w-[90px]">
+                <th className="pb-1 px-3 text-center text-[#919191] text-[11px] xl:text-xs font-medium uppercase tracking-wider w-[86px]">
                   Type
                 </th>
-                <th className="pb-1 text-center text-[#919191] text-xs font-medium uppercase tracking-wider w-[40px]">
+                <th className="pb-1 px-2 text-center text-[#919191] text-[11px] xl:text-xs font-medium uppercase tracking-wider w-[54px]">
                   {/* Class */}
                 </th>
-                <th className="pb-1 text-left text-[#919191] text-xs font-medium uppercase tracking-wider pl-2 sm:pl-4">
+                <th className="pb-1 pl-4 pr-3 text-left text-[#919191] text-[11px] xl:text-xs font-medium uppercase tracking-wider">
                   Amount
                 </th>
-                <th className="pb-1 text-center text-[#919191] text-xs font-medium uppercase tracking-wider w-[50px]">
+                <th className="pb-1 text-center text-[#919191] text-[11px] xl:text-xs font-medium uppercase tracking-wider w-[46px]">
                   View
                 </th>
             </tr>
@@ -439,31 +442,31 @@ const LargeTradersTable: React.FC = () => {
                   >
                     
                     {/* Time */}
-                    <td className="py-2 pl-2 relative z-10">
-                      <span className="text-white/60 text-sm font-mono tabular-nums">
+                    <td className="py-2 pl-2 pr-2 relative z-10">
+                      <span className="text-white/60 text-xs xl:text-sm font-mono tabular-nums">
                         {timeAgo(trade.time)}
                       </span>
                     </td>
 
                     {/* Signer */}
-                    <td className="py-2 relative z-10">
+                    <td className="py-2 px-3 relative z-10">
                       <Link
                         href={`https://zigscan.org/address/${trade.signer}`}
                         target="_blank"
-                        className="inline-flex items-center gap-1 text-white hover:text-[#93C5FD] transition-colors font-mono text-sm group/link"
+                        className="inline-flex items-center gap-1 text-white hover:text-[#93C5FD] transition-colors font-mono text-xs xl:text-sm group/link"
                       >
                         <span className="group-hover/link:underline">
-                          {trade.signer.slice(0, 6)}...{trade.signer.slice(-4)}
+                          {shortSigner(trade.signer)}
                         </span>
                         <ExternalLink className="w-3 h-3 opacity-0 group-hover/link:opacity-100 transition-opacity" />
                       </Link>
                     </td>
 
                     {/* Direction Badge */}
-                    <td className="py-2 relative z-10">
+                    <td className="py-2 px-3 relative z-10">
                       <div className="flex justify-center">
                         <span
-                          className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold tracking-wide border ${
+                          className={`inline-flex items-center px-2.5 xl:px-3 py-1 rounded-full text-[11px] xl:text-xs font-bold tracking-wide border ${
                             trade.direction === "buy"
                               ? "text-[#20D87C] border-[#20D87C]/30 bg-[#20D87C]/10"
                               : "text-[#F64F39] border-[#F64F39]/30 bg-[#F64F39]/10"
@@ -475,7 +478,7 @@ const LargeTradersTable: React.FC = () => {
                     </td>
 
                     {/* Class Indicator */}
-                    <td className="py-2 relative z-10">
+                    <td className="py-2 px-2 relative z-10">
                       <div className="flex justify-center">
                         {trade.class === "whale" && (
                           <span className="flex items-center gap-1 bg-blue-500/20 px-2 py-0.5 rounded text-blue-300 text-xs">
@@ -496,7 +499,7 @@ const LargeTradersTable: React.FC = () => {
                     </td>
 
                     {/* Amount - Stacked Layout */}
-                    <td className="py-2 pl-2 sm:pl-4 relative z-10">
+                    <td className="py-2 pl-4 pr-3 relative z-10">
 
                       <div className="flex flex-col gap-1.5 min-w-0">
                         {/* Received */}
@@ -514,7 +517,7 @@ const LargeTradersTable: React.FC = () => {
                             />
                             <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-[#20D87C] rounded-full border-2 border-black"></div>
                           </div>
-                          <span className="text-[#20D87C] font-semibold text-xs sm:text-sm tabular-nums tracking-tight whitespace-nowrap shrink-0">
+                          <span className="text-[#20D87C] font-semibold text-xs xl:text-sm tabular-nums tracking-tight whitespace-nowrap shrink-0">
                             +{compact2(trade.returnAmount)} {symbolFor(trade.askDenom)}
                           </span>
                         </div>
@@ -532,7 +535,7 @@ const LargeTradersTable: React.FC = () => {
                             />
                             <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-[#F64F39] rounded-full border-2 border-black"></div>
                           </div>
-                          <span className="text-[#F64F39] font-medium text-xs sm:text-sm tabular-nums tracking-tight opacity-80 whitespace-nowrap shrink-0">
+                          <span className="text-[#F64F39] font-medium text-xs xl:text-sm tabular-nums tracking-tight opacity-80 whitespace-nowrap shrink-0">
                             -{compact2(trade.offerAmount)} {symbolFor(trade.offerDenom)}
                           </span>
                         </div>

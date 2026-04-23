@@ -484,6 +484,20 @@ function normalizeZigUsdcCandle(bar: FeedCandle): FeedCandle | null {
   };
 }
 
+function multiplyCandleBySupply(
+  bar: FeedCandle,
+  supply: number | null
+): FeedCandle | null {
+  if (!supply || !Number.isFinite(supply) || supply <= 0) return null;
+  return {
+    ...bar,
+    open: bar.open * supply,
+    high: bar.high * supply,
+    low: bar.low * supply,
+    close: bar.close * supply,
+  };
+}
+
 /* ---------- Datafeed bound to your API + Websocket ---------- */
 function makeDatafeed(
   tokenId: string,
@@ -578,16 +592,10 @@ function makeDatafeed(
       .map((bar: FeedCandle) => {
         const inverted = normalizeZigUsdcCandle(bar);
         if (!inverted) return null;
-        if (!supply || !Number.isFinite(supply) || supply <= 0 || mode !== "mcap") {
+        if (mode !== "mcap") {
           return inverted;
         }
-        return {
-          ...inverted,
-          open: inverted.open * supply,
-          high: inverted.high * supply,
-          low: inverted.low * supply,
-          close: inverted.close * supply,
-        };
+        return multiplyCandleBySupply(inverted, supply);
       })
       .filter((bar: any): bar is FeedCandle => Boolean(bar));
   }
@@ -877,12 +885,18 @@ function makeDatafeed(
       if (zigUsdcPoolSource) {
         const inverted = normalizeZigUsdcCandle(candle);
         if (!inverted) return;
+        const zigUsdClose = inverted.close;
+        setZigUsdCb(zigUsdClose);
         candle = inverted;
-        open = inverted.open;
-        high = inverted.high;
-        low = inverted.low;
-        close = inverted.close;
-        setZigUsdCb(close);
+        if (getMode() === "mcap") {
+          const mcapCandle = multiplyCandleBySupply(candle, getSupply());
+          if (!mcapCandle) return;
+          candle = mcapCandle;
+        }
+        open = candle.open;
+        high = candle.high;
+        low = candle.low;
+        close = candle.close;
       }
 
       const tsSec = Math.floor(timeMs / 1000);

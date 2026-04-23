@@ -31,7 +31,7 @@ export interface Token {
   liquidity?: number;
 }
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 9;
 const POLL_INTERVAL = 15000; // 15 seconds for near real-time
 const STAKED_ZIG_DENOM =
   "coin.zig109f7g2rzl2aqee7z6gffn8kfe9cpqx0mjkk7ethmx8m2hq4xpe9snmaam2.stzig";
@@ -272,7 +272,7 @@ const FindGems: React.FC = () => {
       <div className="w-[800px] h-[400px] absolute z-[-10] bottom-[-20px] right-[-450px] rounded-xl bg-[radial-gradient(circle,_rgba(250,78,48,0.2)_0%,_rgba(250,78,48,0.3)_10%,_transparent_70%)] blur-2xl shadow-[0_0_40px_rgba(250,78,48,0.5)]"></div>
 
       {/* Header */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="relative z-10 flex flex-col gap-4 pb-5 md:flex-row md:items-center md:justify-between md:pb-6">
         <div className="flex items-center gap-3 min-w-0">
           <Image
             src="/fire.png"
@@ -319,15 +319,15 @@ const FindGems: React.FC = () => {
             );
           })}
         </div>
+        <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-[#FA4E30] via-[#FFA500] to-[#39C8A6] opacity-70" />
       </div>
-
       {/* Table */}
       <div className="overflow-x-auto px-0 sm:px-1">
           <table className="w-full mt-4 table-fixed text-sm sm:text-base min-w-[640px]">
             <thead>
               <tr className="text-left text-white/60 text-xs sm:text-sm lg:text-base border-b border-white/10">
                 <th
-                  className="pb-4 font-normal text-right cursor-pointer hover:text-white transition-colors w-[40%]"
+                  className="pb-2 font-normal text-right cursor-pointer hover:text-white transition-colors w-[40%]"
                   onClick={() => handleSort("symbol")}
                 >
                   <div className="flex items-center justify-start text-[#919191]">
@@ -335,7 +335,7 @@ const FindGems: React.FC = () => {
                   </div>
                 </th>
                 <th
-                  className="pb-4 font-normal text-right cursor-pointer hover:text-white transition-colors w-[25%]"
+                  className="pb-2 font-normal text-right cursor-pointer hover:text-white transition-colors w-[25%]"
                   onClick={() => handleSort("current_price")}
                 >
                   <div className="flex items-center justify-end text-[#919191]">
@@ -348,7 +348,7 @@ const FindGems: React.FC = () => {
                   </div>
                 </th>
                 <th
-                  className="pb-4 font-normal text-right cursor-pointer hover:text-white transition-colors w-[15%]"
+                  className="pb-2 font-normal text-right cursor-pointer hover:text-white transition-colors w-[15%]"
                   onClick={() => handleSort("price_change_percentage_24h")}
                 >
                   <div className="flex items-center justify-end text-[#919191]">
@@ -361,7 +361,7 @@ const FindGems: React.FC = () => {
                   </div>
                 </th>
                 <th
-                  className="pb-4 font-normal text-right cursor-pointer hover:text-white transition-colors w-[20%]"
+                  className="pb-2 font-normal text-right cursor-pointer hover:text-white transition-colors w-[20%]"
                   onClick={() => handleSort("total_volume")}
                 >
                   <div className="flex items-center justify-end text-[#919191]">
@@ -373,7 +373,7 @@ const FindGems: React.FC = () => {
                     )}
                   </div>
                 </th>
-                <th className="pb-4 font-normal text-right text-[#919191] w-[15%]">
+                <th className="pb-2 font-normal text-right text-[#919191] w-[15%]">
                   {/* placeholder to balance spacing */}
                   &nbsp;
                 </th>
@@ -483,7 +483,7 @@ const FindGems: React.FC = () => {
           </tbody>
         </table>
 
-        <div className="absolute top-[3.3rem] left-3 sm:left-6 right-3 sm:right-6 h-[1px] [background-image:linear-gradient(to_right,#FA4E30_37%,#39C8A6_67%)]"></div>
+        {/* <div className="absolute top-[3.3rem] left-3 sm:left-6 right-3 sm:right-6 h-[1px] [background-image:linear-gradient(to_right,#FA4E30_37%,#39C8A6_67%)]"></div> */}
       </div>
     </div>
   );
