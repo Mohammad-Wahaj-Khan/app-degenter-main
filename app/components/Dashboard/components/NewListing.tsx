@@ -86,6 +86,27 @@ const NewListing: React.FC<{ LatestListing: DashboardToken[] }> = ({
   });
   const latestTen = sortedTokens.slice(0, 10);
 
+  if (!latestTen.length) {
+    return (
+      <div className="bg-black/30 rounded-lg border border-[#808080]/20 shadow-2xl relative overflow-hidden">
+        <div
+          className="relative z-10 mx-auto w-full py-4 px-2 sm:px-3 min-h-[560px] flex items-center justify-center"
+          style={{
+            background:
+              "linear-gradient(110deg, #000000 0%, #0a2e1f 80%, #095c39ff 100%)",
+          }}
+        >
+          <div className="text-center">
+            <p className="text-white/80 text-lg font-medium">No tokens found</p>
+            <p className="text-white/50 text-sm mt-2">
+              No new listings are available right now.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-black/30 rounded-lg border border-[#808080]/20 shadow-2xl relative overflow-hidden">
     {/* //   <div className="w-[1000px] h-[600px] absolute z-[-10] top-[-80px] right-[-350px] rounded-xl bg-[radial-gradient(circle,_rgba(57,200,166,0.2)_0%,_rgba(57,200,166,0.6)_10%,_transparent_70%)] blur-2xl shadow-[0_0_40px_rgba(57,200,166,0.5)]"></div> */}

@@ -12,6 +12,10 @@ import { tokenAPI } from "@/lib/api";
 import { isTokenNew } from "@/lib/tokenUtils";
 import NewTokenBadge from "./NewTokenBadge";
 import LowLiquidityBadge, { hasLowLiquidity } from "./LiquidityWarning";
+import {
+  extractArrayPayload,
+  normalizeDashboardToken,
+} from "./data-normalizers";
 
 export interface Token {
   id: string;
@@ -93,36 +97,11 @@ const FindGems: React.FC = () => {
           { signal: controller.signal }
         );
 
-        const respAny: any = response;
-        const rawTokens: any[] = Array.isArray(respAny)
-          ? respAny
-          : respAny?.data ?? respAny?.tokens ?? respAny?.results ?? [];
-
-        const filteredTokens = rawTokens.filter(
-          (token: any) => token && token.symbol
+        const rawTokens = extractArrayPayload(response);
+        const filteredTokens = rawTokens.filter((token: any) => token?.symbol);
+        const tokensData: Token[] = filteredTokens.map((token: any) =>
+          normalizeDashboardToken(token)
         );
-
-        const tokensData: Token[] = filteredTokens.map((token: any) => ({
-          id: token.tokenId?.toString() || token.id?.toString() || "",
-          symbol: token.symbol || "",
-          name: token.name || "",
-          current_price: token.priceUsd || token.priceNative || 0,
-          price_change_percentage_24h: token.change24hPct || 0,
-          market_cap: token.mcapUsd || token.mcapNative || 0,
-          total_volume: token.volUsd || token.volNative || 0,
-          fdvUsd: token.fdvUsd || 0,
-          image: token.imageUri || token.image || "",
-          tx: token.tx || 0,
-          denom: token.denom || "",
-          holders: token.holders || 0,
-          creationTime: token.createdAt || 0,
-          liquidity:
-            token.liquidity ??
-            token.liquidityUsd ??
-            token.volUsd ??
-            token.volNative ??
-            0,
-        }));
 
         setTokens(tokensData);
         const highVolumeCount = tokensData.filter(
@@ -133,7 +112,9 @@ const FindGems: React.FC = () => {
       } catch (err: any) {
         if (err.name !== "AbortError") {
           console.error("Error fetching tokens:", err);
-          setError("Failed to load tokens. Please try again later.");
+          setError(null);
+          setTokens([]);
+          setTotalItems(0);
         }
       } finally {
         if (!isPolling) {
@@ -141,7 +122,7 @@ const FindGems: React.FC = () => {
         }
       }
     },
-    [currentPage]
+    [currentPage, tokens.length]
   );
 
   // Set up polling
@@ -226,7 +207,7 @@ const FindGems: React.FC = () => {
       .slice(0, ITEMS_PER_PAGE);
   }, [highVolumeTokens, sortConfig]);
 
-  if (loading || tokens.length === 0) {
+  if (loading) {
     return (
       <div className="bg-black/30 rounded-lg pt-4 px-4 sm:px-6 min-h-[600px] relative border border-[#808080]/20 overflow-hidden">
         <div className="flex items-start justify-between gap-3">
@@ -263,8 +244,17 @@ const FindGems: React.FC = () => {
     );
   }
 
-  if (error) {
-    return <div className="text-red-500 text-center py-8">Error: {error}</div>;
+  if (!tokens.length) {
+    return (
+      <div className="bg-black/30 rounded-lg pt-4 px-4 sm:px-6 min-h-[600px] relative border border-[#808080]/20 overflow-hidden flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-white/80 text-lg font-medium">No tokens found</p>
+          <p className="text-white/50 text-sm mt-2">
+            No token data is available right now.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Clock, ExternalLink } from "lucide-react";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
+import { extractArrayPayload, normalizeTrade } from "./data-normalizers";
 
 // Utility function to format time ago
 const timeAgo = (dateString: string): string => {
@@ -35,7 +36,7 @@ interface Trade {
   pairContract: string;
   signer: string;
   direction: "buy" | "sell";
-  is_router: boolean;
+  is_router?: boolean;
   offerDenom: string;
   offerAmount: number;
   askDenom: string;
@@ -44,7 +45,7 @@ interface Trade {
   priceUsd: number;
   valueNative: number;
   valueUsd: number;
-  class: "whale" | "shark" | "shrimp";
+  class: string;
 }
 
 const API_BASE = API_BASE_URL;
@@ -91,22 +92,11 @@ const LargeTradersTable: React.FC = () => {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
+      const rawTrades = extractArrayPayload(json);
 
-      if (!json?.success || !Array.isArray(json.data)) {
-        throw new Error("Invalid data format");
-      }
-
-      const classifyTrade = (trade: Trade): Trade["class"] => {
-        const valueNative = Number.isFinite(trade.valueNative) ? trade.valueNative : 0;
-        if (valueNative < 1000) return "shrimp";
-        if (valueNative < 10000) return "shark";
-        return "whale";
-      };
-
-      const normalizedTrades = (json.data as Trade[]).map((trade) => ({
-        ...trade,
-        class: classifyTrade(trade),
-      }));
+      const normalizedTrades = rawTrades.map((trade: any) =>
+        normalizeTrade(trade)
+      );
 
       const filteredTrades =
         selectedClass === "all"
@@ -115,7 +105,9 @@ const LargeTradersTable: React.FC = () => {
 
       const classPriority = { whale: 3, shark: 2, shrimp: 1 } as const;
       const getClassPriority = (value?: string) =>
-        value && value in classPriority ? classPriority[value as Trade["class"]] : 0;
+        value === "whale" || value === "shark" || value === "shrimp"
+          ? classPriority[value]
+          : 0;
 
       const sortedTrades = [...filteredTrades].sort((a, b) => {
         const timeDiff = new Date(b.time).getTime() - new Date(a.time).getTime();
@@ -135,7 +127,9 @@ const LargeTradersTable: React.FC = () => {
         nextIntervalRef.current * 2
       );
       console.error("Error fetching trades:", err);
-      setError("Failed to load trades. Please try again later.");
+      setError(null);
+      setTrades([]);
+      setTotalItems(0);
     } finally {
       setLoading(false);
       setIsFilterLoading(false);
@@ -153,7 +147,7 @@ const LargeTradersTable: React.FC = () => {
         }
       }, nextIntervalRef.current);
     }
-  }, [selectedClass]);
+  }, [selectedClass, trades.length]);
 
   const handleFilterChange = (filter: "all" | "whale" | "shark" | "shrimp") => {
     setSelectedClass(filter);
@@ -317,10 +311,6 @@ const LargeTradersTable: React.FC = () => {
         </div>
       </div>
     );
-  }
-
-  if (error) {
-    return <div className="text-red-500 text-center py-8">Error: {error}</div>;
   }
 
   return (
