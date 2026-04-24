@@ -164,6 +164,7 @@ export default function Navbar() {
   const profileButtonRef = useRef<HTMLButtonElement>(null);
   const [showProfileIntro, setShowProfileIntro] = useState(false);
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
+  const [profileImageFailed, setProfileImageFailed] = useState(false);
   const [profileExists, setProfileExists] = useState(false);
   const [guestHandle, setGuestHandle] = useState("");
   // Refs for input elements
@@ -411,6 +412,7 @@ export default function Navbar() {
     const handle = address || guestHandle;
     if (!handle) {
       setProfileImageUrl(null);
+      setProfileImageFailed(false);
       setProfileExists(false);
       return;
     }
@@ -424,6 +426,7 @@ export default function Navbar() {
         if (!response.ok) {
           if (isActive) {
             setProfileImageUrl(null);
+            setProfileImageFailed(false);
             setProfileExists(false);
           }
           return;
@@ -434,11 +437,13 @@ export default function Navbar() {
         const hasProfile = Boolean(data);
         if (isActive) {
           setProfileImageUrl(imageUrl);
+          setProfileImageFailed(false);
           setProfileExists(hasProfile);
         }
       } catch {
         if (isActive) {
           setProfileImageUrl(null);
+          setProfileImageFailed(false);
           setProfileExists(false);
         }
       }
@@ -516,16 +521,23 @@ export default function Navbar() {
                 <button
                   ref={profileButtonRef}
                   onClick={handleProfileClick}
-                  className="flex items-center justify-center rounded-lg text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+                  className={`flex h-11 w-11 items-center justify-center rounded-xl text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 ${
+                    profileImageUrl && !profileImageFailed
+                      ? "border border-[rgba(244,214,135,0.45)] bg-[linear-gradient(180deg,rgba(248,224,157,0.16),rgba(184,132,36,0.08))] shadow-[0_0_22px_rgba(208,162,61,0.22)]"
+                      : "rounded-lg"
+                  }`}
                   aria-label="Portfolio"
                   type="button"
                 >
-                  {profileImageUrl ? (
-                    <img
-                      src={profileImageUrl}
-                      alt="Profile"
-                      className="h-6 w-6 rounded-full object-cover"
-                    />
+                  {profileImageUrl && !profileImageFailed ? (
+                    <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-[rgba(255,242,203,0.55)] bg-[#16120b] shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
+                      <img
+                        src={profileImageUrl}
+                        alt="Profile"
+                        className="h-full w-full object-cover"
+                        onError={() => setProfileImageFailed(true)}
+                      />
+                    </div>
                   ) : profileExists ? (
                     <Image
                       src={ProfilePIC}

@@ -12,9 +12,10 @@ import { isTokenNew } from "@/lib/tokenUtils";
 import { storeTokenRoute } from "@/lib/token-routing";
 import LowLiquidityBadge, { hasLowLiquidity } from "./LiquidityWarning";
 
-const NewListing: React.FC<{ LatestListing: DashboardToken[] }> = ({
-  LatestListing,
-}) => {
+const NewListing: React.FC<{
+  LatestListing: DashboardToken[];
+  isLoading?: boolean;
+}> = ({ LatestListing, isLoading = false }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const cardsRef = useRef<HTMLDivElement[]>([]);
 
@@ -85,6 +86,46 @@ const NewListing: React.FC<{ LatestListing: DashboardToken[] }> = ({
     return timeB - timeA;
   });
   const latestTen = sortedTokens.slice(0, 10);
+
+  if (isLoading) {
+    return (
+      <div className="bg-black/30 rounded-lg border border-[#808080]/20 shadow-2xl relative overflow-hidden">
+        <div
+          className="relative z-10 mx-auto w-full py-4 px-2 sm:px-3 min-h-[560px]"
+          style={{
+            background:
+              "linear-gradient(110deg, #000000 0%, #0a2e1f 80%, #095c39ff 100%)",
+          }}
+        >
+          <div className="flex items-center justify-between pl-2">
+            <div className="flex items-center space-x-2">
+              <div className="h-5 w-5 animate-pulse rounded-full bg-white/10" />
+              <div className="h-6 w-32 animate-pulse rounded bg-white/10" />
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-4 px-1 sm:px-2">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div
+                key={index}
+                className="rounded-lg bg-black p-3 sm:p-4"
+              >
+                <div className="flex items-start gap-4">
+                  <div className="h-[72px] w-[72px] animate-pulse rounded-lg bg-white/10 sm:h-[88px] sm:w-[88px]" />
+                  <div className="flex-1 space-y-3">
+                    <div className="h-6 w-32 animate-pulse rounded bg-white/10" />
+                    <div className="h-4 w-20 animate-pulse rounded bg-white/10" />
+                    <div className="h-3 w-40 animate-pulse rounded bg-white/10" />
+                    <div className="h-10 w-full animate-pulse rounded-lg bg-white/10" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!latestTen.length) {
     return (

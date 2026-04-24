@@ -37,8 +37,46 @@ export interface Token {
 
 const ITEMS_PER_PAGE = 9;
 const POLL_INTERVAL = 15000; // 15 seconds for near real-time
+const FIND_GEMS_CACHE_KEY = "degenter_dashboard_find_gems";
+const FIND_GEMS_CACHE_DURATION = 2 * 60 * 1000;
 const STAKED_ZIG_DENOM =
   "coin.zig109f7g2rzl2aqee7z6gffn8kfe9cpqx0mjkk7ethmx8m2hq4xpe9snmaam2.stzig";
+
+type FindGemsCache = {
+  tokens: Token[];
+  totalItems: number;
+  timestamp: number;
+};
+
+const readFindGemsCache = (): FindGemsCache | null => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const cached = window.localStorage.getItem(FIND_GEMS_CACHE_KEY);
+    if (!cached) return null;
+
+    const parsed = JSON.parse(cached) as FindGemsCache;
+    if (!parsed?.timestamp || !Array.isArray(parsed?.tokens)) return null;
+    if (Date.now() - parsed.timestamp > FIND_GEMS_CACHE_DURATION) return null;
+    return parsed;
+  } catch (error) {
+    console.error("FindGems cache read failed:", error);
+    return null;
+  }
+};
+
+const writeFindGemsCache = (payload: Omit<FindGemsCache, "timestamp">) => {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(
+      FIND_GEMS_CACHE_KEY,
+      JSON.stringify({ ...payload, timestamp: Date.now() })
+    );
+  } catch (error) {
+    console.error("FindGems cache write failed:", error);
+  }
+};
 
 type FilterId = "topVolume" | "topGainers" | "findMore";
 const FIND_GEMS_FILTERS: {
@@ -60,11 +98,18 @@ const FIND_GEMS_SORT_MAP: Record<
 };
 
 const FindGems: React.FC = () => {
-  const [tokens, setTokens] = useState<Token[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const initialCacheRef = useRef<FindGemsCache | null>(readFindGemsCache());
+  const [tokens, setTokens] = useState<Token[]>(
+    () => initialCacheRef.current?.tokens ?? []
+  );
+  const [loading, setLoading] = useState<boolean>(
+    () => !initialCacheRef.current?.tokens?.length
+  );
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [totalItems, setTotalItems] = useState<number>(0);
+  const [totalItems, setTotalItems] = useState<number>(
+    () => initialCacheRef.current?.totalItems ?? 0
+  );
   const [sortConfig, setSortConfig] = useState<{
     key: keyof Token | null;
     direction: "asc" | "desc";
@@ -83,7 +128,9 @@ const FindGems: React.FC = () => {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      if (!isPolling) {
+      const hasSnapshot = initialCacheRef.current?.tokens?.length || tokens.length;
+
+      if (!isPolling && !hasSnapshot) {
         setLoading(true);
       }
 
@@ -109,12 +156,23 @@ const FindGems: React.FC = () => {
         ).length;
         setTotalItems(highVolumeCount);
         setError(null);
+        writeFindGemsCache({
+          tokens: tokensData,
+          totalItems: highVolumeCount,
+        });
+        initialCacheRef.current = {
+          tokens: tokensData,
+          totalItems: highVolumeCount,
+          timestamp: Date.now(),
+        };
       } catch (err: any) {
         if (err.name !== "AbortError") {
           console.error("Error fetching tokens:", err);
           setError(null);
-          setTokens([]);
-          setTotalItems(0);
+          if (!hasSnapshot) {
+            setTokens([]);
+            setTotalItems(0);
+          }
         }
       } finally {
         if (!isPolling) {
@@ -122,7 +180,7 @@ const FindGems: React.FC = () => {
         }
       }
     },
-    [currentPage, tokens.length]
+    [currentPage]
   );
 
   // Set up polling

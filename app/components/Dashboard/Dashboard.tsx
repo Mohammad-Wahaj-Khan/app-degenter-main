@@ -418,7 +418,7 @@ const Dashboard: React.FC = () => {
         {/* Bottom Section - Three Column Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <div>
-            <NewListing LatestListing={newListings} />
+            <NewListing LatestListing={newListings} isLoading={loading} />
           </div>
           <div>
             <FindGems />

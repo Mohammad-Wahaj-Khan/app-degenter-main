@@ -1895,7 +1895,11 @@ export default function SwapInterface({
               <div className="px-3 pb-2 flex items-center gap-2 flex-wrap">
                 {["ZIG", "USDC", "USDT"].map((sym) => {
                   const t = ddItems
-                    .filter((x) => x.symbol.toUpperCase() === sym.toUpperCase())
+                    .filter(
+                      (x) =>
+                        typeof x.symbol === "string" &&
+                        x.symbol.toUpperCase() === sym.toUpperCase()
+                    )
                     .sort((a, b) => tokenVolume24(b) - tokenVolume24(a))[0];
                   if (!t) return null;
                   return (
