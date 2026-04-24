@@ -12,6 +12,10 @@ import { tokenAPI } from "@/lib/api";
 import { isTokenNew } from "@/lib/tokenUtils";
 import NewTokenBadge from "./NewTokenBadge";
 import LowLiquidityBadge, { hasLowLiquidity } from "./LiquidityWarning";
+import {
+  extractArrayPayload,
+  normalizeDashboardToken,
+} from "./data-normalizers";
 
 export interface Token {
   id: string;
@@ -33,8 +37,46 @@ export interface Token {
 
 const ITEMS_PER_PAGE = 9;
 const POLL_INTERVAL = 15000; // 15 seconds for near real-time
+const FIND_GEMS_CACHE_KEY = "degenter_dashboard_find_gems";
+const FIND_GEMS_CACHE_DURATION = 2 * 60 * 1000;
 const STAKED_ZIG_DENOM =
   "coin.zig109f7g2rzl2aqee7z6gffn8kfe9cpqx0mjkk7ethmx8m2hq4xpe9snmaam2.stzig";
+
+type FindGemsCache = {
+  tokens: Token[];
+  totalItems: number;
+  timestamp: number;
+};
+
+const readFindGemsCache = (): FindGemsCache | null => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const cached = window.localStorage.getItem(FIND_GEMS_CACHE_KEY);
+    if (!cached) return null;
+
+    const parsed = JSON.parse(cached) as FindGemsCache;
+    if (!parsed?.timestamp || !Array.isArray(parsed?.tokens)) return null;
+    if (Date.now() - parsed.timestamp > FIND_GEMS_CACHE_DURATION) return null;
+    return parsed;
+  } catch (error) {
+    console.error("FindGems cache read failed:", error);
+    return null;
+  }
+};
+
+const writeFindGemsCache = (payload: Omit<FindGemsCache, "timestamp">) => {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(
+      FIND_GEMS_CACHE_KEY,
+      JSON.stringify({ ...payload, timestamp: Date.now() })
+    );
+  } catch (error) {
+    console.error("FindGems cache write failed:", error);
+  }
+};
 
 type FilterId = "topVolume" | "topGainers" | "findMore";
 const FIND_GEMS_FILTERS: {
@@ -56,11 +98,18 @@ const FIND_GEMS_SORT_MAP: Record<
 };
 
 const FindGems: React.FC = () => {
-  const [tokens, setTokens] = useState<Token[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const initialCacheRef = useRef<FindGemsCache | null>(readFindGemsCache());
+  const [tokens, setTokens] = useState<Token[]>(
+    () => initialCacheRef.current?.tokens ?? []
+  );
+  const [loading, setLoading] = useState<boolean>(
+    () => !initialCacheRef.current?.tokens?.length
+  );
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [totalItems, setTotalItems] = useState<number>(0);
+  const [totalItems, setTotalItems] = useState<number>(
+    () => initialCacheRef.current?.totalItems ?? 0
+  );
   const [sortConfig, setSortConfig] = useState<{
     key: keyof Token | null;
     direction: "asc" | "desc";
@@ -79,7 +128,9 @@ const FindGems: React.FC = () => {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      if (!isPolling) {
+      const hasSnapshot = initialCacheRef.current?.tokens?.length || tokens.length;
+
+      if (!isPolling && !hasSnapshot) {
         setLoading(true);
       }
 
@@ -93,36 +144,11 @@ const FindGems: React.FC = () => {
           { signal: controller.signal }
         );
 
-        const respAny: any = response;
-        const rawTokens: any[] = Array.isArray(respAny)
-          ? respAny
-          : respAny?.data ?? respAny?.tokens ?? respAny?.results ?? [];
-
-        const filteredTokens = rawTokens.filter(
-          (token: any) => token && token.symbol
+        const rawTokens = extractArrayPayload(response);
+        const filteredTokens = rawTokens.filter((token: any) => token?.symbol);
+        const tokensData: Token[] = filteredTokens.map((token: any) =>
+          normalizeDashboardToken(token)
         );
-
-        const tokensData: Token[] = filteredTokens.map((token: any) => ({
-          id: token.tokenId?.toString() || token.id?.toString() || "",
-          symbol: token.symbol || "",
-          name: token.name || "",
-          current_price: token.priceUsd || token.priceNative || 0,
-          price_change_percentage_24h: token.change24hPct || 0,
-          market_cap: token.mcapUsd || token.mcapNative || 0,
-          total_volume: token.volUsd || token.volNative || 0,
-          fdvUsd: token.fdvUsd || 0,
-          image: token.imageUri || token.image || "",
-          tx: token.tx || 0,
-          denom: token.denom || "",
-          holders: token.holders || 0,
-          creationTime: token.createdAt || 0,
-          liquidity:
-            token.liquidity ??
-            token.liquidityUsd ??
-            token.volUsd ??
-            token.volNative ??
-            0,
-        }));
 
         setTokens(tokensData);
         const highVolumeCount = tokensData.filter(
@@ -130,10 +156,23 @@ const FindGems: React.FC = () => {
         ).length;
         setTotalItems(highVolumeCount);
         setError(null);
+        writeFindGemsCache({
+          tokens: tokensData,
+          totalItems: highVolumeCount,
+        });
+        initialCacheRef.current = {
+          tokens: tokensData,
+          totalItems: highVolumeCount,
+          timestamp: Date.now(),
+        };
       } catch (err: any) {
         if (err.name !== "AbortError") {
           console.error("Error fetching tokens:", err);
-          setError("Failed to load tokens. Please try again later.");
+          setError(null);
+          if (!hasSnapshot) {
+            setTokens([]);
+            setTotalItems(0);
+          }
         }
       } finally {
         if (!isPolling) {
@@ -226,7 +265,7 @@ const FindGems: React.FC = () => {
       .slice(0, ITEMS_PER_PAGE);
   }, [highVolumeTokens, sortConfig]);
 
-  if (loading || tokens.length === 0) {
+  if (loading) {
     return (
       <div className="bg-black/30 rounded-lg pt-4 px-4 sm:px-6 min-h-[600px] relative border border-[#808080]/20 overflow-hidden">
         <div className="flex items-start justify-between gap-3">
@@ -263,8 +302,17 @@ const FindGems: React.FC = () => {
     );
   }
 
-  if (error) {
-    return <div className="text-red-500 text-center py-8">Error: {error}</div>;
+  if (!tokens.length) {
+    return (
+      <div className="bg-black/30 rounded-lg pt-4 px-4 sm:px-6 min-h-[600px] relative border border-[#808080]/20 overflow-hidden flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-white/80 text-lg font-medium">No tokens found</p>
+          <p className="text-white/50 text-sm mt-2">
+            No token data is available right now.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (

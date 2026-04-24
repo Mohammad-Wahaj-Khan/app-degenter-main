@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useId, useState } from "react";
 import {
   Line,
   LineChart,
@@ -10,13 +10,9 @@ import {
   Tooltip,
   CartesianGrid,
   Area,
+  ReferenceDot,
 } from "recharts";
-import { TrendingUp, TrendingDown, Loader2 } from "lucide-react";
-
-type ChartDataPoint = {
-  t: string;
-  value_usd: number;
-};
+import { Loader2, WifiOff } from "lucide-react";
 
 type WalletValueChartProps = {
   walletAddress: string;
@@ -39,15 +35,15 @@ const formatCurrencyCompact = (value: number) => {
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
-      <div className="bg-black/90 backdrop-blur-sm border border-white/10 rounded-lg p-3 text-xs">
-        <p className="text-white/80">
+      <div className="rounded-2xl border border-[rgba(57,200,166,0.24)] bg-[rgba(8,8,8,0.88)] p-3 text-xs shadow-[0_18px_40px_rgba(0,0,0,0.45)] backdrop-blur-[20px]">
+        <p className="font-mono uppercase tracking-[0.14em] text-zinc-400">
           {new Date(label).toLocaleDateString("en-US", {
             month: "short",
             day: "numeric",
             year: "numeric",
           })}
         </p>
-        <p className="font-bold text-white">
+        <p className="mt-1 font-bold text-[#cafff0]">
           {formatCurrencyCompact(payload[0].value)}
         </p>
       </div>
@@ -61,6 +57,7 @@ export default function WalletValueChart({
   className = "",
   apiKey,
 }: WalletValueChartProps) {
+  const gradientId = useId().replace(/:/g, "");
   const [chartData, setChartData] = useState<{ time: string; value: number }[]>(
     []
   );
@@ -76,8 +73,9 @@ export default function WalletValueChart({
     setError(null);
 
     try {
+      const baseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/wallets/${encodeURIComponent(
+        `${baseUrl}/wallets/${encodeURIComponent(
           walletAddress
         )}/portfolio/value-series?win=30d&tf=1h`,
         {
@@ -122,17 +120,15 @@ export default function WalletValueChart({
         }
       } else {
         console.warn("Unexpected API response format:", responseData);
-        setChartData([]);
         setError("No portfolio history data available");
       }
     } catch (err) {
       console.error("Error fetching chart data:", err);
       setError("Failed to load portfolio history. Please try again later.");
-      setChartData([]);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [apiKey]);
 
   // Fetch data when walletAddress changes
   useEffect(() => {
@@ -143,76 +139,134 @@ export default function WalletValueChart({
 
   if (isLoading) {
     return (
-      <div
-        className={`p-4 rounded-xl bg-white/5 border border-white/10 ${className}`}
-      >
-        <div className="flex justify-between items-center mb-4">
+      <div className={`flex h-full min-h-[220px] flex-col ${className}`}>
+        <div className="mb-4 flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-medium text-white/80 mb-1">
+            <h3 className="font-mono text-[11px] uppercase tracking-[0.28em] text-zinc-500">
               Portfolio Value
             </h3>
-            <div className="h-6 w-32 bg-white/10 rounded animate-pulse"></div>
+            <div className="mt-2 h-8 w-36 animate-pulse rounded bg-white/10"></div>
           </div>
-          <div className="h-5 w-20 bg-white/10 rounded animate-pulse"></div>
+          <div className="h-5 w-20 animate-pulse rounded bg-white/10"></div>
         </div>
-        <div className="h-32 w-full bg-white/5 rounded-lg flex items-center justify-center">
+        <div className="flex h-full items-center justify-center rounded-[22px] border border-white/[0.03] bg-white/[0.02]">
           <div className="flex flex-col items-center space-y-2">
-            <div className="w-8 h-8 border-4 border-white/20 border-t-white/60 rounded-full animate-spin"></div>
-            <span className="text-sm text-white/60">Loading...</span>
+            <Loader2 className="h-8 w-8 animate-spin text-[#39c8a6]" />
+            <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+              Loading chart
+            </span>
           </div>
         </div>
       </div>
     );
   }
 
-  if (error || !chartData.length) {
+  const peakPoint = chartData.length
+    ? chartData.reduce((peak, point) => (point.value > peak.value ? point : peak), chartData[0])
+    : null;
+
+  if (!chartData.length) {
     return (
-      <div
-        className={`p-4 rounded-xl bg-white/5 border border-white/10 ${className}`}
-      >
-        <div className="flex justify-between items-center mb-4">
+      <div className={`flex h-full min-h-[220px] flex-col ${className}`}>
+        <div className="mb-4 flex items-end justify-between gap-4">
           <div>
-            <h3 className="text-sm font-medium text-white/80 mb-1">
+            <h3 className="font-mono text-[11px] uppercase tracking-[0.28em] text-zinc-500">
               Portfolio Value
             </h3>
-            <p className="text-2xl font-bold text-white">-</p>
+            <p className="mt-2 text-3xl font-bold tracking-[-0.04em] text-[#f4efe3]">
+              -
+            </p>
           </div>
+          {error ? (
+            <div className="rounded-full border border-amber-400/20 bg-amber-500/8 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-amber-100/80">
+              {error}
+            </div>
+          ) : null}
         </div>
-        <div className="h-32 flex items-center justify-center text-white/50 text-sm">
-          {error || "No data available"}
+        <div className="flex h-full items-center justify-center rounded-[24px] border border-dashed border-white/[0.05] bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.008))]">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[rgba(57,200,166,0.18)] bg-[rgba(57,200,166,0.08)] text-[#39c8a6]">
+              <WifiOff size={20} />
+            </div>
+            <div>
+              <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-zinc-500">
+                Waiting for portfolio history
+              </p>
+              <p className="mt-1 text-sm text-zinc-400">
+                The rest of the profile remains available while analytics recover.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
-  const isPositive = change24h ? change24h >= 0 : true;
+  const isPositive = change24h !== null ? change24h >= 0 : true;
   const changeColor = isPositive ? "text-emerald-400" : "text-rose-400";
   const changeIcon = isPositive ? "↑" : "↓";
 
   return (
-    <div className={`h-full w-full flex flex-col ${className}`}>
-      <div className="h-full w-full min-h-[140px]">
+    <div className={`flex h-full w-full min-h-[220px] flex-col ${className}`}>
+      <div className="mb-4 flex items-end justify-between gap-4">
+        <div>
+          <h3 className="font-mono text-[11px] uppercase tracking-[0.28em] text-zinc-500">
+            Portfolio Value
+          </h3>
+          <div className="mt-2 flex items-baseline gap-3">
+            <p className="text-3xl font-bold tracking-[-0.04em] text-[#f4efe3]">
+              {currentValue !== null ? formatCurrencyCompact(currentValue) : "-"}
+            </p>
+            {change24h !== null && (
+              <span
+                className={`flex items-center font-mono text-xs uppercase tracking-[0.16em] ${changeColor}`}
+              >
+                {changeIcon} {Math.abs(change24h).toFixed(2)}%
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="rounded-full border border-[rgba(57,200,166,0.18)] bg-[rgba(57,200,166,0.08)] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-[#90f0d5]">
+          30D Flow
+        </div>
+      </div>
+
+      <div className="h-full w-full min-h-[160px]">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={chartData}
-            margin={{ top: 5, right: 5, left: 0, bottom: 5 }}
+            margin={{ top: 8, right: 8, left: -18, bottom: 0 }}
           >
             <defs>
-              <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#10B981" stopOpacity={0.4} />
-                <stop offset="100%" stopColor="#10B981" stopOpacity={0} />
+              <linearGradient id={`${gradientId}-line`} x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="#0ecf8f" />
+                <stop offset="58%" stopColor="#46b58f" />
+                <stop offset="100%" stopColor="#fa4e30" />
               </linearGradient>
+              <linearGradient id={`${gradientId}-fill`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#fa4e30" stopOpacity={0.14} />
+                <stop offset="55%" stopColor="#12b981" stopOpacity={0.12} />
+                <stop offset="100%" stopColor="#0a0a0a" stopOpacity={0} />
+              </linearGradient>
+              <filter id={`${gradientId}-shadow`} x="-40%" y="-40%" width="180%" height="180%">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur" />
+                <feColorMatrix
+                  in="blur"
+                  type="matrix"
+                  values="1 0 0 0 0.16  0 1 0 0 0.68  0 0 1 0 0.58  0 0 0 0.28 0"
+                />
+              </filter>
             </defs>
             <CartesianGrid
               vertical={false}
               strokeDasharray="3 3"
-              stroke="rgba(255, 255, 255, 0.05)"
+              stroke="rgba(255, 255, 255, 0.04)"
             />
             <XAxis
               dataKey="time"
               axisLine={false}
               tickLine={false}
-              tick={{ fill: "rgba(255, 255, 255, 0.35)", fontSize: 10 }}
+              tick={{ fill: "rgba(161, 161, 170, 0.75)", fontSize: 10 }}
               tickFormatter={(value) => {
                 const date = new Date(value);
                 return date.toLocaleDateString("en-US", {
@@ -222,13 +276,13 @@ export default function WalletValueChart({
               }}
               padding={{ left: 4, right: 4 }}
               minTickGap={20}
-              tickMargin={8}
+              tickMargin={10}
             />
             <YAxis
               domain={["auto", "auto"]}
               axisLine={false}
               tickLine={false}
-              tick={{ fill: "rgba(255, 255, 255, 0.35)", fontSize: 10 }}
+              tick={{ fill: "rgba(161, 161, 170, 0.75)", fontSize: 10 }}
               tickFormatter={(value) => {
                 if (value >= 1000000)
                   return `$${(value / 1000000).toFixed(1)}M`;
@@ -245,43 +299,44 @@ export default function WalletValueChart({
             <Line
               type="monotone"
               dataKey="value"
-              stroke="#10B981"
-              strokeWidth={2}
+              stroke={`url(#${gradientId}-line)`}
+              strokeWidth={8}
+              strokeOpacity={0.16}
+              dot={false}
+              activeDot={false}
+              filter={`url(#${gradientId}-shadow)`}
+            />
+            <Line
+              type="monotone"
+              dataKey="value"
+              stroke={`url(#${gradientId}-line)`}
+              strokeWidth={3}
               dot={false}
               activeDot={{
-                r: 4,
-                fill: "#10B981",
-                stroke: "#fff",
+                r: 5,
+                fill: "#fa7e68",
+                stroke: "#fff3f0",
                 strokeWidth: 2,
               }}
             />
             <Area
               type="monotone"
               dataKey="value"
-              fill="url(#chartGradient)"
+              fill={`url(#${gradientId}-fill)`}
               stroke="none"
             />
+            {peakPoint ? (
+              <ReferenceDot
+                x={peakPoint.time}
+                y={peakPoint.value}
+                r={4}
+                fill="#fa7e68"
+                stroke="#fff3f0"
+                strokeWidth={2}
+              />
+            ) : null}
           </LineChart>
         </ResponsiveContainer>
-      </div>
-      <div className="flex justify-between items-center">
-        <div>
-          <h3 className="text-sm font-medium text-white/80 mb-1">
-            Portfolio Value
-          </h3>
-          <div className="flex items-baseline gap-2">
-            <p className="text-2xl font-bold text-white">
-              {currentValue ? formatCurrencyCompact(currentValue) : "-"}
-            </p>
-            {change24h !== null && (
-              <span
-                className={`text-sm font-medium ${changeColor} flex items-center`}
-              >
-                {changeIcon} {Math.abs(change24h).toFixed(2)}%
-              </span>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );

@@ -258,7 +258,7 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
   const endIndex = startIndex + itemsPerPage;
   const paginatedTokens = sortedTokens.slice(startIndex, endIndex);
 
-  if (loading || tokens.length === 0) {
+  if (loading) {
     return (
       <div className="bg-black/30 rounded-lg pt-4 px-4 sm:px-6 min-h-[400px] relative border border-[#808080]/20 overflow-hidden">
         <div className="flex items-start justify-between gap-3">
@@ -295,8 +295,17 @@ const TopTokensTable: React.FC<TopTokensTableProps> = ({
     );
   }
 
-  if (error) {
-    return <div className="text-red-500 text-center py-8">Error: {error}</div>;
+  if (!tokens.length) {
+    return (
+      <div className="bg-black/30 rounded-lg pt-4 px-4 sm:px-6 min-h-[400px] relative border border-[#808080]/20 overflow-hidden flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-white/80 text-lg font-medium">No tokens found</p>
+          <p className="text-white/50 text-sm mt-2">
+            No token data is available right now.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
