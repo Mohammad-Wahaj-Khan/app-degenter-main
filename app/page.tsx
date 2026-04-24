@@ -1,7 +1,12 @@
 // import Dashboard from "./components/Dashboard/Dashboard";
+import type { Metadata } from "next";
 import Dashboard from "./components/Dashboard/Dashboard";
 import Navbar from "./components/navbar";
 import TopMarketToken from "./components/TopMarketToken";
+
+export const metadata: Metadata = {
+  title: "Degenter.io | Decentralized Intelligence for the Degens",
+};
 
 export default function Home() {
   return (

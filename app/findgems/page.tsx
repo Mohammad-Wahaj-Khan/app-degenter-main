@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import React from 'react';
 import { 
   Search, 
@@ -15,6 +16,10 @@ import Navbar from '../components/navbar';
 import TopMarketToken from '../components/TopMarketToken';
 import InsightsContent from '../insights/components/InsightsContent';
 import FindGemsMain from './components/findgems';
+
+export const metadata: Metadata = {
+  title: "Find Gems | Degenter.io",
+};
 
 const Dashboard = () => {
 

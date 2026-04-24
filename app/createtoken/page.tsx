@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import React from 'react';
 import { 
   Search, 
@@ -14,6 +15,10 @@ import {
 import Navbar from '../components/navbar';
 import TopMarketToken from '../components/TopMarketToken';
 import LaunchToken from './components/launchToken';
+
+export const metadata: Metadata = {
+  title: "Create Token | Degenter.io",
+};
 
 const Dashboard = () => {
 
