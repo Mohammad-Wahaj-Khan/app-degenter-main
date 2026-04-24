@@ -498,6 +498,11 @@ function multiplyCandleBySupply(
   };
 }
 
+function getCirculatingSupplyStorageKey(tokenKey?: string | null) {
+  const normalized = String(tokenKey ?? "").trim().toLowerCase();
+  return `circulatingSupply:${normalized || "unknown"}`;
+}
+
 /* ---------- Datafeed bound to your API + Websocket ---------- */
 function makeDatafeed(
   tokenId: string,
@@ -871,6 +876,7 @@ function makeDatafeed(
       let low = Number(data?.low);
       let close = Number(data?.close);
       if (![open, high, low, close].every(Number.isFinite)) return;
+      const rawClose = close;
 
       const volume = Number(data?.volume ?? 0);
       let candle: FeedCandle = {
@@ -893,6 +899,14 @@ function makeDatafeed(
           if (!mcapCandle) return;
           candle = mcapCandle;
         }
+        open = candle.open;
+        high = candle.high;
+        low = candle.low;
+        close = candle.close;
+      } else if (getMode() === "mcap") {
+        const mcapCandle = multiplyCandleBySupply(candle, getSupply());
+        if (!mcapCandle) return;
+        candle = mcapCandle;
         open = candle.open;
         high = candle.high;
         low = candle.low;
@@ -952,9 +966,9 @@ function makeDatafeed(
       const zigPrice = zigUsdcPoolSource
         ? 1
         : expectedUnit === "zig"
-        ? close
+        ? rawClose
         : zigUsd > 0
-        ? close / zigUsd
+        ? rawClose / zigUsd
         : null;
       if (zigPrice && Number.isFinite(zigPrice) && zigPrice > 0) {
         setLivePriceCb({ zig: zigPrice, ts: timeMs });
@@ -1496,6 +1510,10 @@ export default function TradingChart({
     shouldUsePoolPricing && activePoolTokenDenom
       ? activePoolTokenDenom
       : denom ?? pairContract ?? token;
+  const supplyStorageKey = useMemo(
+    () => getCirculatingSupplyStorageKey(chartTokenKey),
+    [chartTokenKey]
+  );
   const isZigToken = useMemo(
     () =>
       !shouldUsePoolPricing &&
@@ -1825,14 +1843,14 @@ const applyTvWalletShapes = useCallback(async () => {
     const cur = supplyRef.current;
     if (cur != null && Number.isFinite(cur) && cur > 0) return cur;
     try {
-      const stored = Number(localStorage.getItem("circulatingSupply") || "0");
+      const stored = Number(localStorage.getItem(supplyStorageKey) || "0");
       if (Number.isFinite(stored) && stored > 0) {
         supplyRef.current = stored;
         return stored;
       }
     } catch {}
     return null;
-  }, []);
+  }, [supplyStorageKey]);
 
   const setZigUsd = (v: number) => {
     if (!Number.isFinite(v) || v <= 0) return;
@@ -2009,7 +2027,7 @@ const applyTvWalletShapes = useCallback(async () => {
             const supplyVal = Number(normalized.circulatingSupply);
             if (Number.isFinite(supplyVal) && supplyVal > 0) {
               supplyRef.current = supplyVal;
-              localStorage.setItem("circulatingSupply", supplyVal.toString());
+              localStorage.setItem(supplyStorageKey, supplyVal.toString());
             }
           }
 
@@ -2145,6 +2163,7 @@ const applyTvWalletShapes = useCallback(async () => {
             const supplyVal = Number(normalized?.circulatingSupply);
             if (Number.isFinite(supplyVal) && supplyVal > 0) {
               supplyRef.current = supplyVal;
+              localStorage.setItem(supplyStorageKey, supplyVal.toString());
             }
             tokenExponentRef.current = resolveTokenExponent(normalized);
             setTokenData(normalized);
@@ -2173,6 +2192,7 @@ const applyTvWalletShapes = useCallback(async () => {
     selectedBaseDenom,
     selectedPairContract,
     selectedQuoteDenom,
+    supplyStorageKey,
     token,
     tokenId,
     zigUsdcPoolSource,
@@ -2181,7 +2201,7 @@ const applyTvWalletShapes = useCallback(async () => {
   const fetchFromRPC = async () => {
     const zigPriceInUsd = parseFloat(localStorage.getItem("priceInZIG") || "0");
     const circSupply = parseFloat(
-      localStorage.getItem("circulatingSupply") || "127662647.348331"
+      localStorage.getItem(supplyStorageKey) || "0"
     );
     if (Number.isFinite(circSupply) && circSupply > 0) {
       supplyRef.current = circSupply;
@@ -2236,7 +2256,7 @@ const applyTvWalletShapes = useCallback(async () => {
 
           localStorage.setItem(`token_${chartTokenKey}`, JSON.stringify(newData));
           if (Number.isFinite(circSupply) && circSupply > 0) {
-            localStorage.setItem("circulatingSupply", circSupply.toString());
+            localStorage.setItem(supplyStorageKey, circSupply.toString());
           }
           setLastFetched((prev) => ({ ...prev, [chartTokenKey]: Date.now() }));
 
@@ -2469,10 +2489,10 @@ const applyTvWalletShapes = useCallback(async () => {
     if (resolvedSupply) {
       supplyRef.current = resolvedSupply;
       try {
-        localStorage.setItem("circulatingSupply", String(resolvedSupply));
+        localStorage.setItem(supplyStorageKey, String(resolvedSupply));
       } catch {}
     }
-  }, [tokenData]);
+  }, [supplyStorageKey, tokenData]);
 
   useEffect(() => {
     fetchZigQuote();
