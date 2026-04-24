@@ -22,6 +22,7 @@ import {
   storeTokenRoute,
   storeTokenRouteDenom,
 } from "@/lib/token-routing";
+import { applyTokenPageMetadata } from "@/lib/token-page-metadata";
 // import  HoldersBubble from "@/app/components/HoldersBubble";
 
 interface Token {
@@ -51,6 +52,7 @@ const isLikelyPairContract = (value: string) =>
   value.toLowerCase().startsWith("zig1");
 
 const API_BASE = API_BASE_URL.replace(/\/+$/, "");
+const LIVE_PRICE_REFRESH_MS = 5000;
 
 const normalizeDenom = (value?: string | null) =>
   decodeURIComponent(value ?? "").trim().toLowerCase();
@@ -720,6 +722,65 @@ export default function PairDetails() {
     setResolvedQuoteSymbol(swappedPair.quoteSymbol);
   };
 
+  useEffect(() => {
+    if (!token) return;
+
+    applyTokenPageMetadata({
+      tokenKey:
+        effectiveSelectedPair?.baseDenom ||
+        token.denom ||
+        token.pair_contract ||
+        token.symbol,
+      symbol: token.symbol,
+      price: token.priceUsd || token.price || 0,
+    });
+  }, [effectiveSelectedPair?.baseDenom, token]);
+
+  const liveTokenLookupKey =
+    effectiveSelectedPair?.baseDenom || token?.denom || token?.pair_contract || null;
+  const liveTokenPoolId = effectiveSelectedPair?.poolId || null;
+
+  useEffect(() => {
+    if (!liveTokenLookupKey) return;
+
+    let active = true;
+
+    const refreshTokenPrice = async () => {
+      try {
+        const refreshed = await fetchTokenBySymbol(liveTokenLookupKey, {
+          poolId: liveTokenPoolId,
+        });
+        if (!active || !refreshed) return;
+
+        setToken((current) => {
+          if (!current) {
+            return {
+              ...refreshed,
+              icon: refreshed.icon || "/zigicon.png",
+            };
+          }
+          return {
+            ...current,
+            ...refreshed,
+            icon: refreshed.icon || current.icon || "/zigicon.png",
+          };
+        });
+      } catch (error) {
+        if (!active) return;
+        console.error("Failed to refresh live token price:", error);
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      refreshTokenPrice();
+    }, LIVE_PRICE_REFRESH_MS);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [liveTokenLookupKey, liveTokenPoolId]);
+
   if (!loading && (error || !token)) {
     return <NotFoundPage />;
   }
@@ -857,6 +918,7 @@ export default function PairDetails() {
     setIsAuditPanelVisible((v) => !v);
   };
   const auditTokenKey = token?.denom || token?.pair_contract || null;
+
   return (
     <main className="flex min-h-screen flex-col bg-black relative overflow-hidden">
       <div

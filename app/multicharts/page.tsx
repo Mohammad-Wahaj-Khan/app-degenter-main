@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import React from 'react';
 import { 
   Search, 
@@ -14,6 +15,10 @@ import {
 import Navbar from '../components/navbar';
 import TopMarketToken from '../components/TopMarketToken';
 import Multicharts from './components/multicharts';
+
+export const metadata: Metadata = {
+  title: "Multi Charts | Degenter.io",
+};
 
 const Dashboard = () => {
 

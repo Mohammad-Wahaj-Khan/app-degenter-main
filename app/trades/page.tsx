@@ -4,6 +4,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { tokenAPI } from "@/lib/api";
+import { applyTokenPageMetadata } from "@/lib/token-page-metadata";
+import { applyPageMetadata } from "@/lib/page-metadata";
 import Navbar from "@/app/components/navbar";
 import TopMarketToken from "@/app/components/TopMarketToken";
 import NotFoundPage from "@/app/not-found";
@@ -12,6 +14,7 @@ import Trades, { TokenOption, TradesFilter, Trade } from "./components/Trades";
 import FilterTradesTop from "./components/FindTradesTop";
 
 const API_BASE = process.env.API_BASE_URL;
+const LIVE_PRICE_REFRESH_MS = 5000;
 
 /* ---------------- Types ---------------- */
 interface Token {
@@ -190,6 +193,14 @@ export default function FindTrades() {
     anchor.remove();
     URL.revokeObjectURL(url);
   }, [filteredTradesForExport]);
+
+  useEffect(() => {
+    applyPageMetadata({
+      pageName: "Find Trades",
+      description: "Find Trades | Degenter.io",
+    });
+  }, []);
+
   // Add this to a page component
   // useEffect(() => {
   //   console.log('API_BASE:', process.env.API_BASE_URL);
@@ -204,26 +215,39 @@ export default function FindTrades() {
     if (!tokenSymbol || tokenSymbol === "undefined" || tokenSymbol === "null")
       return;
 
-    const loadToken = async () => {
-      setLoading(true);
+    let active = true;
+
+    const loadToken = async (showLoader = false) => {
+      if (showLoader) setLoading(true);
       try {
         const tokenData = await fetchTokenBySymbol(tokenSymbol);
+        if (!active) return;
         if (tokenData) {
           setToken({
             ...tokenData,
             icon: tokenData.icon || "/zigicon.png",
           });
+          setError(null);
         } else {
           setError("Token not found");
         }
       } catch (err) {
+        if (!active) return;
         setError("Failed to load token");
       } finally {
-        setLoading(false);
+        if (showLoader && active) setLoading(false);
       }
     };
 
-    loadToken();
+    loadToken(true);
+    const intervalId = window.setInterval(() => {
+      loadToken(false);
+    }, LIVE_PRICE_REFRESH_MS);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
   }, [tokenDetails]);
 
   const toggleAuditPanel = () => {
@@ -233,37 +257,11 @@ export default function FindTrades() {
   useEffect(() => {
     if (!token) return;
 
-    const priceToUse = token.priceUsd || token.price || 0;
-    const priceLabel =
-      priceToUse >= 1
-        ? priceToUse.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })
-        : priceToUse > 0
-        ? priceToUse.toPrecision(4)
-        : "0.00";
-
-    const title = `${token.symbol} - $${priceLabel} | Degenter`;
-    const description = `Live ${token.symbol} stats — currently $${priceLabel}. Track trades, holders, security, and swaps on Degenter.`;
-
-    document.title = title;
-
-    const ensureMeta = (key: string, attr: "name" | "property", content: string) => {
-      let tag = document.querySelector<HTMLMetaElement>(`meta[${attr}="${key}"]`);
-      if (!tag) {
-        tag = document.createElement("meta");
-        tag.setAttribute(attr, key);
-        document.head.appendChild(tag);
-      }
-      tag.setAttribute("content", content);
-    };
-
-    ensureMeta("description", "name", description);
-    ensureMeta("og:title", "property", title);
-    ensureMeta("og:description", "property", description);
-    ensureMeta("twitter:title", "name", title);
-    ensureMeta("twitter:description", "name", description);
+    applyTokenPageMetadata({
+      tokenKey: token.pair_contract || token.symbol,
+      symbol: token.symbol,
+      price: token.priceUsd || token.price || 0,
+    });
   }, [token]);
 
   /* -------- UI -------- */

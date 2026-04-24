@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Head from 'next/head';
 import { API_BASE_URL, API_HEADERS } from '@/lib/api';
+import { applyPageMetadata } from '@/lib/page-metadata';
 import { 
   Search, 
   Wallet, 
@@ -237,6 +238,13 @@ const DistributionChart = () => {
 // --- Main Page Component ---
 
 export default function PerpsDegenterDashboard() {
+  useEffect(() => {
+    applyPageMetadata({
+      pageName: "Perps",
+      description: "Perps | Degenter.io",
+    });
+  }, []);
+
   const [heatmapData, setHeatmapData] = useState<HeatmapCell[]>([]);
   const [assets, setAssets] = useState<string[]>(DEFAULT_ASSETS);
   const [isLoading, setIsLoading] = useState(true);
