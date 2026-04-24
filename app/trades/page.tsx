@@ -12,6 +12,31 @@ import Trades, { TokenOption, TradesFilter, Trade } from "./components/Trades";
 import FilterTradesTop from "./components/FindTradesTop";
 
 const API_BASE = process.env.API_BASE_URL;
+const TOKEN_FETCH_MAX_ATTEMPTS = 5;
+const TOKEN_FETCH_RETRY_DELAY_MS = 350;
+
+const waitForRetry = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+const getReadableTokenError = (error: unknown) => {
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+
+  if (!message) return "Token service returned an unexpected error.";
+  if (message.includes("404")) return "Token not found.";
+  if (message.includes("429")) return "Token service is rate limited. Please try again.";
+  if (message.includes("500") || message.includes("502") || message.includes("503")) {
+    return `Token service is temporarily unavailable (${message}).`;
+  }
+  if (
+    message.toLowerCase().includes("failed to fetch") ||
+    message.toLowerCase().includes("network")
+  ) {
+    return "Token service did not respond. Please try again.";
+  }
+
+  return message;
+};
 
 /* ---------------- Types ---------------- */
 interface Token {
@@ -49,47 +74,70 @@ interface Token {
 
 /* ---------------- Fetch Token ---------------- */
 async function fetchTokenBySymbol(symbol: string): Promise<Token | null> {
-  try {
-    const res = await tokenAPI.getTokenSummaryBySymbol(symbol, "best", true);
-    const token = res?.data;
-    if (!token) return null;
+  const res = await tokenAPI.getTokenSummaryBySymbol(symbol, "best", true);
+  const token = res?.data;
+  if (!token) return null;
 
-    return {
-      id: Number(token.tokenId || 0),
-      pair_contract: token.denom || token.symbol || token.name || token.tokenId || "",
-      name: token.name || "Unknown Token",
-      symbol: token.symbol || "",
-      price: token.priceInNative || 0,
-      priceUsd: token.priceInUsd || 0,
-      change24h: token.priceChange?.["24h"] || 0,
-      icon: token.imageUri || null,
-      liquidity: token.liquidity || 0,
-      marketCap: token.mc || 0,
-      fdv: token.fdv || 0,
-      maxSupply: token.maxSupply || 0,
-      volume: {
-        "30m": token.volume?.["30m"] || 0,
-        "1h": token.volume?.["1h"] || 0,
-        "4h": token.volume?.["4h"] || 0,
-        "24h": token.volume?.["24h"] || 0,
-      },
-      txCount: {
-        "30m": token.txBuckets?.["30m"] || 0,
-        "1h": token.txBuckets?.["1h"] || 0,
-        "4h": token.txBuckets?.["4h"] || 0,
-        "24h": token.txBuckets?.["24h"] || 0,
-        "30d": 0,
-      },
-      circulatingSupply: token.circulatingSupply || 0,
-      totalSupply: token.supply || 0,
-      holders: Number(token.holder || 0),
-      txBuy: token.tradeCount?.buy || 0,
-      txSell: token.tradeCount?.sell || 0,
-    };
-  } catch (error) {
-    console.error("Error fetching token by symbol:", error);
-    return null;
+  return {
+    id: Number(token.tokenId || 0),
+    pair_contract: token.denom || token.symbol || token.name || token.tokenId || "",
+    name: token.name || "Unknown Token",
+    symbol: token.symbol || "",
+    price: token.priceInNative || 0,
+    priceUsd: token.priceInUsd || 0,
+    change24h: token.priceChange?.["24h"] || 0,
+    icon: token.imageUri || null,
+    liquidity: token.liquidity || 0,
+    marketCap: token.mc || 0,
+    fdv: token.fdv || 0,
+    maxSupply: token.maxSupply || 0,
+    volume: {
+      "30m": token.volume?.["30m"] || 0,
+      "1h": token.volume?.["1h"] || 0,
+      "4h": token.volume?.["4h"] || 0,
+      "24h": token.volume?.["24h"] || 0,
+    },
+    txCount: {
+      "30m": token.txBuckets?.["30m"] || 0,
+      "1h": token.txBuckets?.["1h"] || 0,
+      "4h": token.txBuckets?.["4h"] || 0,
+      "24h": token.txBuckets?.["24h"] || 0,
+      "30d": 0,
+    },
+    circulatingSupply: token.circulatingSupply || 0,
+    totalSupply: token.supply || 0,
+    holders: Number(token.holder || 0),
+    txBuy: token.tradeCount?.buy || 0,
+    txSell: token.tradeCount?.sell || 0,
+  };
+}
+
+type TokenFetchResult = {
+  token: Token | null;
+  error: string | null;
+};
+
+async function fetchTokenBySymbolWithRetry(
+  symbol: string,
+  maxAttempts = TOKEN_FETCH_MAX_ATTEMPTS
+): Promise<TokenFetchResult> {
+  let lastError: string | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const token = await fetchTokenBySymbol(symbol);
+      if (token) return { token, error: null };
+    } catch (error) {
+      lastError = getReadableTokenError(error);
+      console.error("Error fetching token by symbol:", error);
+    }
+
+    if (attempt < maxAttempts) {
+      await waitForRetry(TOKEN_FETCH_RETRY_DELAY_MS * attempt);
+    }
   }
+
+  return { token: null, error: lastError };
 }
 
 const getDefaultFilters = (): TradesFilter => ({
@@ -202,18 +250,21 @@ export default function FindTrades() {
 
     const loadToken = async () => {
       setLoading(true);
+      setError(null);
+      setToken(null);
       try {
-        const tokenData = await fetchTokenBySymbol(tokenSymbol);
+        const { token: tokenData, error: fetchError } =
+          await fetchTokenBySymbolWithRetry(tokenSymbol);
         if (tokenData) {
           setToken({
             ...tokenData,
             icon: tokenData.icon || "/zigicon.png",
           });
         } else {
-          setError("Token not found");
+          setError(fetchError || "Token not found");
         }
       } catch (err) {
-        setError("Failed to load token");
+        setError(getReadableTokenError(err));
       } finally {
         setLoading(false);
       }
@@ -262,8 +313,50 @@ export default function FindTrades() {
     ensureMeta("twitter:description", "name", description);
   }, [token]);
 
+  if (loading) {
+    return (
+      <main className="flex min-h-screen flex-col bg-black relative overflow-hidden">
+        <div className="animate-header relative z-20">
+          <Navbar />
+          <TopMarketToken />
+          <FilterTradesTop
+            filters={filters}
+            filtersOpen={filtersVisible}
+            onToggleFilters={toggleFiltersOpen}
+            onExport={handleExportCsv}
+            hasFilteredTrades={filteredTradesForExport.length > 0}
+          />
+        </div>
+        <div className="relative z-10 w-full px-8 pb-8">
+          <div className="mx-auto w-full">
+            <div className="grid gap-6 md:grid-cols-[340px_minmax(0,1fr)]">
+              <div className="hidden h-[420px] animate-pulse rounded-[28px] border border-white/8 bg-white/[0.03] md:block" />
+              <div className="h-[420px] animate-pulse rounded-[28px] border border-white/8 bg-white/[0.03]" />
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   /* -------- UI -------- */
-  if (!loading && (!token || error)) {
+  if (!token || error) {
+    if (error && error !== "Token not found") {
+      return (
+        <main className="flex min-h-screen flex-col bg-black relative overflow-hidden">
+          <div className="animate-header relative z-20">
+            <Navbar />
+            <TopMarketToken />
+          </div>
+          <div className="relative z-10 flex flex-1 items-center justify-center px-8 py-20">
+            <div className="max-w-xl rounded-[28px] border border-white/8 bg-white/[0.03] px-8 py-10 text-center text-white/90 backdrop-blur-xl">
+              {error}
+            </div>
+          </div>
+        </main>
+      );
+    }
+
     return <NotFoundPage />;
   }
 

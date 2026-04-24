@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Clock, ExternalLink } from "lucide-react";
 import { API_BASE_URL, API_HEADERS } from "@/lib/api";
+import { extractArrayPayload, normalizeTrade } from "./data-normalizers";
 
 // Utility function to format time ago
 const timeAgo = (dateString: string): string => {
@@ -35,7 +36,7 @@ interface Trade {
   pairContract: string;
   signer: string;
   direction: "buy" | "sell";
-  is_router: boolean;
+  is_router?: boolean;
   offerDenom: string;
   offerAmount: number;
   askDenom: string;
@@ -44,7 +45,7 @@ interface Trade {
   priceUsd: number;
   valueNative: number;
   valueUsd: number;
-  class: "whale" | "shark" | "shrimp";
+  class: string;
 }
 
 const API_BASE = API_BASE_URL;
@@ -53,16 +54,69 @@ const LARGE_TRADES_UNIT = "usd";
 const itemsPerPage = 7;
 const POLLING_BASE_INTERVAL_MS = 15000;
 const POLLING_MAX_INTERVAL_MS = 120000;
+const LARGE_TRADES_CACHE_PREFIX = "degenter_dashboard_large_trades";
+const LARGE_TRADES_CACHE_DURATION = 2 * 60 * 1000;
+
+type TradeFilter = "all" | "whale" | "shark" | "shrimp";
+
+type LargeTradesCache = {
+  trades: Trade[];
+  totalItems: number;
+  timestamp: number;
+};
+
+const getLargeTradesCacheKey = (filter: TradeFilter) =>
+  `${LARGE_TRADES_CACHE_PREFIX}_${filter}`;
+
+const readLargeTradesCache = (filter: TradeFilter): LargeTradesCache | null => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const cached = window.localStorage.getItem(getLargeTradesCacheKey(filter));
+    if (!cached) return null;
+
+    const parsed = JSON.parse(cached) as LargeTradesCache;
+    if (!parsed?.timestamp || !Array.isArray(parsed?.trades)) return null;
+    if (Date.now() - parsed.timestamp > LARGE_TRADES_CACHE_DURATION) return null;
+    return parsed;
+  } catch (error) {
+    console.error("LargeTraders cache read failed:", error);
+    return null;
+  }
+};
+
+const writeLargeTradesCache = (
+  filter: TradeFilter,
+  payload: Omit<LargeTradesCache, "timestamp">
+) => {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(
+      getLargeTradesCacheKey(filter),
+      JSON.stringify({ ...payload, timestamp: Date.now() })
+    );
+  } catch (error) {
+    console.error("LargeTraders cache write failed:", error);
+  }
+};
 
 const shortSigner = (address: string): string =>
   address ? `${address.slice(0, 4)}...${address.slice(-3)}` : "";
 
 const LargeTradersTable: React.FC = () => {
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const initialCacheRef = useRef<LargeTradesCache | null>(
+    readLargeTradesCache("all")
+  );
+  const [trades, setTrades] = useState<Trade[]>(
+    () => initialCacheRef.current?.trades ?? []
+  );
+  const [loading, setLoading] = useState<boolean>(
+    () => !initialCacheRef.current?.trades?.length
+  );
   const [isFilterLoading, setIsFilterLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedClass, setSelectedClass] = useState<"all" | "whale" | "shark" | "shrimp">("all");
+  const [selectedClass, setSelectedClass] = useState<TradeFilter>("all");
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalItems, setTotalItems] = useState<number>(0);
   const [symbolMap, setSymbolMap] = useState<Record<string, string>>({});
@@ -74,13 +128,22 @@ const LargeTradersTable: React.FC = () => {
   const initialLoadRef = useRef(true);
   const nextIntervalRef = useRef(POLLING_BASE_INTERVAL_MS);
   const mountedRef = useRef(true);
+  const tradesRef = useRef<Trade[]>(initialCacheRef.current?.trades ?? []);
+
+  useEffect(() => {
+    tradesRef.current = trades;
+  }, [trades]);
 
   const fetchTrades = useCallback(async () => {
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const shouldShowLoading = isFilterLoadingRef.current || initialLoadRef.current;
+    const cachedSnapshot = readLargeTradesCache(selectedClass);
+    const hasSnapshot =
+      (cachedSnapshot?.trades?.length ?? 0) > 0 || tradesRef.current.length > 0;
+    const shouldShowLoading =
+      isFilterLoadingRef.current || (initialLoadRef.current && !hasSnapshot);
     setLoading(shouldShowLoading);
 
     try {
@@ -91,22 +154,11 @@ const LargeTradersTable: React.FC = () => {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
+      const rawTrades = extractArrayPayload(json);
 
-      if (!json?.success || !Array.isArray(json.data)) {
-        throw new Error("Invalid data format");
-      }
-
-      const classifyTrade = (trade: Trade): Trade["class"] => {
-        const valueNative = Number.isFinite(trade.valueNative) ? trade.valueNative : 0;
-        if (valueNative < 1000) return "shrimp";
-        if (valueNative < 10000) return "shark";
-        return "whale";
-      };
-
-      const normalizedTrades = (json.data as Trade[]).map((trade) => ({
-        ...trade,
-        class: classifyTrade(trade),
-      }));
+      const normalizedTrades = rawTrades.map((trade: any) =>
+        normalizeTrade(trade)
+      );
 
       const filteredTrades =
         selectedClass === "all"
@@ -115,7 +167,9 @@ const LargeTradersTable: React.FC = () => {
 
       const classPriority = { whale: 3, shark: 2, shrimp: 1 } as const;
       const getClassPriority = (value?: string) =>
-        value && value in classPriority ? classPriority[value as Trade["class"]] : 0;
+        value === "whale" || value === "shark" || value === "shrimp"
+          ? classPriority[value]
+          : 0;
 
       const sortedTrades = [...filteredTrades].sort((a, b) => {
         const timeDiff = new Date(b.time).getTime() - new Date(a.time).getTime();
@@ -127,6 +181,10 @@ const LargeTradersTable: React.FC = () => {
       setTrades(limitedTrades);
       setTotalItems(filteredTrades.length);
       setError(null);
+      writeLargeTradesCache(selectedClass, {
+        trades: limitedTrades,
+        totalItems: filteredTrades.length,
+      });
       nextIntervalRef.current = POLLING_BASE_INTERVAL_MS;
     } catch (err: any) {
       if (err?.name === "AbortError") return;
@@ -135,7 +193,11 @@ const LargeTradersTable: React.FC = () => {
         nextIntervalRef.current * 2
       );
       console.error("Error fetching trades:", err);
-      setError("Failed to load trades. Please try again later.");
+      setError(null);
+      if (!hasSnapshot) {
+        setTrades([]);
+        setTotalItems(0);
+      }
     } finally {
       setLoading(false);
       setIsFilterLoading(false);
@@ -155,7 +217,7 @@ const LargeTradersTable: React.FC = () => {
     }
   }, [selectedClass]);
 
-  const handleFilterChange = (filter: "all" | "whale" | "shark" | "shrimp") => {
+  const handleFilterChange = (filter: TradeFilter) => {
     setSelectedClass(filter);
     setCurrentPage(1);
     setIsFilterLoading(true);
@@ -225,6 +287,12 @@ const LargeTradersTable: React.FC = () => {
 
   useEffect(() => {
     mountedRef.current = true;
+    const cached = readLargeTradesCache(selectedClass);
+    if (cached?.trades?.length) {
+      setTrades(cached.trades);
+      setTotalItems(cached.totalItems);
+      setLoading(false);
+    }
     fetchTrades();
 
     return () => {
@@ -317,10 +385,6 @@ const LargeTradersTable: React.FC = () => {
         </div>
       </div>
     );
-  }
-
-  if (error) {
-    return <div className="text-red-500 text-center py-8">Error: {error}</div>;
   }
 
   return (

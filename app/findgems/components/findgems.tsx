@@ -312,6 +312,7 @@ const FindGemsMain = () => {
   const [gainers, setGainers] = useState<Token[]>([]);
   const [losers, setLosers] = useState<Token[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [hasRenderedInitialCards, setHasRenderedInitialCards] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [treemapWindow, setTreemapWindow] = useState<'30m' | '4h' | '24h'>('24h');
@@ -367,6 +368,7 @@ const FindGemsMain = () => {
         setError('Failed to fetch tokens');
       } finally {
         setLoading(false);
+        setHasLoadedOnce(true);
       }
     };
     fetchTokens();
@@ -404,6 +406,10 @@ const FindGemsMain = () => {
       setHasRenderedInitialCards(true);
     }
   }, [loading, heatmapTokens.length, hasRenderedInitialCards]);
+
+  const shouldShowSkeleton = loading || !hasLoadedOnce;
+  const shouldShowEmptyState =
+    hasLoadedOnce && !loading && !error && heatmapTokens.length === 0;
 
   const getIntensityColor = (change: number) => {
     const absChange = Math.abs(change);
@@ -704,8 +710,8 @@ const FindGemsMain = () => {
       {error ? <div className="mb-4 text-sm text-rose-400">{error}</div> : null}
       <div className="mx-auto grid grid-cols-1 lg:grid-cols-12 gap-4">
         <div className="col-span-1 lg:col-span-3 py-2 sm:py-3">
-          {loading ? renderTableSkeleton('Top Gainer', true) : renderTable(topGainers, 'Top Gainer')}
-          {loading ? renderTableSkeleton('Top Loser', false) : renderTable(topLosers, 'Top Loser')}
+          {shouldShowSkeleton ? renderTableSkeleton('Top Gainer', true) : renderTable(topGainers, 'Top Gainer')}
+          {shouldShowSkeleton ? renderTableSkeleton('Top Loser', false) : renderTable(topLosers, 'Top Loser')}
         </div>
 
         {/* Right Main: Heatmap */}
@@ -776,7 +782,7 @@ const FindGemsMain = () => {
 
               {/* Treemap Grid */}
               <div className="p-4 sm:p-6">
-                {loading ? (
+                {shouldShowSkeleton ? (
                   <>
                     {heatmapTab === 'all' ? (
                       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 auto-rows-[120px] sm:auto-rows-[140px] mb-3">
@@ -794,7 +800,18 @@ const FindGemsMain = () => {
                   </>
                 ) : null}
 
-                {!loading && heatmapTab === 'all' && (
+                {shouldShowEmptyState ? (
+                  <div className="flex min-h-[420px] items-center justify-center rounded-3xl border border-slate-800/60 bg-slate-950/40 text-center">
+                    <div>
+                      <p className="text-lg font-semibold text-slate-100">No tokens found</p>
+                      <p className="mt-2 text-sm text-slate-400">
+                        No movers are available for this timeframe right now.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                {!shouldShowSkeleton && !shouldShowEmptyState && heatmapTab === 'all' && (
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 auto-rows-[120px] sm:auto-rows-[140px] mb-3">
                     <AnimatePresence>
                       {heatmapTokens.slice(0, 3).map((token, i) => renderHeatmapCard(token, i, true))}
@@ -802,7 +819,7 @@ const FindGemsMain = () => {
                   </div>
                 )}
 
-                {!loading && (
+                {!shouldShowSkeleton && !shouldShowEmptyState && (
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-5 gap-3 auto-rows-[120px] sm:auto-rows-[140px]">
                     <AnimatePresence>
                       {(heatmapTab === 'all' ? heatmapTokens.slice(3) : heatmapTokens).map((token, i) =>

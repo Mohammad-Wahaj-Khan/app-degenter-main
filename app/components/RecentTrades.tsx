@@ -628,6 +628,10 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
   const [newTradeKeys, setNewTradeKeys] = useState<Record<string, number>>({});
   const [symbolMap, setSymbolMap] = useState<Record<string, string>>({});
   const symbolMapRef = useRef<Record<string, string>>({});
+  const [tokenImageMap, setTokenImageMap] = useState<Record<string, string>>(
+    {}
+  );
+  const resolvingIbcDenomsRef = useRef<Set<string>>(new Set());
   const [wsConnected, setWsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const wsStreamKeyRef = useRef<string | null>(null);
@@ -649,10 +653,6 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
   useEffect(() => {
     symbolMapRef.current = symbolMap;
   }, [symbolMap]);
-
-  const [tokenImageMap, setTokenImageMap] = useState<Record<string, string>>(
-    {}
-  );
 
   const summarizeSigner = useCallback(
     (signer: string | null): SignerFilterSummary | null => {
@@ -1791,6 +1791,102 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
     }, 200);
     return () => {
       window.clearTimeout(timeoutId);
+    };
+  }, [trades]);
+
+  useEffect(() => {
+    const unresolvedIbcDenoms = Array.from(
+      new Set(
+        trades
+          .flatMap((trade) => [trade.offerDenom, trade.askDenom])
+          .map((denom) => denom?.trim())
+          .filter((denom): denom is string => {
+            if (!denom || !isIbcDenom(denom)) return false;
+            const lower = denom.toLowerCase();
+            return (
+              !symbolMapRef.current[denom] &&
+              !symbolMapRef.current[lower] &&
+              !resolvingIbcDenomsRef.current.has(lower)
+            );
+          })
+      )
+    );
+
+    if (!unresolvedIbcDenoms.length) return;
+
+    let cancelled = false;
+
+    const resolveIbcSymbols = async () => {
+      const nextSymbols: Record<string, string> = {};
+      const nextImages: Record<string, string> = {};
+
+      await Promise.allSettled(
+        unresolvedIbcDenoms.map(async (denom) => {
+          const lower = denom.toLowerCase();
+          resolvingIbcDenomsRef.current.add(lower);
+
+          try {
+            const res = await fetchApi(
+              `${API_BASE}/tokens/${encodeURIComponent(
+                tokenApiRef(denom)
+              )}?priceSource=best`
+            );
+            if (!res.ok) return;
+
+            const json = await res.json();
+            const token = json?.data?.token ?? json?.data;
+            const resolvedDenom = token?.denom?.trim?.() || denom;
+            const resolvedDenomLower = resolvedDenom.toLowerCase();
+            const resolvedSymbol = token?.symbol?.trim?.();
+
+            if (resolvedSymbol) {
+              nextSymbols[denom] = resolvedSymbol;
+              nextSymbols[lower] = resolvedSymbol;
+              nextSymbols[resolvedDenom] = resolvedSymbol;
+              nextSymbols[resolvedDenomLower] = resolvedSymbol;
+            }
+
+            const resolvedImage = imageField(
+              token?.imageUri,
+              token?.image,
+              token?.imageUrl,
+              token?.image_url,
+              token?.icon,
+              token?.logo,
+              token?.logoURI,
+              token?.logoUri
+            );
+
+            if (resolvedImage) {
+              nextImages[denom] = resolvedImage;
+              nextImages[lower] = resolvedImage;
+              nextImages[resolvedDenom] = resolvedImage;
+              nextImages[resolvedDenomLower] = resolvedImage;
+            }
+          } catch (error) {
+            console.error("[RecentTrades] failed to resolve IBC token meta", {
+              denom,
+              error,
+            });
+          } finally {
+            resolvingIbcDenomsRef.current.delete(lower);
+          }
+        })
+      );
+
+      if (cancelled) return;
+      if (Object.keys(nextSymbols).length) {
+        setSymbolMap((prev) => ({ ...prev, ...nextSymbols }));
+      }
+      if (Object.keys(nextImages).length) {
+        setTokenImageMap((prev) => ({ ...prev, ...nextImages }));
+      }
+    };
+
+    resolveIbcSymbols();
+
+    return () => {
+      cancelled = true;
     };
   }, [trades]);
 

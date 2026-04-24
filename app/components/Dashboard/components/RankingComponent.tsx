@@ -39,6 +39,9 @@ const RankingComponent: React.FC<{
   rankedTokens: Token[];
   loading?: boolean;
 }> = ({ rankedTokens, loading = false }) => {
+  const getQuoteSymbol = (symbol?: string) =>
+    symbol?.trim().toUpperCase() === "ZIG" ? "USDC" : "ZIG";
+
   // Ensure rankedTokens is valid and has at least 5 items
   const safeRankedTokens = rankedTokens || [];
   const top5Tokens = safeRankedTokens.slice(0, 5);
@@ -221,7 +224,7 @@ const RankingComponent: React.FC<{
                             {item.symbol}
                             <span className="text-[#CECECE] text-xs font-normal">
                               {" "}
-                              / ZIG
+                              / {getQuoteSymbol(item.symbol)}
                             </span>
                           </div>
                         </div>

@@ -10,6 +10,12 @@ import FindGems from "./components/FindGems";
 import LargeTradersTable from "./components/LargeTraders";
 import { API_BASE_URL, tokenAPI } from "@/lib/api";
 import { Trade } from "@/lib/api";
+import {
+  extractArrayPayload,
+  normalizeDashboardToken,
+  normalizeTrade,
+  toFiniteNumber,
+} from "./components/data-normalizers";
 
 interface Token {
   id: string;
@@ -209,7 +215,6 @@ const Dashboard: React.FC = () => {
           { signal: controller.signal } // pass signal if your API wrapper supports it
         );
 
-        // New listings (created sort)
         const responseForNewlisting = await tokenAPI.getTopTokensForDashboard(
           "24h",
           "best",
@@ -219,40 +224,13 @@ const Dashboard: React.FC = () => {
           { signal: controller.signal }
         );
 
-        // Raw arrays from several common shapes
-        const respAny: any = response;
-        const rawTokens: any[] = Array.isArray(respAny)
-          ? respAny
-          : respAny?.data ?? respAny?.tokens ?? respAny?.results ?? [];
-
-        const respNL: any = responseForNewlisting;
-        const rawNL: any[] = Array.isArray(respNL)
-          ? respNL
-          : respNL?.data ?? respNL?.tokens ?? respNL?.results ?? [];
+        const rawTokens = extractArrayPayload(response);
+        const rawNL = extractArrayPayload(responseForNewlisting);
 
         const filteredNL = rawNL.filter((t: any) => t.symbol);
-
-        const newListingsData: Token[] = filteredNL.map((t: any) => ({
-          id: t.tokenId?.toString() || t.id?.toString() || "",
-          symbol: t.symbol || "",
-          name: t.name || "",
-          current_price: t.priceUsd || t.priceNative || 0,
-          price_change_percentage_24h: t.change24hPct || 0,
-          market_cap: t.mcapUsd || t.mcapNative || 0,
-          total_volume: t.volUsd || t.volNative || 0,
-          fdvUsd: t.fdvUsd || 0,
-          image: t.imageUri || t.image || "",
-          tx: t.tx || 0,
-          denom: t.denom || "",
-          holders: t.holders || 0,
-          creationTime: t.createdAt || 0,
-          liquidity:
-            t.liquidity ??
-            t.liquidityUsd ??
-            t.volUsd ??
-            t.volNative ??
-            0,
-        }));
+        const newListingsData: Token[] = filteredNL.map((t: any) =>
+          normalizeDashboardToken(t)
+        );
 
         newListingsData.sort((a, b) => {
           const aTime = Date.parse(String(a.creationTime ?? 0)) || 0;
@@ -261,31 +239,28 @@ const Dashboard: React.FC = () => {
         });
         setNewListings(newListingsData.slice(0, 10));
 
-        const filteredTokens = rawTokens.filter(
-          (token: any) => token && token.symbol
+        const filteredTokens = rawTokens.filter((token: any) => token?.symbol);
+        const tokensData: Token[] = filteredTokens.map((token: any) =>
+          normalizeDashboardToken(token)
         );
 
-        const tokensData: Token[] = filteredTokens.map((token: any) => ({
-          id: token.tokenId?.toString() || token.id?.toString() || "",
-          symbol: token.symbol || "",
-          name: token.name || "",
-          current_price: token.priceUsd || token.priceNative || 0,
-          price_change_percentage_24h: token.change24hPct || 0,
-          market_cap: token.mcapUsd || token.mcapNative || 0,
-          total_volume: token.volUsd || token.volNative || 0,
-          fdvUsd: token.fdvUsd || 0,
-          image: token.imageUri || token.image || "",
-          tx: token.tx || 0,
-          denom: token.denom || "",
-          holders: token.holders || 0,
-          creationTime: token.createdAt || 0,
-          liquidity:
-            token.liquidity ??
-            token.liquidityUsd ??
-            token.volUsd ??
-            token.volNative ??
-            0,
-        }));
+        if (!tokensData.length) {
+          prevTokensRef.current = [];
+          setTokens([]);
+          setTrades([]);
+          setTotalItems(0);
+          setNewListings([]);
+          setError(null);
+          writeDashboardCache({
+            tokens: [],
+            trades: [],
+            totalItems: 0,
+            volumeChanges: volumeChangesRef.current,
+            page: currentPageRef.current,
+            newListings: [],
+          });
+          return;
+        }
 
         // Trades (don't block token rendering if this fails)
         let filteredTrades: Trade[] = [];
@@ -295,14 +270,12 @@ const Dashboard: React.FC = () => {
             "usd",
             { signal: controller.signal }
           );
-          const tradesAny: any = tradesResponse;
-          const tradesArr: any[] = Array.isArray(tradesAny)
-            ? tradesAny
-            : tradesAny?.data ?? tradesAny?.tokens ?? tradesAny?.results ?? [];
+          const tradesArr = extractArrayPayload(tradesResponse);
 
           filteredTrades = tradesArr
-            .filter((trade: any) => trade && trade.valueUsd && trade.valueUsd > 0)
-            .sort((a: any, b: any) => (b.valueUsd || 0) - (a.valueUsd || 0))
+            .map((trade: any) => normalizeTrade(trade))
+            .filter((trade) => toFiniteNumber(trade.valueUsd) > 0)
+            .sort((a, b) => toFiniteNumber(b.valueUsd) - toFiniteNumber(a.valueUsd))
             .slice(0, 10);
         } catch (tradeErr) {
           console.error("Error fetching trades:", tradeErr);
@@ -367,8 +340,7 @@ const Dashboard: React.FC = () => {
 
         console.error("Error fetching tokens:", err);
 
-        // Do not clear tokens on error; keep previous UI visible.
-        setError("Failed to load tokens. Please try again later.");
+        setError(null);
 
         // exponential backoff retry if transient and we haven't exceeded MAX_RETRY
         if (opts?.tryNum === undefined || opts.tryNum < MAX_RETRY) {
@@ -382,7 +354,7 @@ const Dashboard: React.FC = () => {
         setLoading(false);
       }
     },
-    []
+    [newListings.length, tokens.length]
   );
 
   // set up polling only once (when component mounts) and when currentPage changes we trigger immediate fetch
@@ -446,7 +418,7 @@ const Dashboard: React.FC = () => {
         {/* Bottom Section - Three Column Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <div>
-            <NewListing LatestListing={newListings} />
+            <NewListing LatestListing={newListings} isLoading={loading} />
           </div>
           <div>
             <FindGems />

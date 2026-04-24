@@ -3,16 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion"; // High-level animations
-import {
-  Wallet,
-  UserPlus,
-  Edit3,
-  Loader2,
-  LayoutGrid,
-  Zap,
-  ArrowRight,
-} from "lucide-react";
-import ProfileSidebar from "./components/ProfileSidebar";
+import { Loader2, Zap, ArrowRight } from "lucide-react";
 import ProfileHeader from "./components/ProfileHeader";
 import ProfileWallets from "./components/ProfileWallets";
 import ProfileEmail from "./components/ProfileEmail";
@@ -34,6 +25,13 @@ import { API_KEY } from "@/lib/api";
 
 const GUEST_WALLET_KEY = "degenterGuestWalletId";
 const USER_ID_KEY = "degenterUserId";
+const PROFILE_CACHE_TTL_MS = 60 * 60 * 1000;
+const PROFILE_REFRESH_AFTER_MS = 60 * 1000;
+const PROFILE_IMAGE_URL_PREFIX = "degenterProfileImage";
+
+type CachedProfile = Profile & {
+  _cachedAt?: number;
+};
 
 const defaultProfile: Profile = {
   created_at: new Date().toISOString(),
@@ -78,32 +76,95 @@ export default function ProfilePage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [hasProfile, setHasProfile] = useState(true);
   const [guestWalletId, setGuestWalletId] = useState("");
-  const [savedUserId, setSavedUserId] = useState("");
-  const [lastWalletAddress, setLastWalletAddress] = useState(address);
+  const [lastWalletAddress, setLastWalletAddress] = useState("");
+
+  const getProfileImageCacheKey = (walletAddress?: string) =>
+    walletAddress ? `${PROFILE_IMAGE_URL_PREFIX}_${walletAddress}` : "";
+
+  const cacheProfileImage = (walletAddress: string, imageUrl?: string) => {
+    if (!walletAddress || typeof window === "undefined") return;
+
+    const cacheKey = getProfileImageCacheKey(walletAddress);
+    if (!cacheKey) return;
+
+    if (imageUrl?.trim()) {
+      const payload = JSON.stringify({
+        image_url: imageUrl.trim(),
+        timestamp: Date.now(),
+      });
+      sessionStorage.setItem(cacheKey, payload);
+      localStorage.setItem(cacheKey, payload);
+      return;
+    }
+
+    sessionStorage.removeItem(cacheKey);
+    localStorage.removeItem(cacheKey);
+  };
+
+  const getCachedProfileImage = (walletAddress?: string) => {
+    if (!walletAddress || typeof window === "undefined") return "";
+
+    const cacheKey = getProfileImageCacheKey(walletAddress);
+    if (!cacheKey) return "";
+
+    try {
+      const cached =
+        sessionStorage.getItem(cacheKey) || localStorage.getItem(cacheKey);
+      if (!cached) return "";
+
+      const parsed = JSON.parse(cached);
+      return typeof parsed?.image_url === "string" ? parsed.image_url.trim() : "";
+    } catch (error) {
+      console.error("Failed to parse cached profile image:", error);
+      return "";
+    }
+  };
+
+  const mergeProfileWithCachedImage = (
+    walletAddress: string,
+    incomingProfile: Profile,
+    cachedProfile?: CachedProfile | null
+  ): CachedProfile => {
+    const incomingImage = (incomingProfile.image_url || "").trim();
+    const cachedImage =
+      getCachedProfileImage(walletAddress) ||
+      (cachedProfile?.image_url || "").trim();
+
+    return {
+      ...cachedProfile,
+      ...incomingProfile,
+      image_url: incomingImage || cachedImage,
+      _cachedAt: Date.now(),
+    };
+  };
 
   const handleImageUpdate = async (imageUrl: string) => {
     if (!profile) return;
 
-    // Create a new object with the updated image URL and a timestamp
     const newImageUrl = `${imageUrl}`;
     const updatedProfile = {
       ...profile,
       image_url: newImageUrl,
     };
 
-    // Update the UI immediately
     setProfile(updatedProfile);
+    const primaryWallet = updatedProfile.wallets?.find((wallet) => wallet?.address)?.address;
+    if (primaryWallet) {
+      cacheProfileImage(primaryWallet, newImageUrl);
+      cacheProfile(primaryWallet, updatedProfile);
+    }
 
-    // If we have a user_id and API key, update the server
     if (profile.user_id && apiKey) {
       try {
         setIsSaving(true);
-        // Update the server with the clean URL (no timestamp)
         await updateProfile({ ...updatedProfile, image_url: imageUrl }, apiKey);
       } catch (error) {
         console.error("Failed to update profile with new image:", error);
-        // Revert the local state if the server update fails
         setProfile((prev) => ({ ...prev, image_url: profile.image_url }));
+        if (primaryWallet) {
+          cacheProfileImage(primaryWallet, profile.image_url);
+          cacheProfile(primaryWallet, { ...updatedProfile, image_url: profile.image_url });
+        }
       } finally {
         setIsSaving(false);
       }
@@ -111,12 +172,17 @@ export default function ProfilePage() {
   };
 
   // Cache profile data persistently
-  const cacheProfile = (walletAddress: string, profileData: any) => {
+  const cacheProfile = (walletAddress: string, profileData: Profile) => {
     if (!walletAddress) return;
 
     const cacheKey = `profile_${walletAddress}`;
+    const mergedProfile = mergeProfileWithCachedImage(
+      walletAddress,
+      profileData,
+      getCachedProfile(walletAddress)
+    );
     const profileToCache = {
-      data: profileData,
+      data: mergedProfile,
       timestamp: Date.now(),
     };
 
@@ -131,28 +197,35 @@ export default function ProfilePage() {
         localStorage.setItem(USER_ID_KEY, String(profileData.user_id));
       }
     }
+
+    if (mergedProfile.image_url) {
+      cacheProfileImage(walletAddress, mergedProfile.image_url);
+    }
   };
 
   // Get cached profile data
-  const getCachedProfile = (walletAddress?: string) => {
+  const getCachedProfile = (walletAddress?: string): CachedProfile | null => {
     if (!walletAddress) return null;
 
     const cacheKey = `profile_${walletAddress}`;
-    // Try sessionStorage first
-    let cached = sessionStorage.getItem(cacheKey);
+    let cached: string | null = null;
 
-    // Fall back to localStorage if not in sessionStorage
-    if (!cached) {
-      cached = localStorage.getItem(cacheKey);
-    }
+    try {
+      cached = sessionStorage.getItem(cacheKey) || localStorage.getItem(cacheKey);
+      if (!cached) return null;
 
-    if (cached) {
       const parsed = JSON.parse(cached);
-      // Only use cache if it's less than 1 hour old
-      if (Date.now() - parsed.timestamp < 60 * 60 * 1000) {
-        return parsed.data;
+      if (Date.now() - (parsed?.timestamp ?? 0) < PROFILE_CACHE_TTL_MS) {
+        return mergeProfileWithCachedImage(
+          walletAddress,
+          (parsed?.data ?? {}) as Profile,
+          (parsed?.data ?? null) as CachedProfile | null
+        );
       }
+    } catch (error) {
+      console.error("Failed to parse cached profile:", error);
     }
+
     return null;
   };
 
@@ -164,11 +237,15 @@ export default function ProfilePage() {
       const walletProfile = await getProfileByWallet(walletAddress, apiKey);
 
       if (walletProfile) {
-        // Cache the profile data
-        cacheProfile(walletAddress, walletProfile);
+        const mergedProfile = mergeProfileWithCachedImage(
+          walletAddress,
+          walletProfile,
+          getCachedProfile(walletAddress)
+        );
+        cacheProfile(walletAddress, mergedProfile);
 
-        if (walletProfile.handle && walletProfile.user_id) {
-          setProfile(walletProfile);
+        if (mergedProfile.handle && mergedProfile.user_id) {
+          setProfile(mergedProfile);
           setHasProfile(true);
           setIsModalOpen(false);
           return true;
@@ -224,7 +301,7 @@ export default function ProfilePage() {
 
           // Update in background if cache is older than 1 minute
           const cacheTimestamp = cachedProfile._cachedAt || 0;
-          if (Date.now() - cacheTimestamp > 60 * 1000) {
+          if (Date.now() - cacheTimestamp > PROFILE_REFRESH_AFTER_MS) {
             fetchFreshProfile(address);
           }
           return;
@@ -257,9 +334,7 @@ export default function ProfilePage() {
 
     // Check for user ID
     const storedUserId = localStorage.getItem(USER_ID_KEY);
-    if (storedUserId) {
-      setSavedUserId(storedUserId);
-    }
+    if (storedUserId) localStorage.setItem(USER_ID_KEY, storedUserId);
 
     // Check for cached profile on initial load
     if (address) {
@@ -269,13 +344,11 @@ export default function ProfilePage() {
         setHasProfile(!!cachedProfile.handle);
         setIsModalOpen(!cachedProfile.handle);
 
-        // Update in background if cache is older than 1 minute
         const cacheTimestamp = cachedProfile._cachedAt || 0;
-        if (Date.now() - cacheTimestamp > 60 * 1000) {
+        if (Date.now() - cacheTimestamp > PROFILE_REFRESH_AFTER_MS) {
           fetchFreshProfile(address);
         }
       } else {
-        // If no cached profile, fetch fresh data
         fetchFreshProfile(address);
       }
     }
@@ -301,30 +374,50 @@ export default function ProfilePage() {
       setError("");
 
       try {
-        // Don't load again if we already have profile data
         if (profile.handle && profile.user_id) {
           return;
         }
 
-        if (!userId && !handle && !address && !guestWalletId) {
+        if (!userId && !handle && !address) {
           setIsLoading(false);
           return;
         }
 
         setIsLoading(true);
-        const effectiveHandle = handle || address || guestWalletId;
+        const effectiveHandle = handle || address;
+        if (!effectiveHandle && !userId) {
+          setIsLoading(false);
+          return;
+        }
         const data = userId
           ? await getProfileById(userId, apiKey)
-          : await getProfile(effectiveHandle, apiKey);
+          : await getProfile(effectiveHandle || "", apiKey);
         if (isActive && data?.handle) {
-          setProfile(data);
+          const walletAddress =
+            data.wallets?.find((wallet) => wallet?.address)?.address || address || "";
+          const mergedProfile = walletAddress
+            ? mergeProfileWithCachedImage(
+                walletAddress,
+                data,
+                getCachedProfile(walletAddress)
+              )
+            : { ...data, _cachedAt: Date.now() };
+
+          if (walletAddress) {
+            cacheProfile(walletAddress, mergedProfile);
+          }
+
+          setProfile(mergedProfile);
           setHasProfile(true);
+          setError("");
         }
       } catch {
         if (isActive) {
-          setError("Unable to load profile from the API.");
-          setHasProfile(false);
-          if (!profile.handle) {
+          const hasRenderableData =
+            Boolean(profile.handle) || Boolean(profile.wallets?.length);
+          if (!hasRenderableData) {
+            setError("Unable to load profile from the API.");
+            setHasProfile(false);
             setIsModalOpen(true);
           }
         }
@@ -340,7 +433,7 @@ export default function ProfilePage() {
     return () => {
       isActive = false;
     };
-  }, [handle, userId, apiKey, guestWalletId]);
+  }, [handle, userId, apiKey, address, profile.handle, profile.user_id, profile.wallets]);
 
   const handleUpgrade = () => {
     setIsModalOpen(true);
@@ -413,10 +506,13 @@ export default function ProfilePage() {
 
           // Update the profile with the new image URL
           if (imageUrl) {
-            saved = await updateProfile(
-              { ...saved, image_url: imageUrl },
-              apiKey
-            );
+            saved = {
+              ...(await updateProfile(
+                { ...saved, image_url: imageUrl },
+                apiKey
+              )),
+              image_url: imageUrl,
+            };
           }
         } catch (uploadError) {
           console.error("Error uploading profile image:", uploadError);
@@ -430,9 +526,14 @@ export default function ProfilePage() {
       setHasProfile(true);
       setIsModalOpen(false);
 
+      const primaryWalletAddress =
+        saved.wallets?.find((wallet) => wallet?.address)?.address || address || "";
+      if (primaryWalletAddress) {
+        cacheProfile(primaryWalletAddress, saved);
+      }
+
       if (saved.user_id) {
         localStorage.setItem(USER_ID_KEY, saved.user_id.toString());
-        setSavedUserId(saved.user_id.toString());
       }
       // Don't return the profile data as the function should return void
     } catch (error) {
@@ -455,7 +556,7 @@ export default function ProfilePage() {
     //     <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-orange-600/5 blur-[120px]" />
     //     <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-[0.03] bg-repeat" />
     //   </div>
-      <main className="flex min-h-screen flex-col bg-black relative overflow-hidden">
+      <main className="flex min-h-screen flex-col bg-[#050505] relative overflow-hidden text-white">
         <div
           className="absolute inset-0 z-1 h-60"
           style={{
@@ -504,19 +605,17 @@ export default function ProfilePage() {
         variants={containerVariants}
         initial="hidden"
         animate="visible"
-        className="grid relative z-10 min-h-screen grid-cols-1 pt-12 px-6 md:grid-cols-[280px,1fr]"
+        className="relative z-10 min-h-screen px-4 pb-10 pt-12 md:px-6"
       >
-        <ProfileSidebar />
-
-        <section className="px-4 py-6 md:px-12">
+        <section className="mx-auto w-full max-w-8xl px-2 py-6 md:px-4 lg:px-6">
           {/* Header Action Bar */}
           <motion.div
             variants={itemVariants}
-            className="flex items-center justify-between mb-8"
+            className="mb-8 flex items-center justify-between"
           >
             <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]" />
-              <p className="text-md font-black uppercase tracking-[0.3em] text-white">
+              <div className="h-2 w-2 rounded-full bg-[#d0a23d] shadow-[0_0_12px_rgba(208,162,61,0.85)]" />
+              <p className="text-md font-black uppercase tracking-[0.3em] text-[#f5edd8]">
                 Profile Overview
               </p>
             </div>
@@ -584,13 +683,23 @@ export default function ProfilePage() {
                   apiKey={apiKey || ""}
                 />
 
+                <CreateProfileModal
+                  isOpen={isModalOpen}
+                  onClose={() => setIsModalOpen(false)}
+                  onSave={handleCreateProfile}
+                  walletAddress={address ?? guestWalletId ?? undefined}
+                  initialProfile={profile}
+                  apiKey={apiKey}
+                  inline
+                />
+
                 <div className="grid grid-cols-1 gap-6">
                   <ProfileWallets
                     wallets={profile.wallets ?? []}
                     onLinkWallet={() => openView?.()}
                     apiKey={apiKey || ""}
                   />
-                  <ProfileEmail />
+                  {/* <ProfileEmail /> */}
                 </div>
               </motion.div>
             ) : (
@@ -598,15 +707,15 @@ export default function ProfilePage() {
                 key="empty-state"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="flex flex-col items-center justify-center rounded-3xl border border-white/[0.05] bg-white/[0.02] py-20 text-center backdrop-blur-sm"
+                className="flex flex-col items-center justify-center rounded-[32px] border border-[#d0a23d]/20 bg-white/[0.03] py-20 text-center shadow-[0_24px_90px_rgba(0,0,0,0.45)] backdrop-blur-[28px]"
               >
-                <div className="mb-6 rounded-full bg-neutral-900 p-6 text-neutral-700">
+                <div className="mb-6 rounded-full border border-[#d0a23d]/20 bg-[#131313]/80 p-6 text-[#d0a23d]/70 shadow-[0_0_35px_rgba(208,162,61,0.08)]">
                   <Zap size={48} strokeWidth={1} />
                 </div>
-                <h3 className="text-2xl font-bold text-white mb-2">
+                <h3 className="mb-2 text-2xl font-bold text-white">
                   Terminal Locked
                 </h3>
-                <p className="max-w-xs text-neutral-500 text-sm mb-8">
+                <p className="mb-8 max-w-xs text-sm text-neutral-400">
                   Establish a secure wallet link to access your on-chain agent
                   profile.
                 </p>
@@ -643,7 +752,7 @@ export default function ProfilePage() {
           </AnimatePresence>
 
           {isLoading && (
-            <div className="mt-8 flex items-center gap-3 text-neutral-500">
+            <div className="mt-8 flex items-center gap-3 text-neutral-400">
               <Loader2 size={16} className="animate-spin text-emerald-500" />
               <span className="text-[10px] font-bold uppercase tracking-widest">
                 Retrieving Encrypted Data...
@@ -651,19 +760,13 @@ export default function ProfilePage() {
             </div>
           )}
           {error && (
-            <p className="mt-4 text-xs font-medium text-red-500/80">{error}</p>
+            <p className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/8 px-4 py-3 text-xs font-medium text-amber-100/80 backdrop-blur-xl">
+              {error}
+            </p>
           )}
         </section>
       </motion.div>
 
-      <CreateProfileModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSave={handleCreateProfile}
-        walletAddress={address ?? guestWalletId ?? undefined}
-        initialProfile={profile}
-        apiKey={apiKey}
-      />
     </main>
   );
 }

@@ -1,16 +1,19 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import {
   Camera,
   BadgeCheck,
-  Sparkles,
   Zap,
-  TrendingUp,
   Calendar,
   Plus,
+  ShieldCheck,
+  RefreshCcw,
+  AlertCircle,
+  ExternalLink,
+  Clock,
 } from "lucide-react";
-import { truncateMiddle } from "../lib/profile-format";
+import { formatDateTime, truncateMiddle } from "../lib/profile-format";
 import type { Profile } from "../lib/profile-api";
 import { uploadProfileImage } from "../lib/profile-api";
 import dynamic from "next/dynamic";
@@ -42,6 +45,9 @@ export default function ProfileHeader({
   const [isUploading, setIsUploading] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [imageRetryAttempted, setImageRetryAttempted] = useState(false);
+  const [imageSrc, setImageSrc] = useState(profile.image_url || "");
+  const [failedWalletAvatars, setFailedWalletAvatars] = useState<Record<string, boolean>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pnlLoading, setPnlLoading] = useState(false);
   const [pnlError, setPnlError] = useState<string | null>(null);
@@ -60,6 +66,8 @@ export default function ProfileHeader({
   useEffect(() => {
     setImageLoaded(false);
     setImageError(false);
+    setImageRetryAttempted(false);
+    setImageSrc(profile.image_url || "");
   }, [profile.image_url]);
 
   const handleImageClick = () => fileInputRef.current?.click();
@@ -69,23 +77,49 @@ export default function ProfileHeader({
     if (!file || !profile.user_id) return;
     try {
       setIsUploading(true);
+      setImageError(false);
+      setImageLoaded(false);
       const result = await uploadProfileImage(profile.user_id, file, apiKey);
+      setImageSrc(result.image_url);
       onImageUpdate(result.image_url);
     } catch (error) {
       console.error("Error:", error);
     } finally {
       setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
   const walletAddress = profile.wallets?.[0]?.address || "";
-  const displayName = profile.display_name || profile.handle || "Degen User";
+  const wallets = profile.wallets ?? [];
+  const fallbackIdentity = useMemo(() => {
+    const candidate = (profile.handle || walletAddress || "").trim();
+    if (!candidate) return "Degen User";
+    if (candidate.startsWith("guest-")) return "Degen User";
+    return candidate.length > 24 ? truncateMiddle(candidate, 10, 6) : candidate;
+  }, [profile.handle, walletAddress]);
+  const displayName = (profile.display_name || "").trim() || fallbackIdentity;
   const creationDate = profile.created_at
     ? new Date(profile.created_at).toLocaleDateString("en-US", {
         month: "short",
         year: "numeric",
       })
     : undefined;
+  const tags = useMemo(
+    () => (Array.isArray(profile.tags) ? profile.tags.filter(Boolean).slice(0, 6) : []),
+    [profile.tags]
+  );
+  const avatarFallbackLabel = useMemo(() => {
+    const source = displayName || profile.handle || "DU";
+    return source
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((chunk) => chunk[0]?.toUpperCase())
+      .join("") || "DU";
+  }, [displayName, profile.handle]);
 
   const normalizeWalletApiBase = (value?: string) => {
     const trimmed = (value ?? "").trim();
@@ -167,6 +201,7 @@ export default function ProfileHeader({
   useEffect(() => {
     if (!walletAddress) {
       setPnlStats(null);
+      setPnlError("Connect a wallet to load performance metrics");
       return;
     }
     if (pnlFetchInFlightRef.current) return;
@@ -205,8 +240,7 @@ export default function ProfileHeader({
         });
       } catch (err: any) {
         if (err?.name === "AbortError") return;
-        setPnlError("Failed to load stats");
-        setPnlStats(null);
+        setPnlError("Performance metrics are temporarily unavailable");
       } finally {
         setPnlLoading(false);
         pnlFetchInFlightRef.current = false;
@@ -220,214 +254,342 @@ export default function ProfileHeader({
     };
   }, [walletAddress, apiKey]);
 
+  const handleAvatarError = () => {
+    if (imageSrc && !imageRetryAttempted) {
+      setImageRetryAttempted(true);
+      setImageLoaded(false);
+      setImageSrc(
+        imageSrc.includes("?")
+          ? `${imageSrc}&t=${Date.now()}`
+          : `${imageSrc}?t=${Date.now()}`
+      );
+      return;
+    }
+    setImageError(true);
+  };
+
+  const statCards = [
+    {
+      label: "Trading Volume",
+      value: pnlStats ? formatCurrencyCompact(pnlStats.tradingVolume) : "N/A",
+      tone: "text-[#cffff0]",
+    },
+    {
+      label: "Buys / Sells",
+      value: pnlStats
+        ? `${formatNumberCompact(pnlStats.txsBuy)} / ${formatNumberCompact(
+            pnlStats.txsSell
+          )}`
+        : "N/A",
+      tone: "text-emerald-200",
+    },
+    {
+      label: "Avg Hold",
+      value: pnlStats ? formatHoldMinutes(pnlStats.holdSeconds, 1) : "N/A",
+      tone: "text-white",
+    },
+    {
+      label: "Bought / Sold",
+      value: pnlStats
+        ? `${formatCurrencyCompact(pnlStats.bought)} / ${formatCurrencyCompact(
+            pnlStats.sold
+          )}`
+        : "N/A",
+      tone: "text-[#ffb4a7]",
+    },
+  ];
+
   return (
-    <section className="relative group overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0A0A0A] p-1 shadow-2xl">
-      {/* Background Glow */}
-      <div className="absolute -right-10 -top-10 h-64 w-64 rounded-full bg-emerald-500/10 blur-[120px] pointer-events-none" />
-
-      <div className="relative rounded-[22px] bg-gradient-to-b from-white/[0.03] to-transparent p-6 md:p-8">
-        {/* TOP ROW: Avatar + Chart + Value */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-          {/* 1. Avatar (3 cols) */}
-          <div className="lg:col-span-2 flex justify-center lg:justify-start">
-            <div className="relative group/avatar">
-              <div
-                className={`relative h-32 w-32 overflow-hidden rounded-[2.5rem] p-[2px] bg-gradient-to-tr from-emerald-500/40 via-white/10 to-blue-500/40 transition-all cursor-pointer ${
-                  isUploading ? "animate-pulse" : "hover:scale-105"
-                }`}
-                onClick={handleImageClick}
-              >
-                <div className="h-full w-full rounded-[2.4rem] overflow-hidden bg-[#0D0D0D]">
-                  {profile.image_url && !imageError ? (
-                    <img
-                      src={profile.image_url}
-                      alt={displayName}
-                      className={`h-full w-full object-cover transition-opacity duration-500 ${
-                        imageLoaded ? "opacity-100" : "opacity-0"
-                      }`}
-                      onLoad={() => setImageLoaded(true)}
-                      onError={() => setImageError(true)}
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center bg-[#111]">
-                      <Camera className="text-white/20" size={32} />
+    // rounded-[34px] border border-[rgba(208,162,61,0.28)] bg-[rgba(10,10,10,0.72)] p-[1px] shadow-[0_28px_90px_rgba(0,0,0,0.55)] backdrop-blur-[28px]
+    <section className="relative overflow-hidden ">
+      {/* <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.08),transparent_28%),radial-gradient(circle_at_85%_18%,rgba(208,162,61,0.16),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))]" />
+      <div className="pointer-events-none absolute -left-20 top-10 h-56 w-56 rounded-full bg-emerald-600/10 blur-[120px]" />
+      <div className="pointer-events-none absolute right-0 top-0 h-64 w-64 rounded-full bg-amber-500/10 blur-[140px]" /> */}
+{/* rounded-[33px] border border-white/[0.04] bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.025))] px-5 py-6 backdrop-blur-[30px] md:px-8 md:py-8 */}
+      <div className="relative ">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+          <div className="flex h-full flex-col rounded-[30px] border border-[rgba(57,200,166,0.12)] bg-[rgba(14,14,14,0.62)] p-5 shadow-[inset_0_1px_0_rgba(190,255,242,0.03),0_16px_40px_rgba(0,0,0,0.28)] backdrop-blur-[38px]">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center">
+              <div className="flex justify-center self-start pt-2 mt-8 lg:justify-start lg:pt-0">
+                <div className="relative">
+                  <div className="absolute inset-[-14px] rounded-full bg-[conic-gradient(from_0deg,rgba(20,98,79,0.18),rgba(57,200,166,0.7),rgba(250,78,48,0.28),rgba(20,98,79,0.18))] blur-[10px] opacity-90 animate-[spin_8s_linear_infinite]" />
+                  <div className="absolute inset-[-4px] rounded-full border border-[rgba(57,200,166,0.32)] shadow-[0_0_32px_rgba(57,200,166,0.28)]" />
+                  <div
+                    className={`relative h-32 w-32 cursor-pointer overflow-hidden rounded-full border border-[rgba(57,200,166,0.22)] bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.12),rgba(16,16,16,0.96))] p-[3px] transition-transform duration-300 ${
+                      isUploading ? "animate-pulse" : "hover:-translate-y-1"
+                    }`}
+                    onClick={handleImageClick}
+                  >
+                    <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-[#111111]">
+                      {imageSrc && !imageError ? (
+                        <>
+                          <div
+                            className={`absolute inset-0 bg-white/5 transition-opacity duration-500 ${
+                              imageLoaded ? "opacity-0" : "opacity-100"
+                            }`}
+                          />
+                          <img
+                            src={imageSrc}
+                            alt={displayName}
+                            className={`h-full w-full object-cover transition-opacity duration-500 ${
+                              imageLoaded ? "opacity-100" : "opacity-0"
+                            }`}
+                            onLoad={() => setImageLoaded(true)}
+                            onError={handleAvatarError}
+                          />
+                        </>
+                      ) : (
+                        <div className="flex h-full w-full flex-col items-center justify-center bg-[radial-gradient(circle_at_top,rgba(57,200,166,0.18),rgba(17,17,17,1))] text-[#d6fff3]">
+                          <span className="text-3xl font-black tracking-[0.12em]">
+                            {avatarFallbackLabel}
+                          </span>
+                          <Camera className="mt-2 text-[#64e3bf]/70" size={18} />
+                        </div>
+                      )}
+                      <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,transparent_48%,rgba(0,0,0,0.18)_100%)]" />
                     </div>
-                  )}
-                </div>
-                {/* Upload Overlay */}
-                <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover/avatar:opacity-100 transition-opacity rounded-[2.4rem]">
-                  <Zap className="text-emerald-400" size={24} />
+                    <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 opacity-0 transition-opacity duration-300 hover:opacity-100">
+                      <Zap className="text-[#7aeed0]" size={24} />
+                    </div>
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(57,200,166,0.28)] bg-[linear-gradient(180deg,#86f4d7_0%,#39c8a6_60%,#14624f_100%)] text-[#031a15] shadow-[0_0_25px_rgba(57,200,166,0.26)]">
+                    <BadgeCheck size={18} strokeWidth={2.8} />
+                  </div>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleImageUpload}
+                    accept="image/*"
+                    className="hidden"
+                  />
                 </div>
               </div>
-              <div className="absolute -bottom-1 -right-1 h-8 w-8 flex items-center justify-center rounded-xl border-2 border-[#0A0A0A] bg-emerald-500 text-black shadow-lg">
-                <BadgeCheck size={16} strokeWidth={3} />
+
+              <div className="min-w-0 flex-1 space-y-5">
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* <div className="rounded-full border border-[rgba(57,200,166,0.18)] bg-[rgba(57,200,166,0.08)] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.34em] text-[#97f1d8]">
+                    Crystalline Identity
+                  </div> */}
+                  {/* <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]" />
+                    Live Terminal
+                  </div> */}
+                </div>
+
+                <div>
+                  <div className="mb-2 flex flex-wrap items-center gap-3">
+                    <h1 className="max-w-full break-words text-3xl font-black leading-[0.95] tracking-[0.04em] text-[#f7f4eb] md:text-4xl">
+                      {displayName}
+                    </h1>
+                    {isSaving && (
+                      <div className="flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.28em] text-emerald-200">
+                        <RefreshCcw size={12} className="animate-spin" />
+                        Syncing
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-sm">
+                    <span className="max-w-full break-all rounded-full border border-emerald-400/18 bg-emerald-400/8 px-3 py-1 font-mono text-[12px] text-emerald-200">
+                      @{profile.handle || truncateMiddle(walletAddress, 6, 4)}
+                    </span>
+                    {creationDate && (
+                      <span className="flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.16em] text-zinc-500">
+                        <Calendar size={14} className="text-[#5fe0bc]" />
+                        Joined {creationDate}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                  <div className="space-y-4">
+                    <p className="max-w-2xl text-sm leading-7 text-zinc-300 md:text-base">
+                      {profile.bio?.trim()
+                        ? profile.bio
+                        : "On-chain identity calibrated for execution, attribution, and high-signal wallet intelligence."}
+                    </p>
+
+                    <div className="flex flex-wrap gap-2">
+                      {tags.length ? (
+                        tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="rounded-full border border-white/5 bg-white/[0.02] px-3 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-zinc-300 transition-colors hover:border-[rgba(57,200,166,0.18)] hover:text-[#96f0d6]"
+                          >
+                            #{tag}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-500">
+                          No profile tags configured
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <UltimateButton onClick={onUpgrade} disabled={isSaving}>
+                    <Plus size={18} className="transition-transform group-hover:rotate-90" />
+                    Update Profile
+                  </UltimateButton>
+                </div>
+
+
               </div>
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleImageUpload}
-                accept="image/*"
-                className="hidden"
-              />
             </div>
+                {wallets.length > 0 ? (
+                  <div className="mt-auto grid gap-3 pt-2">
+                    {wallets.map((wallet, index) => (
+                      <div
+                        key={wallet.address}
+                        className="group relative flex w-full flex-col gap-4 rounded-[28px] border border-[rgba(57,200,166,0.10)] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-4 shadow-[inset_0_1px_0_rgba(190,255,242,0.03),inset_0_-18px_30px_rgba(0,0,0,0.18),0_18px_42px_rgba(0,0,0,0.22)] backdrop-blur-[28px] transition-all duration-300 hover:border-[rgba(57,200,166,0.22)] hover:-translate-y-0.5 md:flex-row md:items-center"
+                      >
+                        <div className="relative h-14 w-14 shrink-0">
+                          <a
+                            href={`/portfolio?address=${wallet.address}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="absolute -right-1 -top-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(57,200,166,0.22)] bg-[linear-gradient(180deg,rgba(57,200,166,0.24),rgba(250,78,48,0.16))] text-[#9bf4d7] opacity-0 transition-opacity group-hover:opacity-100"
+                            aria-label="View portfolio"
+                            title="View Portfolio"
+                          >
+                            <ExternalLink size={12} />
+                          </a>
+                          {failedWalletAvatars[wallet.address] ? (
+                            <div className="flex h-full w-full items-center justify-center rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[radial-gradient(circle_at_top,rgba(57,200,166,0.18),rgba(17,17,17,1))] font-mono text-sm text-[#aaf5dc]">
+                              {truncateMiddle(wallet.address, 2, 2)}
+                            </div>
+                          ) : (
+                            <img
+                              src={`https://avatar.vercel.sh/${wallet.address}.svg`}
+                              alt="Wallet Avatar"
+                              className="h-full w-full rounded-2xl border border-[rgba(255,255,255,0.08)] bg-neutral-800 object-cover"
+                              onError={() =>
+                                setFailedWalletAvatars((prev) => ({
+                                  ...prev,
+                                  [wallet.address]: true,
+                                }))
+                              }
+                            />
+                          )}
+                        </div>
+
+                        <div className="flex-1 space-y-1">
+                          <div className="flex w-full items-start gap-2">
+                            <div className="min-w-0">
+                              <div className="break-all font-mono text-sm font-medium text-[#d8fff4]">
+                                {wallet.address}
+                              </div>
+                            </div>
+                            {/* <span className="flex-shrink-0 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-neutral-400">
+                              {wallet.network || "Zigchain"}
+                            </span> */}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-500">
+                            <span className="flex items-center gap-2 rounded-full border border-emerald-400/16 bg-emerald-500/8 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-200">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.75)]" />
+                              {index === 0 ? "Primary" : "Active"}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Clock size={12} />
+                              Updated {formatDateTime(wallet.updated_at)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 border-t border-white/[0.05] pt-3 md:border-none md:pt-0">
+                          <a
+                            href={`/portfolio?address=${wallet.address}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="group relative flex h-10 w-10 items-center justify-center rounded-2xl border border-[rgba(57,200,166,0.12)] bg-[linear-gradient(180deg,rgba(57,200,166,0.10),rgba(250,78,48,0.04))] text-[#76eccb] shadow-[inset_0_1px_0_rgba(190,255,242,0.04)] hover:shadow-[0_0_24px_rgba(57,200,166,0.14)]"
+                            aria-label="Open wallet portfolio"
+                            title="Open wallet portfolio"
+                          >
+                            <ExternalLink size={16} />
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
           </div>
 
-          {/* 2. Chart (6 cols) */}
-          <div className="lg:col-span-7 w-full h-[140px] bg-white/[0.02] rounded-2xl border border-white/5 p-2 overflow-hidden relative">
-            <div className="absolute top-2 left-4 z-10">
-              {/* <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-500/80 uppercase tracking-wider">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Live Performance
-                </span> */}
-            </div>
-            {walletAddress ? (
-              <WalletValueChart walletAddress={walletAddress} apiKey={apiKey} />
-            ) : (
-              <div className="h-full flex items-center justify-center text-zinc-600 text-xs italic">
-                Analytics Unavailable
+          <div className="grid gap-5">
+            <div className="rounded-[30px] border border-[rgba(57,200,166,0.12)] bg-[rgba(10,10,10,0.58)] p-3 shadow-[inset_0_1px_0_rgba(190,255,242,0.03),0_18px_36px_rgba(0,0,0,0.24)] backdrop-blur-[34px]">
+              <div className="h-[250px] overflow-hidden rounded-[26px] border border-white/[0.03] bg-[linear-gradient(180deg,rgba(255,255,255,0.025),rgba(255,255,255,0.01))] p-2">
+                {walletAddress ? (
+                  <WalletValueChart walletAddress={walletAddress} apiKey={apiKey} />
+                ) : (
+                  <div className="flex h-full items-center justify-center rounded-[22px] border border-dashed border-white/5 bg-black/20 font-mono text-xs uppercase tracking-[0.18em] text-zinc-500">
+                    Analytics Unavailable
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </div>
 
-          {/* 3. Wallet Stats (3 cols) */}
-          <div className="lg:col-span-3 flex items-center justify-center border-l border-white/5 lg:pl-8">
-            <div className="w-full p-2">
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                {pnlLoading && (
-                  <div className="col-span-2 text-center text-white/60">
-                    Loading stats...
+            <div className="rounded-[30px] border border-[rgba(57,200,166,0.12)] bg-[rgba(13,13,13,0.62)] p-5 shadow-[inset_0_1px_0_rgba(190,255,242,0.03),inset_0_-14px_28px_rgba(0,0,0,0.18)] backdrop-blur-[32px]">
+              {/* <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-zinc-500">
+                    Performance Intelligence
+                  </p>
+                  <h2 className="mt-1 text-lg font-bold tracking-[-0.02em] text-[#f6f1e6]">
+                    Deep Stats Snapshot
+                  </h2>
+                </div>
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[rgba(57,200,166,0.22)] bg-[linear-gradient(180deg,rgba(57,200,166,0.16),rgba(20,98,79,0.08))] text-[#76e9c9] shadow-[0_0_24px_rgba(57,200,166,0.12)]">
+                  <ShieldCheck size={18} />
+                </div>
+              </div> */}
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {statCards.map((card) => (
+                  <div
+                    key={card.label}
+                    className="rounded-[22px] border border-white/[0.03] bg-[linear-gradient(180deg,rgba(255,255,255,0.025),rgba(255,255,255,0.01))] px-4 py-3 shadow-[inset_0_1px_0_rgba(190,255,242,0.03)]"
+                  >
+                    <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                      {card.label}
+                    </p>
+                    <p className={`mt-2 text-sm font-semibold ${card.tone}`}>
+                      {pnlLoading && !pnlStats ? "Loading..." : card.value}
+                    </p>
                   </div>
-                )}
-                {pnlError && (
-                  <div className="col-span-2 text-center text-rose-400">
-                    {pnlError}
-                  </div>
-                )}
-                {!pnlLoading && !pnlError && pnlStats && (
-                  <>
-                    <div className="rounded-lg border border-white/5 bg-white/5 p-2">
-                      <p className="text-[11px] text-white/60">Trading Volume</p>
-                      <p className="text-sm font-semibold text-emerald-300">
-                        {formatCurrencyCompact(pnlStats.tradingVolume)}
+                ))}
+                <div className="sm:col-span-2 rounded-[24px] border border-[rgba(57,200,166,0.12)] bg-[linear-gradient(135deg,rgba(255,255,255,0.03),rgba(57,200,166,0.06))] px-4 py-4 shadow-[inset_0_1px_0_rgba(190,255,242,0.03)]">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">
+                        Total PNL
                       </p>
-                    </div>
-                    <div className="rounded-lg border border-white/5 bg-white/5 p-2">
-                      <p className="text-[11px] text-white/60">Txs</p>
-                      <p className="text-sm font-semibold text-cyan-300">
-                        {formatNumberCompact(pnlStats.txsBuy)} /{" "}
-                        {formatNumberCompact(pnlStats.txsSell)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-white/5 bg-white/5 p-2">
-                      <p className="text-[11px] text-white/60">
-                        Avg Holding Duration
-                      </p>
-                      <p className="text-sm font-semibold text-white">
-                        {formatHoldMinutes(pnlStats.holdSeconds, 1)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-white/5 bg-white/5 p-2">
-                      <p className="text-[11px] text-white/60">Bought/Sold</p>
-                      <p className="text-sm font-semibold text-emerald-300">
-                        {formatCurrencyCompact(pnlStats.bought)} /{" "}
-                        {formatCurrencyCompact(pnlStats.sold)}
-                      </p>
-                    </div>
-                    {/* <div className="rounded-lg border border-white/5 bg-white/5 p-2">
-                      <p className="text-[11px] text-white/60">Avg Cost</p>
-                      <p className="text-sm font-semibold text-white">
-                        {formatCurrencySmart(pnlStats.avgCost)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-white/5 bg-white/5 p-2">
-                      <p className="text-[11px] text-white/60">Avg Win Cost</p>
-                      <p className="text-sm font-semibold text-white">
-                        {formatCurrencySmart(pnlStats.avgWinCost)}
-                      </p>
-                    </div> */}
-                    <div className="col-span-2 rounded-lg border border-white/5 bg-white/5 p-2">
-                      <p className="text-[11px] text-white/60">Total PNL</p>
                       <p
-                        className={`text-sm font-semibold ${
-                          pnlStats.totalPnl >= 0 ? "text-emerald-300" : "text-rose-300"
+                        className={`mt-2 text-xl font-bold ${
+                          pnlStats && pnlStats.totalPnl < 0
+                            ? "text-rose-300"
+                            : "text-[#cafff0]"
                         }`}
                       >
-                        {pnlStats.totalPnl >= 0 ? "+" : ""}
-                        {formatCurrencySmart(pnlStats.totalPnl)}
+                        {pnlStats
+                          ? `${pnlStats.totalPnl >= 0 ? "+" : ""}${formatCurrencySmart(
+                              pnlStats.totalPnl
+                            )}`
+                          : "N/A"}
                       </p>
                     </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* BOTTOM ROW: Profile Details */}
-        <div className="mt-8 pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-start gap-6">
-          <div className="space-y-4 max-w-2xl">
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-white">
-                  {displayName}
-                </h1>
-                {isSaving && (
-                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20">
-                    <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
-                    <span className="text-[9px] font-black text-emerald-500 uppercase">
-                      Syncing
-                    </span>
+                    {pnlError ? (
+                      <div className="flex items-center gap-2 rounded-full border border-amber-400/20 bg-amber-500/8 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-amber-100/80">
+                        <AlertCircle size={12} />
+                        {pnlError}
+                      </div>
+                    ) : (
+                      <div className="rounded-full border border-emerald-400/20 bg-emerald-500/8 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-200">
+                        {walletAddress ? "Wallet Synced" : "Awaiting Wallet"}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-mono text-emerald-400 bg-emerald-400/5 px-2 py-0.5 rounded border border-emerald-400/10">
-                  @{profile.handle || truncateMiddle(walletAddress, 6, 4)}
-                </span>
-                {/* <div className="flex items-center gap-1 text-zinc-500 text-xs font-medium">
-                  <Calendar size={12} />
-                  Joined {creationDate}
-                </div> */}
+                </div>
               </div>
             </div>
-
-            {profile.bio && (
-              <p className="text-zinc-400 text-sm md:text-base leading-relaxed font-medium italic">
-                "{profile.bio}"
-              </p>
-            )}
-
-            {/* Tags */}
-            <div className="flex flex-wrap gap-2">
-              {profile.tags?.map((tag) => (
-                <span
-                  key={tag}
-                  className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-tighter text-zinc-300 hover:bg-white/10 transition-colors cursor-default"
-                >
-                  #{tag}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Action Button */}
-          <div className="flex shrink-0">
-            {/* <button
-                type="button"
-                onClick={onUpgrade}
-                className="group relative flex items-center gap-2 rounded-2xl bg-white text-black px-6 py-3 text-sm font-black hover:bg-emerald-400 transition-all active:scale-95 overflow-hidden"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]" />
-                <Sparkles size={16} />
-                UPGRADE PRO
-              </button> */}
-            <UltimateButton onClick={onUpgrade} disabled={isSaving}>
-              <Plus
-                size={18}
-                className="transition-transform group-hover:rotate-90"
-              />
-              Update Profile
-            </UltimateButton>
           </div>
         </div>
       </div>
