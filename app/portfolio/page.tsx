@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { applyPageMetadata } from "@/lib/page-metadata";
 import Navbar from "../components/navbar";
 import TopMarketToken from "../components/TopMarketToken";
 import WalletAnalyzerBoxes, {
@@ -23,6 +24,13 @@ export default function Home() {
   const [isAnimationReady, setIsAnimationReady] = useState(false);
   const addressOverride = searchParams.get("address")?.trim() || "";
   const tabOverride = searchParams.get("tab") as AnalyzerTabId | null;
+
+  useEffect(() => {
+    applyPageMetadata({
+      pageName: "Portfolio",
+      description: "Portfolio | Degenter.io",
+    });
+  }, []);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setIsAnimationReady(true));

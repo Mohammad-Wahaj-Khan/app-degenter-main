@@ -8,6 +8,7 @@ import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import TopMarketToken from '../components/TopMarketToken';
 import Navbar from '../components/navbar';
+import { applyPageMetadata } from '@/lib/page-metadata';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -38,6 +39,13 @@ export default function WalletTracker() {
   const subtitleRef = useRef(null);
   const searchRef = useRef(null);
   const betaRef = useRef(null);
+
+  useEffect(() => {
+    applyPageMetadata({
+      pageName: "Wallet Tracker",
+      description: "Wallet Tracker | Degenter.io",
+    });
+  }, []);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   // Globe Animation Effect

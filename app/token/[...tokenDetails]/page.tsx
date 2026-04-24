@@ -22,6 +22,7 @@ import {
   storeTokenRoute,
   storeTokenRouteDenom,
 } from "@/lib/token-routing";
+import { applyTokenPageMetadata } from "@/lib/token-page-metadata";
 // import  HoldersBubble from "@/app/components/HoldersBubble";
 
 interface Token {
@@ -47,36 +48,11 @@ interface Token {
   txSell: number;
 }
 
-const TOKEN_FETCH_MAX_ATTEMPTS = 5;
-const TOKEN_FETCH_RETRY_DELAY_MS = 350;
-
-const waitForRetry = (ms: number) =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-const getReadableTokenError = (error: unknown) => {
-  const message =
-    error instanceof Error ? error.message : typeof error === "string" ? error : "";
-
-  if (!message) return "Token service returned an unexpected error.";
-  if (message.includes("404")) return "Token not found";
-  if (message.includes("429")) return "Token service is rate limited. Please try again.";
-  if (message.includes("500") || message.includes("502") || message.includes("503")) {
-    return `Token service is temporarily unavailable (${message}).`;
-  }
-  if (
-    message.toLowerCase().includes("failed to fetch") ||
-    message.toLowerCase().includes("network")
-  ) {
-    return "Token service did not respond. Please try again.";
-  }
-
-  return message;
-};
-
 const isLikelyPairContract = (value: string) =>
   value.toLowerCase().startsWith("zig1");
 
 const API_BASE = API_BASE_URL.replace(/\/+$/, "");
+const LIVE_PRICE_REFRESH_MS = 5000;
 
 const normalizeDenom = (value?: string | null) =>
   decodeURIComponent(value ?? "").trim().toLowerCase();
@@ -232,37 +208,8 @@ const fetchTokenBySymbol = async (
       if (fallback) return fallback;
     }
     console.error("Error fetching token details:", error);
-    throw error;
+    return null;
   }
-};
-
-type TokenFetchResult = {
-  token: Token | null;
-  error: string | null;
-};
-
-const fetchTokenBySymbolWithRetry = async (
-  symbol: string,
-  options: { skipPairFallback?: boolean; poolId?: string | null } = {},
-  maxAttempts = TOKEN_FETCH_MAX_ATTEMPTS
-): Promise<TokenFetchResult> => {
-  let lastError: string | null = null;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      const token = await fetchTokenBySymbol(symbol, options);
-      if (token) return { token, error: null };
-    } catch (error) {
-      lastError = getReadableTokenError(error);
-      console.error("Error fetching token with retry:", error);
-    }
-
-    if (attempt < maxAttempts) {
-      await waitForRetry(TOKEN_FETCH_RETRY_DELAY_MS * attempt);
-    }
-  }
-
-  return { token: null, error: lastError };
 };
 
 type ViewTab =
@@ -542,7 +489,7 @@ export default function PairDetails() {
         } catch (err) {
           console.error("Failed to resolve pair contract pools:", err);
           if (active) {
-            setError(getReadableTokenError(err));
+            setError("Token not found");
             setLoading(false);
           }
           return;
@@ -625,24 +572,17 @@ export default function PairDetails() {
 
       let data: Token | null = null;
       if (parts.length >= 2) {
-        let pairFetchError: string | null = null;
         if (baseDenom) {
-          const result = await fetchTokenBySymbolWithRetry(baseDenom, {
-            poolId: matchedPoolId,
-          });
-          data = result.token;
-          pairFetchError = result.error;
+          data = await fetchTokenBySymbol(baseDenom, { poolId: matchedPoolId });
         }
         if (!data && quoteDenom) {
-          const result = await fetchTokenBySymbolWithRetry(quoteDenom);
-          data = result.token;
-          pairFetchError = pairFetchError || result.error;
+          data = await fetchTokenBySymbol(quoteDenom);
         }
         if (baseDenom || quoteDenom) {
           const symbolResults = await Promise.allSettled(
             [baseDenom, quoteDenom]
               .filter((v): v is string => typeof v === "string" && v.length > 0)
-              .map((c) => fetchTokenBySymbolWithRetry(c).then((result) => result.token))
+              .map((c) => fetchTokenBySymbol(c))
           );
           const resolved = symbolResults
             .filter(
@@ -668,26 +608,13 @@ export default function PairDetails() {
             setResolvedQuoteSymbol(quoteSym);
           }
         }
-        if (!data && pairFetchError) {
-          setError(pairFetchError);
-          setLoading(false);
-          return;
-        }
       } else {
-        let tokenResult = await fetchTokenBySymbolWithRetry(lookupKey);
-        data = tokenResult.token;
+        data = await fetchTokenBySymbol(lookupKey);
         if (!data && baseDenom && baseDenom !== lookupKey) {
-          tokenResult = await fetchTokenBySymbolWithRetry(baseDenom);
-          data = tokenResult.token;
+          data = await fetchTokenBySymbol(baseDenom);
         }
         if (!data && quoteDenom && quoteDenom !== lookupKey) {
-          tokenResult = await fetchTokenBySymbolWithRetry(quoteDenom);
-          data = tokenResult.token;
-        }
-        if (!data && tokenResult.error) {
-          setError(tokenResult.error);
-          setLoading(false);
-          return;
+          data = await fetchTokenBySymbol(quoteDenom);
         }
       }
       if (!active) return;
@@ -717,9 +644,9 @@ export default function PairDetails() {
       setLoading(false);
     };
 
-    load().catch((error) => {
+    load().catch(() => {
       if (!active) return;
-      setError(getReadableTokenError(error));
+      setError("Failed to load token");
       setLoading(false);
     });
 
@@ -795,20 +722,66 @@ export default function PairDetails() {
     setResolvedQuoteSymbol(swappedPair.quoteSymbol);
   };
 
+  useEffect(() => {
+    if (!token) return;
+
+    applyTokenPageMetadata({
+      tokenKey:
+        effectiveSelectedPair?.baseDenom ||
+        token.denom ||
+        token.pair_contract ||
+        token.symbol,
+      symbol: token.symbol,
+      price: token.priceUsd || token.price || 0,
+    });
+  }, [effectiveSelectedPair?.baseDenom, token]);
+
+  const liveTokenLookupKey =
+    effectiveSelectedPair?.baseDenom || token?.denom || token?.pair_contract || null;
+  const liveTokenPoolId = effectiveSelectedPair?.poolId || null;
+
+  useEffect(() => {
+    if (!liveTokenLookupKey) return;
+
+    let active = true;
+
+    const refreshTokenPrice = async () => {
+      try {
+        const refreshed = await fetchTokenBySymbol(liveTokenLookupKey, {
+          poolId: liveTokenPoolId,
+        });
+        if (!active || !refreshed) return;
+
+        setToken((current) => {
+          if (!current) {
+            return {
+              ...refreshed,
+              icon: refreshed.icon || "/zigicon.png",
+            };
+          }
+          return {
+            ...current,
+            ...refreshed,
+            icon: refreshed.icon || current.icon || "/zigicon.png",
+          };
+        });
+      } catch (error) {
+        if (!active) return;
+        console.error("Failed to refresh live token price:", error);
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      refreshTokenPrice();
+    }, LIVE_PRICE_REFRESH_MS);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [liveTokenLookupKey, liveTokenPoolId]);
+
   if (!loading && (error || !token)) {
-    if (error && error !== "Token not found") {
-      return (
-        <main className="flex min-h-screen flex-col bg-black relative overflow-hidden">
-          <Navbar />
-          <TopMarketToken />
-          <div className="relative z-10 flex flex-1 items-center justify-center px-6 py-20">
-            <div className="max-w-xl rounded-[28px] border border-white/8 bg-white/[0.03] px-8 py-10 text-center text-white/90 backdrop-blur-xl">
-              {error}
-            </div>
-          </div>
-        </main>
-      );
-    }
     return <NotFoundPage />;
   }
 
@@ -945,6 +918,7 @@ export default function PairDetails() {
     setIsAuditPanelVisible((v) => !v);
   };
   const auditTokenKey = token?.denom || token?.pair_contract || null;
+
   return (
     <main className="flex min-h-screen flex-col bg-black relative overflow-hidden">
       <div

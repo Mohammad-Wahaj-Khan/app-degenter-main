@@ -22,6 +22,7 @@ import TopMarketToken from "../components/TopMarketToken";
 import { useChain } from "@cosmos-kit/react";
 import { CHAIN_NAME } from "../config/chain";
 import { API_KEY } from "@/lib/api";
+import { applyPageMetadata } from "@/lib/page-metadata";
 
 const GUEST_WALLET_KEY = "degenterGuestWalletId";
 const USER_ID_KEY = "degenterUserId";
@@ -47,6 +48,13 @@ const defaultProfile: Profile = {
 };
 
 export default function ProfilePage() {
+  useEffect(() => {
+    applyPageMetadata({
+      pageName: "Profile",
+      description: "Profile | Degenter.io",
+    });
+  }, []);
+
   const searchParams = useSearchParams();
   const userId = useMemo(
     () => searchParams.get("userId")?.trim() || "",

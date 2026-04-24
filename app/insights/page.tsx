@@ -1,4 +1,5 @@
 // app/insights/page.tsx
+import type { Metadata } from "next";
 import InsightsContent from "./components/InsightsContent";
 import Navbar from "../components/navbar";
 import TopMarketToken from "../components/TopMarketToken";
@@ -6,6 +7,9 @@ import { API_BASE_URL, API_HEADERS } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const metadata: Metadata = {
+  title: "Insights | Degenter.io",
+};
 
 async function getTokenData() {
   const baseUrl = API_BASE_URL.replace(/\/+$/, "");
