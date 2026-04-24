@@ -20,26 +20,6 @@ const API_BASE = API_BASE_URL.replace(/\/+$/, "");
 const TOKEN_FETCH_MAX_ATTEMPTS = 5;
 const TOKEN_FETCH_RETRY_DELAY_MS = 350;
 
-const getReadableTokenError = (error: unknown) => {
-  const message =
-    error instanceof Error ? error.message : typeof error === "string" ? error : "";
-
-  if (!message) return "Token service returned an unexpected error.";
-  if (message.includes("404")) return "Token not found";
-  if (message.includes("429")) return "Token service is rate limited. Please try again.";
-  if (message.includes("500") || message.includes("502") || message.includes("503")) {
-    return `Token service is temporarily unavailable (${message}).`;
-  }
-  if (
-    message.toLowerCase().includes("failed to fetch") ||
-    message.toLowerCase().includes("network")
-  ) {
-    return "Token service did not respond. Please try again.";
-  }
-
-  return message;
-};
-
 const normalizePairValue = (value?: string | null) =>
   (value ?? "").trim().toLowerCase();
 
@@ -171,130 +151,120 @@ async function fetchTokenBySymbol(
   symbol: string,
   options: { poolId?: string | null } = {}
 ): Promise<Token | null> {
-  if (symbol.toLowerCase().startsWith("zig1")) {
-    const resolved = await resolvePairContractToToken(symbol);
-    if (resolved && resolved !== symbol) {
-      return fetchTokenBySymbol(resolved, options);
+  try {
+    if (symbol.toLowerCase().startsWith("zig1")) {
+      const resolved = await resolvePairContractToToken(symbol);
+      if (resolved && resolved !== symbol) {
+        return fetchTokenBySymbol(resolved, options);
+      }
+      return null;
     }
-    return null;
-  }
-
-  const json = await tokenAPI.getTokenDetailsBySymbol(
-    symbol,
-    options.poolId ? "pool" : "best",
-    true,
-    {},
-    options.poolId
-  );
-  if (!json?.success || !json?.data) {
-    console.error("API returned unsuccessful response:", json);
-    return null;
-  }
-
-  const payload = json.data;
-  const t = payload?.token;
-  if (!t) {
-    console.error("No data in API response");
-    return null;
-  }
-
-  if (
-    t.denom &&
-    normalizeTokenValue(t.denom) !== normalizeTokenValue(symbol)
-  ) {
-    return fetchTokenBySymbol(t.denom, options);
-  }
-
-  // Extract Twitter data from response
-  const twitterData =
-    (typeof json?.twitter === "object" && json.twitter ? json.twitter : {}) ||
-    {};
-  const twitterHandle =
-    t.twitter
-      ?.replace("https://x.com/", "")
-      .replace("https://twitter.com/", "") ||
-    json?.twitter?.handle ||
-    undefined;
-
-  const twitterUrl = twitterHandle
-    ? twitterHandle.startsWith("http")
-      ? twitterHandle
-      : `https://x.com/${twitterHandle}`
-    : null;
-
-  let derivedSymbol = t.symbol || "";
-  let derivedIcon = t.imageUri || null;
-  const display = t.display || t.denom || symbol;
-  const derivedDenom = t.denom || derivedSymbol || symbol;
-
-  if (symbol.toLowerCase().startsWith("ibc/")) {
-    const ibcMeta = await findIbcMeta(symbol);
-    if (ibcMeta?.symbol) derivedSymbol = ibcMeta.symbol;
-    if (ibcMeta?.imageUri) derivedIcon = ibcMeta.imageUri;
-    if (!derivedSymbol) {
-      const parts = symbol.split("/");
-      derivedSymbol = (parts[parts.length - 1] || symbol).toUpperCase();
+    const json = await tokenAPI.getTokenDetailsBySymbol(
+      symbol,
+      options.poolId ? "pool" : "best",
+      true,
+      {},
+      options.poolId
+    );
+    if (!json?.success || !json?.data) {
+      console.error("API returned unsuccessful response:", json);
+      return null;
     }
-  }
 
-  return {
-    id: Number(t.tokenId || 0),
-    denom: derivedDenom,
-    name: t.name || "Unknown",
-    symbol: derivedSymbol,
-    display,
-    description:
-      t.description || t.name || "Hello everyone! This is a Degenter token.",
-    icon: derivedIcon,
-    twitter: twitterUrl,
-    telegram: t.telegram ?? null,
-    website: t.website ?? null,
-    createdAt: t.createdAt ?? null,
-    socials: {
-      twitter: {
-        handle: twitterData.handle || twitterHandle?.replace("@", ""),
-        userId: twitterData.userId,
-        name: twitterData.name,
-        isBlueVerified: twitterData.isBlueVerified,
-        verifiedType: twitterData.verifiedType,
-        profilePicture: twitterData.profilePicture,
-        coverPicture: twitterData.coverPicture,
-        followers: twitterData.followers,
-        following: twitterData.following,
-        createdAtTwitter: twitterData.createdAtTwitter,
-        lastRefreshed: twitterData.lastRefreshed,
+    const payload = json.data;
+    const t = payload?.token;
+    if (!t) {
+      console.error("No data in API response");
+      return null;
+    }
+
+    if (
+      t.denom &&
+      normalizeTokenValue(t.denom) !== normalizeTokenValue(symbol)
+    ) {
+      return fetchTokenBySymbol(t.denom, options);
+    }
+
+    // Extract Twitter data from response
+    const twitterData =
+      (typeof json?.twitter === "object" && json.twitter ? json.twitter : {}) ||
+      {};
+    const twitterHandle =
+      t.twitter
+        ?.replace("https://x.com/", "")
+        .replace("https://twitter.com/", "") ||
+      json?.twitter?.handle ||
+      undefined;
+
+    const twitterUrl = twitterHandle
+      ? twitterHandle.startsWith("http")
+        ? twitterHandle
+        : `https://x.com/${twitterHandle}`
+      : null;
+
+    let derivedSymbol = t.symbol || "";
+    let derivedIcon = t.imageUri || null;
+    const display = t.display || t.denom || symbol;
+    const derivedDenom = t.denom || derivedSymbol || symbol;
+
+    if (symbol.toLowerCase().startsWith("ibc/")) {
+      const ibcMeta = await findIbcMeta(symbol);
+      if (ibcMeta?.symbol) derivedSymbol = ibcMeta.symbol;
+      if (ibcMeta?.imageUri) derivedIcon = ibcMeta.imageUri;
+      if (!derivedSymbol) {
+        const parts = symbol.split("/");
+        derivedSymbol = (parts[parts.length - 1] || symbol).toUpperCase();
+      }
+    }
+
+    return {
+      id: Number(t.tokenId || 0),
+      denom: derivedDenom,
+      name: t.name || "Unknown",
+      symbol: derivedSymbol,
+      display,
+      description:
+        t.description || t.name || "Hello everyone! This is a Degenter token.",
+      icon: derivedIcon,
+      twitter: twitterUrl,
+      telegram: t.telegram ?? null,
+      website: t.website ?? null,
+      createdAt: t.createdAt ?? null,
+      socials: {
+        twitter: {
+          handle: twitterData.handle || twitterHandle?.replace("@", ""),
+          userId: twitterData.userId,
+          name: twitterData.name,
+          isBlueVerified: twitterData.isBlueVerified,
+          verifiedType: twitterData.verifiedType,
+          profilePicture: twitterData.profilePicture,
+          coverPicture: twitterData.coverPicture,
+          followers: twitterData.followers,
+          following: twitterData.following,
+          createdAtTwitter: twitterData.createdAtTwitter,
+          lastRefreshed: twitterData.lastRefreshed,
+        },
       },
-    },
-  };
+    };
+  } catch (err) {
+    console.error("Error fetching token:", err);
+    return null;
+  }
 }
-
-type TokenFetchResult = {
-  token: Token | null;
-  error: string | null;
-};
 
 async function fetchTokenBySymbolWithRetry(
   symbol: string,
   options: { poolId?: string | null } = {},
   maxAttempts = TOKEN_FETCH_MAX_ATTEMPTS
-): Promise<TokenFetchResult> {
-  let lastError: string | null = null;
-
+): Promise<Token | null> {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      const token = await fetchTokenBySymbol(symbol, options);
-      if (token) return { token, error: null };
-    } catch (error) {
-      lastError = getReadableTokenError(error);
-      console.error("Error fetching token:", error);
-    }
-
+    const token = await fetchTokenBySymbol(symbol, options);
+    if (token) return token;
     if (attempt < maxAttempts) {
       await waitForRetry(TOKEN_FETCH_RETRY_DELAY_MS * attempt);
     }
   }
-
-  return { token: null, error: lastError };
+  return null;
 }
 
 async function resolvePairContractToToken(pairContract: string) {
@@ -508,16 +478,16 @@ export default function AddLeft({
       setLoading(true);
       setError(null);
       try {
-        const { token: t, error: fetchError } = await fetchTokenBySymbolWithRetry(summaryTokenKey, {
+        const t = await fetchTokenBySymbolWithRetry(summaryTokenKey, {
           poolId: shouldUsePoolPricing ? selectedPoolId : null,
         });
         if (!t) {
-          setError(fetchError || "Token not found");
+          setError("Token not found");
         }
         setToken(t);
       } catch (err) {
         console.error("Failed to fetch token:", err);
-        setError(getReadableTokenError(err));
+        setError("Failed to load token data");
       } finally {
         setLoading(false);
       }
