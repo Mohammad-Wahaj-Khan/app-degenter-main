@@ -1102,11 +1102,13 @@ function makeDatafeed(
         const bars = await fetchBars(tf, fromSec, toSec);
         if (!bars.length) return onHistory([], { noData: true });
 
-        const filtered = bars.filter(
+        const historyPayload = bars.filter(
           (b: { time: number }) =>
-            b.time >= period.from * 1000 && b.time <= period.to * 1000
+            b.time >= period.from * 1000 && b.time < period.to * 1000
         );
-        const historyPayload = filtered.length ? filtered : bars;
+        if (!historyPayload.length) {
+          return onHistory([], { noData: true });
+        }
 
         onHistory(historyPayload, { noData: false });
 
