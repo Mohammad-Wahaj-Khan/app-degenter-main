@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Search, Wallet, AlertTriangle, TrendingUp, ChevronDown, Copy, Check, ShieldAlert } from 'lucide-react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import FeatureLaunchGate from '../components/feature-launch-gate';
 import TopMarketToken from '../components/TopMarketToken';
 import Navbar from '../components/navbar';
 import { applyPageMetadata } from '@/lib/page-metadata';
@@ -281,6 +282,7 @@ export default function WalletTracker() {
   };
 
   return (
+    <FeatureLaunchGate feature="portfolio">
     <main className="flex min-h-screen flex-col  relative overflow-hidden" ref={containerRef}>
 
       {/* Holographic Globe Background - Behind main content */}
@@ -427,5 +429,6 @@ export default function WalletTracker() {
         }
       `}</style>
     </main>
+    </FeatureLaunchGate>
   );
 }
