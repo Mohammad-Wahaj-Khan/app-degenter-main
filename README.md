@@ -12,6 +12,8 @@ npm install
 pnpm install
 ```
 
+<!-- hello goizz -->
+
 Then, run the development server:
 
 ```bash
