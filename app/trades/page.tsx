@@ -8,6 +8,7 @@ import { applyTokenPageMetadata } from "@/lib/token-page-metadata";
 import { applyPageMetadata } from "@/lib/page-metadata";
 import Navbar from "@/app/components/navbar";
 import TopMarketToken from "@/app/components/TopMarketToken";
+import FeatureLaunchGate from "@/app/components/feature-launch-gate";
 import NotFoundPage from "@/app/not-found";
 import AssetsFilter from "./components/AssetsFilter";
 import Trades, { TokenOption, TradesFilter, Trade } from "./components/Trades";
@@ -270,7 +271,8 @@ export default function FindTrades() {
   }
 
   return (
-       <main className="flex min-h-screen flex-col bg-black relative overflow-hidden">
+    <FeatureLaunchGate feature="trades">
+      <main className="flex min-h-screen flex-col bg-black relative overflow-hidden">
         <div
           className="absolute inset-0 z-1 h-60"
           style={{
@@ -359,6 +361,7 @@ export default function FindTrades() {
         </div>
       </div>
 
-    </main>
+      </main>
+    </FeatureLaunchGate>
   );
 }

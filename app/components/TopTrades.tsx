@@ -283,8 +283,8 @@ export default function TopTrades({ tokenId }: TopTradesProps) {
               <td className="px-4 py-2 text-left text-gray-400">Price</td>
               <td className="px-4 py-2 text-left text-gray-400">Amount</td>
               <td className="px-4 py-2 text-left text-gray-400">Value (USD)</td>
+              <td className="px-4 py-2 text-left text-gray-400">Signer</td>
               <td className="px-4 py-2 text-left text-gray-400">TX HASH</td>
-              <td className="px-4 py-2 text-left text-gray-400">ACTION</td>
             </tr>
           </thead>
           <tbody className="bg-black/60 divide-y divide-gray-800">
@@ -399,6 +399,17 @@ export default function TopTrades({ tokenId }: TopTradesProps) {
                   </td>
                   <td className="px-4 py-2 text-left">
                     <Link
+                      href={`https://zigscan.org/address/${trade.signer}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block bg-gray-900/60 rounded px-2 py-1 text-xs font-mono text-blue-300 hover:underline"
+                      title={trade.signer}
+                    >
+                      {trade.signer.slice(0, 8)}...{trade.signer.slice(-6)}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-2 text-left">
+                    <Link
                       href={`https://zigscan.org/tx/${trade.txHash}`}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -408,17 +419,7 @@ export default function TopTrades({ tokenId }: TopTradesProps) {
                       {trade.txHash.slice(0, 9)}...
                     </Link>
                   </td>
-                  <td className="px-4 py-2 text-left">
-                    <Link
-                      href={`https://zigscan.org/tx/${trade.txHash}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-400 hover:underline text-sm"
-                      title="View on ZigScan"
-                    >
-                      🔗
-                    </Link>
-                  </td>
+
                 </tr>
               ))
             ) : (

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import Navbar from '../components/navbar';
 import TopMarketToken from '../components/TopMarketToken';
+import FeatureLaunchGate from '../components/feature-launch-gate';
 import InsightsContent from '../insights/components/InsightsContent';
 import FindGemsMain from './components/findgems';
 
@@ -24,7 +25,7 @@ export const metadata: Metadata = {
 const Dashboard = () => {
 
   return (
-    // <main className="min-h-screen bg-[#000000] text-[#E5E7EB] font-sans selection:bg-yellow-500/30">
+    <FeatureLaunchGate feature="findgems">
       <main className="flex min-h-screen flex-col bg-black relative overflow-hidden">
         <div
           className="absolute inset-0 z-1 h-60"
@@ -43,7 +44,6 @@ const Dashboard = () => {
             filter: "saturate(120%) contrast(110%) brightness(0.9)",
           }}
         >
-          {/* Soft darkening/vignette to match the reference look */}
           <div
             className="absolute inset-0 pointer-events-none"
             style={{
@@ -52,7 +52,6 @@ const Dashboard = () => {
               mixBlendMode: "multiply",
             }}
           />
-          {/* Grain/Noise Overlay */}
           <div
             className="absolute inset-0 opacity-40 mix-blend-overlay pointer-events-none"
             style={{
@@ -62,17 +61,16 @@ const Dashboard = () => {
               filter: "contrast(120%)",
             }}
           />
-
-          {/* Fade overlay to blend bottom edge */}
           <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-b from-transparent to-black"></div>
         </div>
-      <div className="animate-header relative z-20">
-        <Navbar />
-        <TopMarketToken />
-      </div>
+        <div className="animate-header relative z-20">
+          <Navbar />
+          <TopMarketToken />
+        </div>
 
-        <FindGemsMain/>
-    </main>
+        <FindGemsMain />
+      </main>
+    </FeatureLaunchGate>
   );
 };
 

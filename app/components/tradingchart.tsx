@@ -99,6 +99,107 @@ type FeedCandle = {
   volume: number;
 };
 
+const CANDLE_SCALE_FACTOR = 1_000_000;
+const MAX_CANDLE_CLOSE_JUMP = 20;
+const MAX_CANDLE_WICK_RATIO = 12;
+
+function toUnixMs(value: unknown): number {
+  if (value === null || value === undefined || value === "") return NaN;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return NaN;
+    return value > 1e12 ? Math.floor(value) : Math.floor(value * 1000);
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return NaN;
+
+  const numeric = Number(raw);
+  if (Number.isFinite(numeric)) {
+    return numeric > 1e12 ? Math.floor(numeric) : Math.floor(numeric * 1000);
+  }
+
+  return Date.parse(raw);
+}
+
+function normalizeFeedCandle(
+  raw: FeedCandle,
+  referenceClose?: number | null
+): FeedCandle | null {
+  const candidates = [1, 1 / CANDLE_SCALE_FACTOR, CANDLE_SCALE_FACTOR];
+  const makeCandidate = (scale: number): FeedCandle | null => {
+    const time = Math.floor(raw.time);
+    const open = raw.open * scale;
+    const high = raw.high * scale;
+    const low = raw.low * scale;
+    const close = raw.close * scale;
+    const values = [time, open, high, low, close];
+    if (!values.every(Number.isFinite)) return null;
+    if (open <= 0 || high <= 0 || low <= 0 || close <= 0) return null;
+
+    const bodyHigh = Math.max(open, close);
+    const bodyLow = Math.min(open, close);
+    return {
+      time,
+      open,
+      high: Math.max(high, bodyHigh),
+      low: Math.min(low, bodyLow),
+      close,
+      volume: Number.isFinite(raw.volume) && raw.volume > 0 ? raw.volume : 0,
+    };
+  };
+
+  const normalized = candidates
+    .map(makeCandidate)
+    .filter((bar): bar is FeedCandle => Boolean(bar));
+  if (!normalized.length) return null;
+
+  const ref =
+    referenceClose && Number.isFinite(referenceClose) && referenceClose > 0
+      ? referenceClose
+      : null;
+  let picked = normalized[0];
+
+  if (ref) {
+    const scored = normalized
+      .map((bar) => {
+        const ratio = bar.close / ref;
+        const score = Math.abs(Math.log(ratio));
+        return { bar, ratio, score };
+      })
+      .filter(({ ratio }) => ratio > 0);
+    scored.sort((a, b) => a.score - b.score);
+    picked = scored[0]?.bar ?? picked;
+
+    const closeRatio = picked.close / ref;
+    if (
+      closeRatio > MAX_CANDLE_CLOSE_JUMP ||
+      closeRatio < 1 / MAX_CANDLE_CLOSE_JUMP
+    ) {
+      return null;
+    }
+
+    const bodyHigh = Math.max(picked.open, picked.close);
+    const bodyLow = Math.min(picked.open, picked.close);
+    const refHigh = Math.max(bodyHigh, ref);
+    const refLow = Math.min(bodyLow, ref);
+
+    if (picked.high / refHigh > MAX_CANDLE_WICK_RATIO) {
+      picked = { ...picked, high: bodyHigh };
+    }
+    if (refLow / picked.low > MAX_CANDLE_WICK_RATIO) {
+      picked = { ...picked, low: bodyLow };
+    }
+  }
+
+  const bodyHigh = Math.max(picked.open, picked.close);
+  const bodyLow = Math.min(picked.open, picked.close);
+  return {
+    ...picked,
+    high: Math.max(picked.high, bodyHigh),
+    low: Math.min(picked.low, bodyLow),
+  };
+}
+
 type SwapDir = "buy" | "sell";
 
 type ParsedSwap = {
@@ -540,6 +641,7 @@ function makeDatafeed(
   let boundaryTimer: NodeJS.Timeout | null = null;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let reconnectAttempts = 0;
+  const bucketSeedRequests = new Map<string, Promise<boolean>>();
 
   async function fetchBars(tf: TfKey, fromSec: number, toSec: number) {
     const mode = getMode();
@@ -574,9 +676,9 @@ function makeDatafeed(
     const r = await fetchApi(url, { cache: "no-store" });
     const j = await r.json();
     const data = Array.isArray(j?.data) ? j.data : [];
-    const bars = data
+    const rawBars = data
       .map((b: any) => ({
-        time: Number(b.ts_sec ?? b.ts ?? b.time) * 1000,
+        time: toUnixMs(b.ts_sec ?? b.ts ?? b.time ?? b.bucket_start),
         open: Number(b.open),
         high: Number(b.high),
         low: Number(b.low),
@@ -589,6 +691,18 @@ function makeDatafeed(
           [x.open, x.high, x.low, x.close].every(Number.isFinite)
       )
       .sort((a: { time: number }, b: { time: number }) => a.time - b.time);
+    const bars: FeedCandle[] = [];
+    for (const rawBar of rawBars) {
+      const previousClose = bars.at(-1)?.close ?? null;
+      const bar = normalizeFeedCandle(rawBar, previousClose);
+      if (!bar) continue;
+      const previous = bars.at(-1);
+      if (previous?.time === bar.time) {
+        bars[bars.length - 1] = bar;
+      } else {
+        bars.push(bar);
+      }
+    }
 
     if (!zigUsdcPoolSource) return bars;
 
@@ -605,7 +719,8 @@ function makeDatafeed(
       .filter((bar: any): bar is FeedCandle => Boolean(bar));
   }
 
-  const uniqueTfs = () => Array.from(new Set(Array.from(subs.values()).map((s) => s.tf)));
+  const uniqueTfs = () =>
+    Array.from(new Set(Array.from(subs.values()).map((s) => s.tf)));
 
   const broadcast = (tf: TfKey, bar: FeedCandle) => {
     const matching = Array.from(subs.values()).filter((s) => s.tf === tf);
@@ -629,13 +744,31 @@ function makeDatafeed(
     lastTimestamps.clear();
     lastRealtimeBar.clear();
     lastCloseByTf.clear();
+    bucketSeedRequests.clear();
   };
 
-  const setLastBar = (tf: TfKey, bar: FeedCandle, emit = true) => {
+  const isFlatPlaceholderBar = (bar?: FeedCandle | null) =>
+    Boolean(
+      bar &&
+        bar.volume === 0 &&
+        bar.open === bar.high &&
+        bar.high === bar.low &&
+        bar.low === bar.close
+    );
+
+  const setLastBar = (tf: TfKey, rawBar: FeedCandle, emit = true) => {
+    const prev = lastRealtimeBar.get(tf);
+    const bar = normalizeFeedCandle(
+      rawBar,
+      prev?.close ?? lastCloseByTf.get(tf)
+    );
+    if (!bar) return false;
+    if (prev && bar.time < prev.time) return false;
     lastRealtimeBar.set(tf, bar);
     lastTimestamps.set(tf, bar.time);
     lastCloseByTf.set(tf, bar.close);
     if (emit) broadcast(tf, bar);
+    return true;
   };
 
   const ensureBoundaryPlaceholders = () => {
@@ -656,9 +789,65 @@ function makeDatafeed(
         close: fallbackClose,
         volume: 0,
       };
-      // keep internal but don't emit
       setLastBar(tf, placeholder, false);
     }
+  };
+
+  const seedBucketFromMinuteHistory = async (
+    targetTf: TfKey,
+    bucketMs: number
+  ) => {
+    if (targetTf === "1m") return true;
+
+    const current = lastRealtimeBar.get(targetTf);
+    if (current?.time === bucketMs && !isFlatPlaceholderBar(current)) {
+      return true;
+    }
+
+    const requestKey = `${targetTf}:${bucketMs}`;
+    const existing = bucketSeedRequests.get(requestKey);
+    if (existing) return existing;
+
+    const request = (async () => {
+      try {
+        const bucketSec = Math.floor(bucketMs / 1000);
+        const stepSec = STEP_SEC[targetTf];
+        const toSec = Math.min(
+          bucketSec + stepSec,
+          Math.floor(Date.now() / 1000) + STEP_SEC["1m"]
+        );
+        const minuteBars = (await fetchBars("1m", bucketSec, toSec)).filter(
+          (bar: FeedCandle) =>
+            bar.time >= bucketMs && bar.time < (bucketSec + stepSec) * 1000
+        );
+
+        if (!minuteBars.length) return false;
+
+        const first = minuteBars[0];
+        const last = minuteBars[minuteBars.length - 1];
+        const seeded: FeedCandle = {
+          time: bucketMs,
+          open: first.open,
+          high: Math.max(...minuteBars.map((bar) => bar.high)),
+          low: Math.min(...minuteBars.map((bar) => bar.low)),
+          close: last.close,
+          volume: minuteBars.reduce(
+            (sum, bar) => sum + (Number.isFinite(bar.volume) ? bar.volume : 0),
+            0
+          ),
+        };
+
+        return setLastBar(targetTf, seeded, false);
+      } catch (err) {
+        console.debug("Unable to seed realtime candle bucket", err);
+        return false;
+      } finally {
+        bucketSeedRequests.delete(requestKey);
+      }
+    })();
+
+    bucketSeedRequests.set(requestKey, request);
+    return request;
   };
 
   const scheduleReconnect = () => {
@@ -868,8 +1057,9 @@ function makeDatafeed(
         : "usd";
       if (unit && unit !== expectedUnit) return;
       const data = msg?.data || {};
-      const bucketStart = data?.bucket_start || msg?.bucket_start;
-      const timeMs = bucketStart ? Date.parse(bucketStart) : NaN;
+      const bucketStart =
+        data?.bucket_start ?? msg?.bucket_start ?? data?.time ?? msg?.time;
+      const timeMs = toUnixMs(bucketStart);
       if (!Number.isFinite(timeMs)) return;
       let open = Number(data?.open);
       let high = Number(data?.high);
@@ -913,10 +1103,25 @@ function makeDatafeed(
         close = candle.close;
       }
 
+      const stepMs = STEP_SEC[tf] * 1000;
+      const maxFutureMs = Date.now() + Math.max(10_000, stepMs);
+      if (candle.time > maxFutureMs) return;
+
       const tsSec = Math.floor(timeMs / 1000);
-      const applyCandleToTf = (targetTf: TfKey, base: FeedCandle) => {
+      let applied = false;
+      const applyCandleToTf = async (targetTf: TfKey, base: FeedCandle) => {
         const step = STEP_SEC[targetTf];
         const bucket = alignFloor(tsSec, step) * 1000;
+        const existing = lastRealtimeBar.get(targetTf);
+        if (
+          targetTf !== "1m" &&
+          (!existing ||
+            existing.time !== bucket ||
+            isFlatPlaceholderBar(existing))
+        ) {
+          await seedBucketFromMinuteHistory(targetTf, bucket);
+        }
+
         const prev = lastRealtimeBar.get(targetTf);
         const fallbackClose = lastCloseByTf.get(targetTf);
         const anchorTime = prev?.time ?? lastTimestamps.get(targetTf) ?? null;
@@ -924,6 +1129,10 @@ function makeDatafeed(
         fillMissingBuckets(targetTf, bucket, anchorTime, anchorClose);
 
         const current = lastRealtimeBar.get(targetTf);
+        if (targetTf !== "1m" && (!current || current.time !== bucket)) {
+          return;
+        }
+
         if (!current || current.time !== bucket) {
           const openBase =
             current?.close ?? fallbackClose ?? base.open ?? base.close;
@@ -935,7 +1144,7 @@ function makeDatafeed(
             close: base.close,
             volume: base.volume ?? 0,
           };
-          setLastBar(targetTf, bar, true);
+          applied = setLastBar(targetTf, bar, true) || applied;
           return;
         }
 
@@ -946,19 +1155,19 @@ function makeDatafeed(
           close: base.close,
           volume: (current.volume || 0) + (base.volume ?? 0),
         };
-        setLastBar(targetTf, updated, true);
+        applied = setLastBar(targetTf, updated, true) || applied;
       };
 
       if (tf === "1m") {
-        applyCandleToTf("1m", candle);
+        await applyCandleToTf("1m", candle);
       } else {
-        setLastBar(tf, candle, true);
+        applied = setLastBar(tf, candle, true) || applied;
       }
 
       if (tf === "1m") {
         const tfs = uniqueTfs().filter((t) => t !== "1m");
         for (const targetTf of tfs) {
-          applyCandleToTf(targetTf, candle);
+          await applyCandleToTf(targetTf, candle);
         }
       }
 
@@ -970,7 +1179,7 @@ function makeDatafeed(
         : zigUsd > 0
         ? rawClose / zigUsd
         : null;
-      if (zigPrice && Number.isFinite(zigPrice) && zigPrice > 0) {
+      if (applied && zigPrice && Number.isFinite(zigPrice) && zigPrice > 0) {
         setLivePriceCb({ zig: zigPrice, ts: timeMs });
       }
     })().catch((e) => console.error("ws msg parse", e));
