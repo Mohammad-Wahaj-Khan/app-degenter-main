@@ -1157,6 +1157,27 @@ export default function SwapInterface({
       )
     );
   }, [activePay.symbol, activeReceive.symbol, smartRouteQuote, tokenFromDenom]);
+  const routeModalWidth = useMemo(() => {
+    const tokenCount = modalRouteTokens.length;
+    if (tokenCount <= 0) return 820;
+
+    const connectorWidth = 64;
+    const edgeTokenWidth = 156;
+    const middleTokenWidth = 180;
+    const panelPadding = 64;
+    const modalPadding = 64;
+    const middleTokenCount = Math.max(tokenCount - 2, 0);
+    const edgeWidth =
+      tokenCount === 1 ? middleTokenWidth : edgeTokenWidth * Math.min(tokenCount, 2);
+
+    return (
+      edgeWidth +
+      middleTokenCount * middleTokenWidth +
+      Math.max(tokenCount - 1, 0) * connectorWidth +
+      panelPadding +
+      modalPadding
+    );
+  }, [modalRouteTokens.length]);
 
   /* =========================
    * SWAP (single hop direct pair OR router via operations)
@@ -2382,7 +2403,12 @@ export default function SwapInterface({
               onClick={() => setShowRouteModal(false)}
             />
             <div className="fixed inset-0 z-[100010] flex items-center justify-center overflow-y-auto p-4">
-              <div className="relative my-4 w-full max-w-[820px] overflow-hidden rounded-xl border border-[#d4af37]/25 bg-[#050505]/95 p-6 text-white shadow-[0_28px_100px_rgba(0,0,0,0.84)] sm:p-8">
+              <div
+                className="relative my-4 overflow-visible rounded-xl border border-[#d4af37]/25 bg-[#050505]/95 p-6 text-white shadow-[0_28px_100px_rgba(0,0,0,0.84)] sm:p-8"
+                style={{
+                  width: `min(calc(100vw - 32px), ${routeModalWidth}px)`,
+                }}
+              >
                 <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_18%,rgba(212,175,55,0.10),transparent_30%),radial-gradient(circle_at_78%_48%,rgba(57,200,166,0.10),transparent_34%),radial-gradient(circle_at_40%_100%,rgba(255,64,40,0.055),transparent_36%)]" />
                 <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-[#d4af37]/70 to-transparent" />
                 <button
@@ -2398,9 +2424,9 @@ export default function SwapInterface({
                   ROUTE
                 </h3>
 
-                <div className="relative overflow-x-auto rounded-lg border border-[#d4af37]/35 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(0,0,0,0.35))] px-5 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),inset_0_0_34px_rgba(57,200,166,0.08)] backdrop-blur-xl sm:px-8">
+                <div className="relative overflow-visible rounded-lg border border-[#d4af37]/35 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(0,0,0,0.35))] px-5 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),inset_0_0_34px_rgba(57,200,166,0.08)] backdrop-blur-xl sm:px-8">
                   <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_28%_52%,rgba(212,175,55,0.12),transparent_26%),radial-gradient(circle_at_72%_52%,rgba(57,200,166,0.10),transparent_28%)]" />
-                  <div className="flex min-w-max items-center justify-center sm:min-w-full">
+                  <div className="flex w-full items-center justify-center">
                     {modalRouteTokens.map((token, index) => {
                       const pair =
                         smartRouteQuote.pairs[Math.max(0, index - 1)];

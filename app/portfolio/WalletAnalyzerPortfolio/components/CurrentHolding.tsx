@@ -86,6 +86,30 @@ const fetchFromEndpoints = async (
 
 const formatUsdValue = (value?: number) => {
   if (value == null || !Number.isFinite(value)) return "—";
+  if (value === 0) {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 2,
+    }).format(0);
+  }
+
+  if (Math.abs(value) < 1) {
+    const fixed = Math.abs(value).toFixed(20);
+    const decimals = fixed.split(".")[1] ?? "";
+    const firstNonZeroIndex = decimals.search(/[1-9]/);
+    const fractionDigits =
+      firstNonZeroIndex === -1 ? 2 : Math.max(2, firstNonZeroIndex + 1);
+
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: fractionDigits,
+      minimumFractionDigits: fractionDigits,
+    }).format(value);
+  }
+
   return new Intl.NumberFormat(undefined, {
     style: "currency",
     currency: "USD",
