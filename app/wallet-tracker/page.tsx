@@ -61,8 +61,8 @@ export default function WalletTracker() {
     let time = 0;
 
     const resize = () => {
-      const targetWidth = Math.min(window.innerWidth, 1100);
-      const targetHeight = Math.min(window.innerHeight * 0.6, 520);
+      const targetWidth = Math.min(window.innerWidth, 1200);
+      const targetHeight = Math.min(window.innerHeight * 0.68, 620);
       canvas.width = targetWidth;
       canvas.height = targetHeight;
       canvas.style.width = `${targetWidth}px`;
@@ -97,7 +97,7 @@ export default function WalletTracker() {
 
     const animate = () => {
       time += 0.002;
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.045)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // Rotate points
@@ -119,8 +119,8 @@ export default function WalletTracker() {
       });
 
       // Draw connections (network lines)
-      ctx.strokeStyle = 'rgba(20, 184, 166, 0.15)';
-      ctx.lineWidth = 0.5;
+      ctx.strokeStyle = 'rgba(45, 212, 191, 0.3)';
+      ctx.lineWidth = 0.85;
       
       for (let i = 0; i < rotatedPoints.length; i++) {
         for (let j = i + 1; j < rotatedPoints.length; j++) {
@@ -129,7 +129,7 @@ export default function WalletTracker() {
           const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
           
           if (dist < globeRadius * 0.25 && p1.z > -0.5 && p2.z > -0.5) {
-            const alpha = (1 - dist / (globeRadius * 0.25)) * 0.3 * (p1.z + 1) * 0.5;
+            const alpha = (1 - dist / (globeRadius * 0.25)) * 0.58 * (p1.z + 1) * 0.5;
             ctx.strokeStyle = `rgba(45, 212, 191, ${alpha})`;
             ctx.beginPath();
             ctx.moveTo(p1.x, p1.y);
@@ -141,8 +141,8 @@ export default function WalletTracker() {
 
       // Draw latitude lines
       for (let lat = 1; lat < latitudes; lat++) {
-        ctx.strokeStyle = `rgba(20, 184, 166, ${0.1 + lat * 0.02})`;
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = `rgba(45, 212, 191, ${0.18 + lat * 0.03})`;
+        ctx.lineWidth = 1.25;
         ctx.beginPath();
         
         for (let lon = 0; lon <= longitudes; lon++) {
@@ -158,8 +158,8 @@ export default function WalletTracker() {
 
       // Draw longitude lines
       for (let lon = 0; lon < longitudes; lon += 2) {
-        ctx.strokeStyle = 'rgba(20, 184, 166, 0.12)';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(45, 212, 191, 0.22)';
+        ctx.lineWidth = 1.25;
         ctx.beginPath();
         
         for (let lat = 0; lat <= latitudes; lat++) {
@@ -177,7 +177,7 @@ export default function WalletTracker() {
       rotatedPoints.forEach((p, i) => {
         if (p.z > -0.5) {
           const size = (1 + p.z) * 1.5;
-          const alpha = (0.3 + p.z * 0.4);
+          const alpha = (0.52 + p.z * 0.46);
           
           // Glow
           const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, size * 4);
@@ -199,15 +199,15 @@ export default function WalletTracker() {
       });
 
       // Outer glow ring
-      const glowGradient = ctx.createRadialGradient(centerX, centerY, globeRadius * 0.8, centerX, centerY, globeRadius * 1.3);
-      glowGradient.addColorStop(0, 'rgba(20, 184, 166, 0)');
-      glowGradient.addColorStop(0.5, 'rgba(20, 184, 166, 0.05)');
-      glowGradient.addColorStop(1, 'rgba(20, 184, 166, 0)');
+      // const glowGradient = ctx.createRadialGradient(centerX, centerY, globeRadius * 0.8, centerX, centerY, globeRadius * 1.3);
+      // glowGradient.addColorStop(0, 'rgba(20, 184, 166, 0)');
+      // glowGradient.addColorStop(0.5, 'rgba(20, 184, 166, 0.16)');
+      // glowGradient.addColorStop(1, 'rgba(20, 184, 166, 0)');
       
-      ctx.fillStyle = glowGradient;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, globeRadius * 1.3, 0, Math.PI * 2);
-      ctx.fill();
+      // ctx.fillStyle = glowGradient;
+      // ctx.beginPath();
+      // ctx.arc(centerX, centerY, globeRadius * 1.3, 0, Math.PI * 2);
+      // ctx.fill();
 
       animationId = requestAnimationFrame(animate);
     };
@@ -283,8 +283,7 @@ export default function WalletTracker() {
 
   return (
     <FeatureLaunchGate feature="portfolio">
-    <main className="flex min-h-screen flex-col  relative overflow-hidden" ref={containerRef}>
-
+    <main className="flex min-h-screen flex-col relative overflow-hidden" ref={containerRef}>
       {/* Holographic Globe Background - Behind main content */}
       <canvas
         ref={canvasRef}
@@ -293,17 +292,10 @@ export default function WalletTracker() {
           top: "300px",
           width: "min(100%, 1100px)",
           height: "520px",
-          background: 'radial-gradient(ellipse at center, rgba(10,10,10,0.9) 0%, rgba(0,0,0,0.95) 70%)',
-          filter: "drop-shadow(0 30px 60px rgba(0,0,0,0.7)) brightness(0.58) saturate(0.75)",
-        }}
-      />
-      
-      {/* Vignette overlay for depth */}
-      <div className="fixed inset-0 z-[1] pointer-events-none"
-        style={{
-          background: 'radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.4) 70%, rgba(0,0,0,0.8) 100%)'
-        }}
-      />
+          background: "transparent",
+          filter: "brightness(0.5) saturate(0.8)", 
+          }}
+        />
 
         <div
           className="absolute inset-0 z-1 h-60"
@@ -347,12 +339,12 @@ export default function WalletTracker() {
         </div>
 
       {/* Navigation */}
-        <div className="z-10">
+        <div className="relative z-10">
           <Navbar />
           <TopMarketToken />
         </div>
       {/* Main Content - Above globe */}
-      <div className="relative min-h-screen text-white font-sans selection:bg-[#10b981]/30 selection:text-[#10b981] overflow-x-hidden">
+      <div className="relative z-[2] min-h-screen text-white font-sans selection:bg-[#10b981]/30 selection:text-[#10b981] overflow-x-hidden">
         <div className="py-20 md:py-24 px-4 sm:px-6">
           <div className="text-center space-y-10">
             

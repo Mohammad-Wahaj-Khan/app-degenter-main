@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import React from 'react';
-import { 
-  Search, 
-  Wallet, 
-  Globe, 
+import {
+  Search,
+  Wallet,
+  Globe,
   Zap, 
   TrendingUp, 
   Flame, 
@@ -12,6 +12,7 @@ import {
   Star,
   ExternalLink
 } from 'lucide-react';
+import FeatureLaunchGate from '../components/feature-launch-gate';
 import Navbar from '../components/navbar';
 import TopMarketToken from '../components/TopMarketToken';
 import Multicharts from './components/multicharts';
@@ -23,7 +24,8 @@ export const metadata: Metadata = {
 const Dashboard = () => {
 
   return (
-    // <main className="min-h-screen bg-[#000000] text-[#E5E7EB] font-sans selection:bg-yellow-500/30">
+    <FeatureLaunchGate feature="multicharts">
+      {/* <main className="min-h-screen bg-[#000000] text-[#E5E7EB] font-sans selection:bg-yellow-500/30"> */}
       <main className="flex min-h-screen flex-col bg-black relative overflow-hidden">
         <div
           className="absolute inset-0 z-1 h-60"
@@ -72,6 +74,7 @@ const Dashboard = () => {
       </div>
 
     </main>
+    </FeatureLaunchGate>
   );
 };
 
