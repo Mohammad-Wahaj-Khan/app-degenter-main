@@ -759,14 +759,14 @@ export default function ProfilePage() {
             )}
           </AnimatePresence>
 
-          {isLoading && (
+          {/* {isLoading && (
             <div className="mt-8 flex items-center gap-3 text-neutral-400">
               <Loader2 size={16} className="animate-spin text-emerald-500" />
               <span className="text-[10px] font-bold uppercase tracking-widest">
                 Retrieving Encrypted Data...
               </span>
             </div>
-          )}
+          )} */}
           {error && (
             <p className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/8 px-4 py-3 text-xs font-medium text-amber-100/80 backdrop-blur-xl">
               {error}

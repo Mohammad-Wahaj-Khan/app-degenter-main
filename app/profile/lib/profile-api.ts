@@ -175,19 +175,19 @@ export async function getProfileByWallet(
 export async function uploadProfileImage(
   userId: string | number,
   file: File,
-  apiKey: string // Make this required to avoid the error
+  apiKey: string
 ): Promise<{ image_url: string }> {
-  const formData = new FormData();
+  if (!apiKey?.trim()) {
+    throw new Error("API key is required to upload profile image");
+  }
 
-  // Set key to 'file' to match your Postman screenshot
+  const formData = new FormData();
   formData.append("file", file);
 
   const response = await fetch(`${API_BASE}/profiles/${userId}/avatar`, {
     method: "POST",
     headers: {
-      "x-api-key": apiKey, // This must be the actual dynamic API key/token
-      // NOTE: Do not set Content-Type header here;
-      // the browser will set it automatically for FormData.
+      "x-api-key": apiKey,
     },
     body: formData,
   });
@@ -199,19 +199,32 @@ export async function uploadProfileImage(
 
   const result = await response.json();
 
-  if (result.success && result.data?.image_url) {
-    // Extract filename (e.g., "3f64b148...jpg") from "/uploads/..."
-    const pathParts = result.data.image_url.split("/");
-    const fileName = pathParts[pathParts.length - 1];
+  const rawImageUrl = (
+    typeof result?.data?.image_url === "string"
+      ? result.data.image_url
+      : typeof result?.data?.url === "string"
+      ? result.data.url
+      : typeof result?.image_url === "string"
+      ? result.image_url
+      : typeof result?.url === "string"
+      ? result.url
+      : ""
+  )?.trim();
 
-    // Build the specific absolute URL format with a cache-busting timestamp
-    const timestamp = new Date().getTime();
-    const finalUrl = `https://testnetmedia.degenter.io/degenter-media/profiles/${userId}/${fileName}?t=${timestamp}`;
-
-    return { image_url: finalUrl };
+  if (!rawImageUrl) {
+    throw new Error("Image upload response did not include an image URL");
   }
 
-  throw new Error("Invalid response format from server");
+  if (/^https?:\/\//i.test(rawImageUrl)) {
+    return { image_url: rawImageUrl };
+  }
+
+  const pathParts = rawImageUrl.split("/");
+  const fileName = pathParts[pathParts.length - 1] || "";
+  const timestamp = Date.now();
+  const finalUrl = `https://testnetmedia.degenter.io/degenter-media/profiles/${userId}/${fileName}?t=${timestamp}`;
+
+  return { image_url: finalUrl };
 }
 
 export async function updateProfile(
