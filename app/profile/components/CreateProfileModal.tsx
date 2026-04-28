@@ -91,36 +91,63 @@ export default function CreateProfileModal({
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const hasInitializedFormRef = useRef(false);
+
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      hasInitializedFormRef.current = false;
+      return;
+    }
+
+    if (hasInitializedFormRef.current) return;
+
     setFormData({
       handle: initialProfile?.handle ?? "",
       displayName: initialProfile?.display_name ?? "",
       bio: initialProfile?.bio ?? "",
-      imageUrl: initialProfile?.image_url ?? DEFAULT_IMAGE_URL,
+      imageUrl: initialProfile?.image_url || DEFAULT_IMAGE_URL,
       website: initialProfile?.website ?? "",
       twitter: initialProfile?.twitter ?? "",
       telegram: initialProfile?.telegram ?? "",
       tagsInput: (initialProfile?.tags ?? []).join(", "),
     });
     setError("");
-  }, [initialProfile, isOpen]);
+    hasInitializedFormRef.current = true;
+  }, [isOpen, initialProfile]);
 
   const handleImageUpload = async (file?: File | null) => {
     if (!file) return;
-    if (file.type === "image/svg+xml") return alert("SVG not supported");
+    if (file.type === "image/svg+xml") {
+      alert("SVG not supported");
+      return;
+    }
 
     const reader = new FileReader();
-    reader.onload = () => { if (typeof reader.result === "string") setFormData(prev => ({ ...prev, imageUrl: reader.result as string })); };
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setFormData((prev) => ({ ...prev, imageUrl: reader.result as string }));
+      }
+    };
     reader.readAsDataURL(file);
 
-    if (initialProfile?.user_id) {
-      try {
-        setIsUploading(true);
-        const result = await uploadProfileImage(initialProfile.user_id, file, apiKey || "");
-        setFormData(prev => ({ ...prev, imageUrl: result.image_url }));
-      } catch (e) { alert("Upload failed"); } 
-      finally { setIsUploading(false); }
+    if (!initialProfile?.user_id) {
+      return;
+    }
+
+    if (!apiKey) {
+      setError("Unable to upload image: missing API key.");
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      const result = await uploadProfileImage(initialProfile.user_id, file, apiKey);
+      setFormData((prev) => ({ ...prev, imageUrl: result.image_url }));
+    } catch (uploadError: any) {
+      console.error("Profile image upload failed:", uploadError);
+      setError("Profile image upload failed. Please try again.");
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -175,7 +202,17 @@ export default function CreateProfileModal({
         <div className="grid gap-10 md:grid-cols-[160px,1fr]">
           <div className="relative group mx-auto md:mx-0">
             <div className="h-40 w-40 overflow-hidden rounded-[2rem] border border-white/[0.05] bg-neutral-900 transition-all group-hover:border-emerald-500/40 shadow-2xl">
-              <img src={formData.imageUrl} className="h-full w-full object-cover opacity-90 transition-all duration-500 group-hover:scale-110 group-hover:opacity-100" />
+              {formData.imageUrl ? (
+                <img
+                  src={formData.imageUrl}
+                  alt="Profile preview"
+                  className="h-full w-full object-cover opacity-90 transition-all duration-500 group-hover:scale-110 group-hover:opacity-100"
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center bg-neutral-800 text-white/70">
+                  No image
+                </div>
+              )}
               <div 
                 onClick={() => fileInputRef.current?.click()}
                 className="absolute inset-0 flex cursor-pointer flex-col items-center justify-center bg-black/60 opacity-0 transition-all backdrop-blur-sm group-hover:opacity-100"
@@ -292,39 +329,36 @@ export default function CreateProfileModal({
     </>
   );
 
+  if (!isOpen) return null;
+
+  if (inline) {
+    return (
+      <section className="relative overflow-hidden rounded-[2.25rem] border border-[rgba(57,200,166,0.18)] bg-[rgba(7,7,7,0.82)] shadow-[0_0_50px_rgba(0,0,0,0.35)] backdrop-blur-[28px]">
+        {formContent}
+      </section>
+    );
+  }
+
   return (
     <AnimatePresence>
-      {isOpen && (
-        inline ? (
-          <motion.section
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -16 }}
-            className="relative overflow-hidden rounded-[2.25rem] border border-[rgba(57,200,166,0.18)] bg-[rgba(7,7,7,0.82)] shadow-[0_0_50px_rgba(0,0,0,0.35)] backdrop-blur-[28px]"
-          >
-            {formContent}
-          </motion.section>
-        ) : (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }}
-              onClick={onClose}
-              className="absolute inset-0 bg-black/80 backdrop-blur-xl" 
-            />
-            
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 30 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 30 }}
-              className="relative w-full max-w-2xl overflow-hidden rounded-[2.5rem] border border-white/[0.05] bg-[#070707] shadow-[0_0_50px_rgba(0,0,0,0.5)]"
-            >
-              {formContent}
-            </motion.div>
-          </div>
-        )
-      )}
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+          className="absolute inset-0 z-40 bg-black/80 backdrop-blur-xl"
+        />
+
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0, y: 30 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          exit={{ scale: 0.9, opacity: 0, y: 30 }}
+          className="relative z-50 w-full max-w-2xl overflow-hidden rounded-[2.5rem] border border-white/[0.05] bg-[#070707] shadow-[0_0_50px_rgba(0,0,0,0.5)]"
+        >
+          {formContent}
+        </motion.div>
+      </div>
     </AnimatePresence>
   );
 }

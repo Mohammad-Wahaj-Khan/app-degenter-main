@@ -33,11 +33,13 @@ interface Token {
   creationTime: number;
 }
 
-const DASHBOARD_TOP_TOKENS_CACHE_KEY = "degenter_dashboard_top_tokens";
+const DASHBOARD_TOP_TOKENS_LOCAL_STORAGE_KEY = "degenter_dashboard_top_tokens_storage";
+const DASHBOARD_TOP_TOKENS_CACHE_VERSION = 1;
 const DASHBOARD_TOP_TOKENS_CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
 const API_BASE = API_BASE_URL;
 
 type DashboardTokensCache = {
+  version: number;
   tokens: Token[];
   trades: Trade[];
   volumeChanges: Record<string, "increase" | "decrease" | "same">;
@@ -51,33 +53,44 @@ const readDashboardCache = (): DashboardTokensCache | null => {
   if (typeof window === "undefined") return null;
   try {
     const cached = window.localStorage.getItem(
-      DASHBOARD_TOP_TOKENS_CACHE_KEY
+      DASHBOARD_TOP_TOKENS_LOCAL_STORAGE_KEY
     );
     if (!cached) return null;
     const parsed: DashboardTokensCache = JSON.parse(cached);
-    if (!parsed || typeof parsed.timestamp !== "number") return null;
-    // if (Date.now() - parsed.timestamp > DASHBOARD_TOP_TOKENS_CACHE_DURATION) {
-    //   window.localStorage.removeItem(DASHBOARD_TOP_TOKENS_CACHE_KEY);
-    //   return null;
-    // }
+    if (!parsed || typeof parsed.timestamp !== "number") {
+      window.localStorage.removeItem(DASHBOARD_TOP_TOKENS_LOCAL_STORAGE_KEY);
+      return null;
+    }
+    if (parsed.version !== DASHBOARD_TOP_TOKENS_CACHE_VERSION) {
+      window.localStorage.removeItem(DASHBOARD_TOP_TOKENS_LOCAL_STORAGE_KEY);
+      return null;
+    }
+    if (Date.now() - parsed.timestamp > DASHBOARD_TOP_TOKENS_CACHE_DURATION) {
+      window.localStorage.removeItem(DASHBOARD_TOP_TOKENS_LOCAL_STORAGE_KEY);
+      return null;
+    }
     return parsed;
   } catch (error) {
     console.error("Dashboard cache read failed:", error);
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem(DASHBOARD_TOP_TOKENS_CACHE_KEY);
+      window.localStorage.removeItem(DASHBOARD_TOP_TOKENS_LOCAL_STORAGE_KEY);
     }
     return null;
   }
 };
 
 const writeDashboardCache = (
-  payload: Omit<DashboardTokensCache, "timestamp">
+  payload: Omit<DashboardTokensCache, "timestamp" | "version">
 ) => {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(
-      DASHBOARD_TOP_TOKENS_CACHE_KEY,
-      JSON.stringify({ ...payload, timestamp: Date.now() })
+      DASHBOARD_TOP_TOKENS_LOCAL_STORAGE_KEY,
+      JSON.stringify({
+        version: DASHBOARD_TOP_TOKENS_CACHE_VERSION,
+        ...payload,
+        timestamp: Date.now(),
+      })
     );
   } catch (error) {
     console.error("Dashboard cache write failed:", error);

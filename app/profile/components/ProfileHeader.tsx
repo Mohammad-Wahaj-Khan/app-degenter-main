@@ -75,6 +75,19 @@ export default function ProfileHeader({
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !profile.user_id) return;
+    if (!apiKey) {
+      console.error("Missing API key for image upload");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setImageSrc(reader.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+
     try {
       setIsUploading(true);
       setImageError(false);
@@ -83,7 +96,8 @@ export default function ProfileHeader({
       setImageSrc(result.image_url);
       onImageUpdate(result.image_url);
     } catch (error) {
-      console.error("Error:", error);
+      console.error("Error uploading profile image:", error);
+      setImageError(true);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
