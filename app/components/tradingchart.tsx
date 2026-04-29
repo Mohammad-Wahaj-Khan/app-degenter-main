@@ -1445,7 +1445,24 @@ function normalizeTokenPayload(raw: any, tokenFallback: string) {
     token,
     symbol: raw?.symbol ?? token?.symbol ?? fallbackSymbol,
     name: raw?.name ?? token?.name ?? fallbackName,
-    imageUri: raw?.imageUri ?? token?.imageUri,
+    imageUri: imageField(
+      raw?.imageUri,
+      raw?.image,
+      raw?.icon,
+      raw?.logo,
+      raw?.logoURI,
+      raw?.logoUri,
+      raw?.image_url,
+      raw?.imageUrl,
+      token?.imageUri,
+      token?.image,
+      token?.icon,
+      token?.logo,
+      token?.logoURI,
+      token?.logoUri,
+      token?.image_url,
+      token?.imageUrl
+    ),
     exponent: raw?.exponent ?? token?.exponent,
     priceInNative: numericField(raw?.priceInNative, price?.native),
     priceInUsd: numericField(raw?.priceInUsd, price?.usd),
@@ -1507,6 +1524,15 @@ const numericField = (...values: unknown[]) => {
     if (Number.isFinite(numeric)) return numeric;
   }
   return 0;
+};
+
+const imageField = (...values: unknown[]) => {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return undefined;
 };
 
 // Format price for display
@@ -1801,7 +1827,7 @@ export default function TradingChart({
     ? shouldUsePoolPricing
       ? tokenData?.imageUri || meta.logo
       : meta.logo || tokenData?.imageUri
-    : undefined;
+    : tokenData?.imageUri || meta.logo;
 
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
 
@@ -2165,15 +2191,17 @@ const applyTvWalletShapes = useCallback(async () => {
 
     if (cachedData && now - cacheTime < CACHE_DURATION) {
       const parsed = normalizeTokenPayload(JSON.parse(cachedData), chartTokenKey);
-      tokenExponentRef.current = resolveTokenExponent(parsed);
-      setTokenData(parsed);
-      setError(null);
-      const cachedSupply = Number(parsed?.circulatingSupply);
-      if (Number.isFinite(cachedSupply) && cachedSupply > 0) {
-        supplyRef.current = cachedSupply;
+      if (parsed?.imageUri) {
+        tokenExponentRef.current = resolveTokenExponent(parsed);
+        setTokenData(parsed);
+        setError(null);
+        const cachedSupply = Number(parsed?.circulatingSupply);
+        if (Number.isFinite(cachedSupply) && cachedSupply > 0) {
+          supplyRef.current = cachedSupply;
+        }
+        setLoading(false);
+        return;
       }
-      setLoading(false);
-      return;
     }
 
     try {

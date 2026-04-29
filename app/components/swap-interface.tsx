@@ -23,6 +23,7 @@ import React, {
 import { createPortal } from "react-dom";
 import PriceDisplay from "./PriceDisplay";
 import { API_HEADERS } from "@/lib/api";
+import { isIbcDenom, tokenApiRef } from "@/lib/token-routing";
 
 /* =========================
  * Types / helpers
@@ -61,7 +62,13 @@ type TokenListItem = {
 type RoutePair = {
   poolId: string;
   pairContract: string;
-  pairType?: string; // "xyk" | "stable" | "custom-xxx"
+  pair_contract?: string;
+  contract?: string;
+  contractAddress?: string;
+  contract_address?: string;
+  pairType?: unknown; // "xyk" | "stable" | "custom-xxx" | { custom: "xyk_25" }
+  pair_type?: unknown;
+  type?: unknown;
   // optional enriched fields when your API returns them:
   side?: "sell" | "buy";
   price_native?: number; // leg native rate
@@ -144,6 +151,30 @@ const tokenVolume24 = (token: TokenListItem) =>
     token.volNative,
     typeof token.volume === "number" ? token.volume : token.volume?.["24h"]
   );
+const normalizeTokenListItem = (
+  payload: any,
+  fallbackDenom?: string | null
+): TokenListItem | null => {
+  const token = payload?.token ?? payload;
+  const denom = String(token?.denom ?? fallbackDenom ?? "").trim();
+  if (!denom) return null;
+  return {
+    tokenId: String(token?.tokenId ?? token?.id ?? denom),
+    symbol: String(token?.symbol ?? token?.display ?? truncMid(denom, 5, 5)),
+    name: token?.name,
+    denom,
+    exponent: Number.isFinite(Number(token?.exponent))
+      ? Number(token.exponent)
+      : 6,
+    imageUri: token?.imageUri || token?.image || token?.icon,
+    pairContract: token?.pairContract ?? token?.pair_contract ?? null,
+    verified: token?.verified,
+    volUsd: token?.volUsd,
+    volNative: token?.volNative,
+    volume: token?.volume,
+    volumeUSD: token?.volumeUSD,
+  };
+};
 const isZigRef = (value?: string | null) => {
   const normalized = (value ?? "").trim().toLowerCase();
   return normalized === "zig" || normalized === "uzig";
@@ -172,18 +203,33 @@ const SWAP_MODES: Array<{ value: SwapMode; label: string }> = [
 
 const toRouterPairType = (s?: unknown) => {
   if (s && typeof s === "object") return s;
-  const x = String(s || "").trim().toLowerCase();
+  const raw = String(s || "").trim();
+  const x = raw.toLowerCase();
   if (!x) return { xyk: {} as const };
   if (x.includes("stable")) return { stable: {} as const };
   if (x.startsWith("custom-")) {
-    const name = x.slice("custom-".length);
+    const name = raw.slice("custom-".length).trim();
     if (name === "xyk") return { xyk: {} as const };
     if (name) return { custom: name };
   }
-  if (x === "xyk" || x.includes("xyk_") || x.includes("xyk-"))
-    return { xyk: {} as const };
+  if (x === "xyk") return { xyk: {} as const };
+  if (/^xyk[_-]\d+$/i.test(raw)) return { custom: raw };
+  if (/^xyk[_-][a-z0-9_-]+$/i.test(raw)) return { custom: raw };
   return { xyk: {} as const };
 };
+
+const resolveRoutePairType = (pair: RoutePair, fallback?: unknown) =>
+  pair.pairType ?? pair.pair_type ?? pair.type ?? fallback;
+
+const resolveRoutePairContract = (pair: RoutePair) =>
+  String(
+    pair.pairContract ??
+      pair.pair_contract ??
+      pair.contract ??
+      pair.contractAddress ??
+      pair.contract_address ??
+      ""
+  ).trim();
 
 function parseRouterKeyFromError(msg: string) {
   try {
@@ -363,10 +409,19 @@ export default function SwapInterface({
   }, [showModeMenu]);
 
   const PAGE_TOKEN = useMemo(() => {
-    const t = tokenList.find((x) => {
-      if (!TOKEN_IS_CW20) return x.denom === (PAGE_TOKEN_INIT as any).denom;
-      return x.symbol?.toUpperCase() === tokenSymbol.toUpperCase();
-    });
+    const pageRef =
+      PAGE_TOKEN_INIT.type === "native"
+        ? PAGE_TOKEN_INIT.denom
+        : PAGE_TOKEN_INIT.contract;
+    const t =
+      tokenList.find(
+        (x) => x.denom.toLowerCase() === pageRef.toLowerCase()
+      ) ||
+      (isIbcDenom(pageRef)
+        ? null
+        : tokenList.find(
+            (x) => x.symbol?.toUpperCase() === tokenSymbol.toUpperCase()
+          ));
     if (!t) return PAGE_TOKEN_INIT;
     return {
       ...(PAGE_TOKEN_INIT.type === "native"
@@ -415,11 +470,13 @@ export default function SwapInterface({
   const assetMatches = useCallback((key: string, asset: SwapAsset) => {
     const k = key.toLowerCase();
     if (asset.type === "native") {
+      if (isIbcDenom(k)) return asset.denom.toLowerCase() === k;
       return (
         asset.denom.toLowerCase() === k ||
         asset.symbol.toLowerCase() === k
       );
     }
+    if (isIbcDenom(k)) return false;
     return (
       asset.contract.toLowerCase() === k ||
       asset.symbol.toLowerCase() === k
@@ -431,9 +488,12 @@ export default function SwapInterface({
       if (!key) return null;
       const k = key.toLowerCase();
       if (k === "zig" || k === "uzig") return { ...ZIG };
-      const match = tokenList.find(
-        (t) => t.denom?.toLowerCase() === k || t.symbol?.toLowerCase() === k
-      );
+      const exactDenom = tokenList.find((t) => t.denom?.toLowerCase() === k);
+      const match =
+        exactDenom ||
+        (isIbcDenom(k)
+          ? null
+          : tokenList.find((t) => t.symbol?.toLowerCase() === k));
       if (!match) return null;
       if (isCw20Contract(match.denom)) {
         return {
@@ -508,6 +568,39 @@ export default function SwapInterface({
     []
   );
 
+  const upsertTokenListItem = useCallback((token: TokenListItem) => {
+    setTokenList((prev) => {
+      const idx = prev.findIndex(
+        (item) => item.denom.toLowerCase() === token.denom.toLowerCase()
+      );
+      if (idx < 0) return [...prev, token];
+      const next = prev.slice();
+      next[idx] = { ...prev[idx], ...token };
+      return next;
+    });
+  }, []);
+
+  const fetchTokenByDenom = useCallback(
+    async (denom?: string | null) => {
+      const clean = (denom ?? "").trim();
+      if (!clean) return null;
+      try {
+        const res = await fetchApi(
+          `${apiBase}/tokens/${encodeURIComponent(tokenApiRef(clean))}`
+        );
+        if (!res.ok) return null;
+        const json = await res.json();
+        const token = normalizeTokenListItem(json?.data, clean);
+        if (token) upsertTokenListItem(token);
+        return token;
+      } catch (error) {
+        console.warn("[swap token denom lookup] failed", clean, error);
+        return null;
+      }
+    },
+    [apiBase, fetchApi, upsertTokenListItem]
+  );
+
   /* =========================
    * Fetch /tokens/swap-list
    * ========================= */
@@ -525,6 +618,31 @@ export default function SwapInterface({
       }
     })();
   }, [apiBase, fetchApi]);
+
+  useEffect(() => {
+    const denoms = [
+      tokenDenom,
+      selectedPair?.baseDenom,
+      selectedPair?.quoteDenom,
+    ].filter((denom): denom is string => Boolean(denom?.trim()));
+
+    const missingIbcDenoms = denoms.filter(
+      (denom) =>
+        isIbcDenom(denom) &&
+        !tokenList.some(
+          (token) => token.denom.toLowerCase() === denom.toLowerCase()
+        )
+    );
+
+    if (!missingIbcDenoms.length) return;
+    void Promise.all(missingIbcDenoms.map((denom) => fetchTokenByDenom(denom)));
+  }, [
+    tokenDenom,
+    selectedPair?.baseDenom,
+    selectedPair?.quoteDenom,
+    tokenList,
+    fetchTokenByDenom,
+  ]);
 
   const pairContractForRef = useCallback(
     (ref: string) => {
@@ -682,19 +800,19 @@ export default function SwapInterface({
       const diag = j?.data?.diagnostics || {};
       const pairsIn: RoutePair[] = j?.data?.pairs || [];
       const diagPairTypes = [
-        diag?.sell_leg?.pairType,
-        diag?.buy_leg?.pairType,
+        diag?.sell_leg?.pairType ?? diag?.sell_leg?.pair_type,
+        diag?.buy_leg?.pairType ?? diag?.buy_leg?.pair_type,
       ].filter(Boolean);
 
       // Only use pairs that have explicit pairContract from API
       // Avoid fallback contracts that might not exist in router registry
       const pairs: RoutePair[] = pairsIn
-        .filter((pair) => Boolean(pair?.pairContract))
         .map((pair, idx) => ({
           ...pair,
-          pairType: pair.pairType || diagPairTypes[idx],
-          pairContract: String(pair.pairContract),
-        }));
+          pairType: resolveRoutePairType(pair, diagPairTypes[idx]),
+          pairContract: resolveRoutePairContract(pair),
+        }))
+        .filter((pair) => Boolean(pair.pairContract));
 
       // If no valid pairs from API, clear the route
       if (pairs.length === 0) {
@@ -1785,6 +1903,15 @@ export default function SwapInterface({
     }, [open]);
 
     useEffect(() => {
+      if (!open || !isIbcDenom(debouncedQ)) return;
+      const exactDenomExists = ddItems.some(
+        (token) => token.denom.toLowerCase() === debouncedQ.trim().toLowerCase()
+      );
+      if (exactDenomExists) return;
+      void fetchTokenByDenom(debouncedQ);
+    }, [open, debouncedQ, ddItems, fetchTokenByDenom]);
+
+    useEffect(() => {
       if (!open) return;
       const onKey = (e: KeyboardEvent) => {
         if (e.key === "Escape") {
@@ -1915,7 +2042,7 @@ export default function SwapInterface({
               </div>
 
               <div className="px-3 pb-2 flex items-center gap-2 flex-wrap">
-                {["ZIG", "USDC", "USDT"].map((sym) => {
+                {quickSymbols.map((sym) => {
                   const t = ddItems
                     .filter(
                       (x) =>
@@ -2527,8 +2654,9 @@ export default function SwapInterface({
                               {!isFirst && !isLast && (
                                 <div className="mt-2 flex items-center gap-3 text-xs text-white/55">
                                   <span className="max-w-[74px] truncate text-white/45">
-                                    {(pair?.pairType || "POOL")
+                                    {String(pair?.pairType || "POOL")
                                       .replace("custom-", "")
+                                      .replace("[object Object]", "POOL")
                                       .toUpperCase()}
                                   </span>
                                   <span className="text-white/75">100%</span>
