@@ -105,6 +105,15 @@ const buildPoolsUrl = (tokenRef: string) =>
 const getPairContract = (pool: any): string | null =>
   pool?.pairContract ?? pool?.pair_contract ?? null;
 
+const firstImage = (...values: unknown[]) => {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+};
+
 const fetchTokenBySymbol = async (
   symbol: string,
   options: { skipPairFallback?: boolean; poolId?: string | null } = {}
@@ -178,7 +187,16 @@ const fetchTokenBySymbol = async (
       price: detail.price?.native || detail.priceInNative || 0,
       priceUsd: detail.price?.usd || detail.priceInUsd || 0,
       change24h: priceChange?.["24h"] || 0,
-      icon: token.imageUri || null,
+      icon: firstImage(
+        token.imageUri,
+        (token as any).image,
+        (token as any).icon,
+        (token as any).logo,
+        (token as any).logoURI,
+        (token as any).logoUri,
+        (token as any).image_url,
+        (token as any).imageUrl
+      ),
       liquidity: detail.liquidity || 0,
       marketCap: detail.mcapDetail?.usd || detail.mc || 0,
       fdv: detail.fdvDetail?.usd || detail.fdv || 0,
