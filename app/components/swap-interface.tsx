@@ -2189,7 +2189,7 @@ export default function SwapInterface({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* <div className="relative" ref={modeDropdownRef}>
+           <div className="relative" ref={modeDropdownRef}>
             <button
               type="button"
               onClick={() => setShowModeMenu((v) => !v)}
@@ -2229,7 +2229,7 @@ export default function SwapInterface({
                 ))}
               </div>
             )}
-          </div> */}
+          </div> 
 
           <div className="relative">
             <button
@@ -2473,7 +2473,7 @@ export default function SwapInterface({
                   {quoteDetails.source || "--"}
                 </span>
               </div> */}
-        {/* {quoteDetails && (
+        {quoteDetails && (
           <div className="relative mt-3 overflow-hidden rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(0,0,0,0.34))] px-4 py-3 text-xs text-neutral-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
             <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#39C8A6]/60 to-transparent" />
             <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-[#39C8A6]/8 blur-2xl" />
@@ -2519,7 +2519,7 @@ export default function SwapInterface({
               </div>
             </div>
           </div>
-        )} */}
+        )}
       </div>
 
       {showRouteModal &&
