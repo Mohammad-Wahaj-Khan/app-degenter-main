@@ -118,6 +118,10 @@ type ApiTrade = {
   return_amount_base?: string | number;
   offerDenom?: string;
   askDenom?: string;
+  offerSymbol?: string;
+  askSymbol?: string;
+  offer_symbol?: string;
+  ask_symbol?: string;
   offer_asset_denom?: string;
   ask_asset_denom?: string;
   offer_amount?: number;
@@ -152,6 +156,8 @@ const normalizeTrade = (trade: ApiTrade): ApiTrade => ({
   valueUsd: trade.valueUsd ?? trade.value_usd ?? trade.value_in_usd,
   offerDenom: trade.offerDenom ?? trade.offer_denom ?? trade.offer_asset_denom,
   askDenom: trade.askDenom ?? trade.ask_denom ?? trade.ask_asset_denom,
+  offerSymbol: trade.offerSymbol ?? trade.offer_symbol,
+  askSymbol: trade.askSymbol ?? trade.ask_symbol,
   offerAmount:
     trade.offerAmount ??
     trade.offer_amount ??
@@ -411,9 +417,35 @@ const formatTimeAgo = (dateString?: string) => {
 const shortAddress = (v?: string) =>
   v ? `${v.slice(0, 6)}...${v.slice(-4)}` : "—";
 
-const denomLabel = (denom?: string) => {
+const IBC_DENOM_SYMBOL_CACHE = new Map<string, string>();
+
+const addSymbolMapEntry = (
+  map: Record<string, string>,
+  denom?: string,
+  symbol?: string
+) => {
+  const cleanDenom = String(denom ?? "").trim();
+  const cleanSymbol = String(symbol ?? "").trim();
+  if (!cleanDenom || !cleanSymbol) return;
+  map[cleanDenom] = cleanSymbol;
+  map[cleanDenom.toLowerCase()] = cleanSymbol;
+  IBC_DENOM_SYMBOL_CACHE.set(cleanDenom.toLowerCase(), cleanSymbol);
+};
+
+const denomLabel = (
+  denom?: string,
+  symbolMap: Record<string, string> = {},
+  explicitSymbol?: string
+) => {
+  const explicit = explicitSymbol?.trim();
+  if (explicit) return explicit.toUpperCase();
   if (!denom) return "";
-  if (denom.includes("uzig")) return "ZIG";
+  const lower = denom.toLowerCase();
+  if (lower.includes("uzig")) return "ZIG";
+  const mapped =
+    symbolMap[denom] ?? symbolMap[lower] ?? IBC_DENOM_SYMBOL_CACHE.get(lower);
+  if (mapped) return mapped.toUpperCase();
+  if (lower.startsWith("ibc/")) return "IBC";
   const cleaned = denom.replace(/^ibc\/\w+\//, "");
   return cleaned.split(".").pop()?.toUpperCase() || cleaned.toUpperCase();
 };
@@ -1955,10 +1987,12 @@ const TradeRow = ({
   trade,
   index,
   isHighlighted = false,
+  symbolMap,
 }: {
   trade: ApiTrade;
   index: number;
   isHighlighted?: boolean;
+  symbolMap: Record<string, string>;
 }) => {
   const direction = trade.direction === "sell" ? "sell" : "buy";
   const timeAgo = formatTimeAgo(trade.time);
@@ -1968,17 +2002,21 @@ const TradeRow = ({
   const returnAmount = Number(trade.returnAmount ?? trade.return_amount ?? 0);
   const offerDenom = trade.offerDenom ?? trade.offer_denom;
   const askDenom = trade.askDenom ?? trade.ask_denom;
+  const offerSymbol = trade.offerSymbol ?? trade.offer_symbol;
+  const askSymbol = trade.askSymbol ?? trade.ask_symbol;
 
   const tokenAmount = direction === "buy" ? returnAmount : offerAmount;
   const tokenDenom = direction === "buy" ? askDenom : offerDenom;
+  const tokenSymbol = direction === "buy" ? askSymbol : offerSymbol;
   const zigAmount = direction === "buy" ? offerAmount : returnAmount;
   const zigDenom = direction === "buy" ? offerDenom : askDenom;
+  const zigSymbol = direction === "buy" ? offerSymbol : askSymbol;
 
   const tokenText = Number.isFinite(tokenAmount) && tokenAmount > 0
-    ? `${direction === "buy" ? "+" : "-"}${shortNum(tokenAmount)} ${denomLabel(tokenDenom)}`
+    ? `${direction === "buy" ? "+" : "-"}${shortNum(tokenAmount)} ${denomLabel(tokenDenom, symbolMap, tokenSymbol)}`
     : "—";
   const zigText = Number.isFinite(zigAmount) && zigAmount > 0
-    ? `${direction === "buy" ? "-" : "+"}${shortNum(zigAmount)} ${denomLabel(zigDenom)}`
+    ? `${direction === "buy" ? "-" : "+"}${shortNum(zigAmount)} ${denomLabel(zigDenom, symbolMap, zigSymbol)}`
     : "";
   const txShort = shortAddress(trade.txHash);
   const signerShort = shortAddress(trade.signer);
@@ -2030,7 +2068,7 @@ const TradeRow = ({
       </div>
       
       <a
-        href={trade.signer ? `https://www.zigscan.org/address/   ${trade.signer}` : undefined}
+        href={trade.signer ? `https://www.zigscan.org/address/${trade.signer}` : undefined}
         target="_blank"
         rel="noopener noreferrer"
         className="col-span-1 truncate font-mono text-zinc-400"
@@ -2038,7 +2076,7 @@ const TradeRow = ({
         {signerShort}
       </a>
       <a
-        href={trade.txHash ? `https://www.zigscan.org/tx/   ${trade.txHash}` : undefined}
+        href={trade.txHash ? `https://www.zigscan.org/tx/${trade.txHash}` : undefined}
         target="_blank"
         rel="noopener noreferrer"
         className="col-span-1 truncate text-right font-mono text-zinc-600"
@@ -2080,6 +2118,11 @@ function MultiRecentTrades({ token }: { token: TokenOption }) {
   const [trades, setTrades] = useState<ApiTrade[]>([]);
   const [loading, setLoading] = useState(true);
   const [wsConnected, setWsConnected] = useState(false);
+  const [symbolMap, setSymbolMap] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = { uzig: "ZIG" };
+    addSymbolMapEntry(initial, token.denom, token.symbol);
+    return initial;
+  });
   const [, setNowTick] = useState(0);
   const tradeRefs = useMemo(
     () => buildTradeRefs(token),
@@ -2092,9 +2135,54 @@ function MultiRecentTrades({ token }: { token: TokenOption }) {
   const subscriptionId = token.denom || token.tokenKey || token.tokenId || token.id;
 
   const highlightTimers = useRef<Map<string, number>>(new Map());
+  const resolvingDenomsRef = useRef<Set<string>>(new Set());
   const [highlightedTradeIds, setHighlightedTradeIds] = useState<Record<string, boolean>>(
     {}
   );
+
+  useEffect(() => {
+    setSymbolMap((prev) => {
+      const next = { ...prev };
+      addSymbolMapEntry(next, token.denom, token.symbol);
+      return next;
+    });
+  }, [token.denom, token.symbol]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/tokens/swap-list?bucket=24h&unit=usd`, {
+          headers: API_HEADERS,
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        const items: Array<{ denom?: string; symbol?: string }> = Array.isArray(json?.data)
+          ? json.data
+          : Array.isArray(json)
+          ? json
+          : [];
+        const next: Record<string, string> = { uzig: "ZIG" };
+        addSymbolMapEntry(next, token.denom, token.symbol);
+        items.forEach((item) => addSymbolMapEntry(next, item?.denom, item?.symbol));
+        if (!cancelled) setSymbolMap((prev) => ({ ...next, ...prev, ...next }));
+      } catch {
+        if (!cancelled) {
+          setSymbolMap((prev) => {
+            const next = { ...prev, uzig: "ZIG" };
+            addSymbolMapEntry(next, token.denom, token.symbol);
+            return next;
+          });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token.denom, token.symbol]);
   const markTradesAsHighlighted = useCallback((ids: string[]) => {
     if (!ids.length) return;
     setHighlightedTradeIds((prev) => {
@@ -2245,6 +2333,63 @@ function MultiRecentTrades({ token }: { token: TokenOption }) {
     };
   }, [subscriptionId, tradeRefs]);
 
+  useEffect(() => {
+    const missingDenoms = new Set<string>();
+
+    trades.forEach((trade) => {
+      [
+        [trade.offerDenom ?? trade.offer_denom, trade.offerSymbol ?? trade.offer_symbol],
+        [trade.askDenom ?? trade.ask_denom, trade.askSymbol ?? trade.ask_symbol],
+      ].forEach(([denom, symbol]) => {
+        const cleanDenom = String(denom ?? "").trim();
+        const lower = cleanDenom.toLowerCase();
+        if (!lower.startsWith("ibc/")) return;
+        if (symbol || symbolMap[cleanDenom] || symbolMap[lower] || IBC_DENOM_SYMBOL_CACHE.has(lower)) {
+          return;
+        }
+        if (!resolvingDenomsRef.current.has(lower)) missingDenoms.add(cleanDenom);
+      });
+    });
+
+    if (!missingDenoms.size) return;
+    let cancelled = false;
+
+    missingDenoms.forEach((denom) => {
+      const lower = denom.toLowerCase();
+      resolvingDenomsRef.current.add(lower);
+
+      (async () => {
+        try {
+          const res = await fetch(
+            `${API_BASE}/tokens/${encodeURIComponent(denom)}?priceSource=best`,
+            { headers: API_HEADERS, cache: "no-store" }
+          );
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          const data = json?.data ?? json;
+          const tokenMeta = data?.token ?? data;
+          const symbol = tokenMeta?.symbol ?? data?.symbol;
+          const resolvedDenom = tokenMeta?.denom ?? data?.denom ?? denom;
+          if (cancelled || !symbol) return;
+          setSymbolMap((prev) => {
+            const next = { ...prev };
+            addSymbolMapEntry(next, resolvedDenom, symbol);
+            addSymbolMapEntry(next, denom, symbol);
+            return next;
+          });
+        } catch {
+          // Keep the compact IBC fallback if metadata is unavailable.
+        } finally {
+          resolvingDenomsRef.current.delete(lower);
+        }
+      })();
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [trades, symbolMap]);
+
   if (loading) return (
     <div className="flex h-full items-center justify-center">
       <div className="flex flex-col items-center gap-3">
@@ -2282,7 +2427,16 @@ function MultiRecentTrades({ token }: { token: TokenOption }) {
       </div>
 
       {/* Trades List */}
-      <div className="h-[calc(100%-2rem)] space-y-1.5 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-800">
+      <div className="grid grid-cols-12 gap-x-2 px-2.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-zinc-600">
+        <span className="col-span-2 truncate">Time</span>
+        <span className="col-span-2 truncate">Side</span>
+        <span className="col-span-2 truncate">Price</span>
+        <span className="col-span-2 truncate">Value</span>
+        <span className="col-span-2 truncate">Amount</span>
+        <span className="col-span-1 truncate">Signer</span>
+        <span className="col-span-1 truncate text-right">Tx</span>
+      </div>
+      <div className="h-[calc(100%-3.25rem)] space-y-1.5 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-800">
         <AnimatePresence>
           {trades.slice(0, 50).map((trade, idx) => {
             const tradeId = getTradeKey(trade) ?? `${idx}-${trade.time ?? idx}`;
@@ -2293,6 +2447,7 @@ function MultiRecentTrades({ token }: { token: TokenOption }) {
                 trade={trade}
                 index={idx}
                 isHighlighted={isHighlighted}
+                symbolMap={symbolMap}
               />
             );
           })}
