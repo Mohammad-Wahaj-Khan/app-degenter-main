@@ -291,6 +291,12 @@ const Dashboard: React.FC = () => {
             .sort((a, b) => toFiniteNumber(b.valueUsd) - toFiniteNumber(a.valueUsd))
             .slice(0, 10);
         } catch (tradeErr) {
+          if (
+            controller.signal.aborted ||
+            (tradeErr instanceof Error && tradeErr.name === "AbortError")
+          ) {
+            return;
+          }
           console.error("Error fetching trades:", tradeErr);
         }
 
