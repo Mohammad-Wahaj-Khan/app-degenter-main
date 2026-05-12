@@ -4,7 +4,19 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { ChevronDown, Lock, Menu, Search, X } from "lucide-react";
+import {
+  BarChart3,
+  ChevronDown,
+  ExternalLink,
+  Flame,
+  Gem,
+  Lock,
+  Radar,
+  SearchCheck,
+  TrendingUp,
+  Menu,
+  X,
+} from "lucide-react";
 import {
   FaSearch,
   FaGem,
@@ -37,6 +49,15 @@ const PROFILE_FOCUS_SEEN_KEY = "degenterProfileFocusSeen";
 const LEADERBOARD_CLOSED_KEY = "degenterLeaderboardPopupClosed";
 const LEADERBOARD_CLOSED_EVENT = "degenter:leaderboard-closed";
 const GUEST_HANDLE_KEY = "degenterGuestProfileHandle";
+
+type FeatureBannerItem = {
+  label: string;
+  text: string;
+  href?: string;
+  live?: boolean;
+  icon: React.ReactNode;
+  accent: "emerald" | "orange" | "violet" | "gold";
+};
 
 /* ============================== Types ============================== */
 type ResultType = "token";
@@ -140,6 +161,169 @@ function getRecent(): SearchResult[] {
   } catch {
     return [];
   }
+}
+
+function FeatureUpdateBanner() {
+  const [isHidden, setIsHidden] = useState(false);
+  const [findGemsReleased, setFindGemsReleased] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    const checkFindGems = async () => {
+      try {
+        const response = await fetch("/api/feature-release?feature=findgems", {
+          cache: "no-store",
+        });
+        const data = await response.json();
+        if (active) setFindGemsReleased(Boolean(data.released));
+      } catch {
+        if (active) setFindGemsReleased(false);
+      }
+    };
+
+    void checkFindGems();
+    const intervalId = window.setInterval(checkFindGems, 30000);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  const updates = useMemo<FeatureBannerItem[]>(
+    () => [
+      {
+        label: findGemsReleased ? "Live" : "Soon",
+        text: findGemsReleased
+          ? "Find Gems is live now. Discover movers in real time."
+          : "Find Gems is warming up. Watch the launch countdown.",
+        href: "/findgems",
+        live: findGemsReleased,
+        icon: <Gem size={12} />,
+        accent: "violet",
+      },
+      {
+        label: "Live",
+        text: "Find Trades is live now. Track real-time market flow.",
+        href: "/trades",
+        live: true,
+        icon: <TrendingUp size={12} />,
+        accent: "orange",
+      },
+      {
+        label: "Live",
+        text: "Multi Charts is live now. Open many charts in one tab.",
+        href: "/multicharts",
+        live: true,
+        icon: <BarChart3 size={12} />,
+        accent: "emerald",
+      },
+      {
+        label: "Live",
+        text: "Wallet Tracker is live. Search and follow top wallets.",
+        href: "/wallet-tracker",
+        live: true,
+        icon: <Radar size={12} />,
+        accent: "gold",
+      },
+      // {
+      //   label: "Live",
+      //   text: "Search and analyze any wallet.",
+      //   live: true,
+      //   icon: <SearchCheck size={12} />,
+      //   accent: "emerald",
+      // },
+    ],
+    [findGemsReleased]
+  );
+
+  if (isHidden) return null;
+
+  const marqueeItems = [...updates, ...updates];
+  const accentClasses: Record<FeatureBannerItem["accent"], string> = {
+    emerald:
+      "border-[#39C8A6]/70 bg-[#39C8A6]/15 text-[#57F3BB] shadow-[0_0_18px_rgba(57,200,166,0.35)]",
+    orange:
+      "border-[#FA4E30]/70 bg-[#FA4E30]/15 text-[#FA8A30] shadow-[0_0_18px_rgba(250,78,48,0.35)]",
+    violet:
+      "border-[#C7B2FF]/70 bg-[#C7B2FF]/15 text-[#C7B2FF] shadow-[0_0_18px_rgba(199,178,255,0.3)]",
+    gold:
+      "border-[#f6c35f]/70 bg-[#f6c35f]/15 text-[#f6c35f] shadow-[0_0_18px_rgba(246,195,95,0.3)]",
+  };
+
+  return (
+    <div className="relative z-[60] w-full overflow-hidden border-y border-white/10 bg-[#050706]/90 text-white shadow-[0_4px_24px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(20,98,79,0.24),rgba(57,200,166,0.12),rgba(250,78,48,0.16),rgba(45,27,69,0.18))]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#39C8A6]/70 to-transparent" />
+      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-16 bg-gradient-to-r from-[#050706] to-transparent" />
+      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-20 bg-gradient-to-l from-[#050706] to-transparent" />
+
+      <div className="feature-update-marquee flex w-max items-center gap-7 py-1.5">
+        {marqueeItems.map((item, index) => {
+          const content = (
+            <>
+            <span
+              className={`flex h-5 min-w-5 items-center justify-center rounded-full border ${accentClasses[item.accent]}`}
+            >
+              {item.icon}
+            </span>
+            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-white/70">
+              {item.label}
+            </span>
+            <span className="whitespace-nowrap">{item.text}</span>
+            {item.href && (
+              <span className="inline-flex items-center gap-1 whitespace-nowrap text-[#39C8A6] underline decoration-[#39C8A6]/40 underline-offset-2 group-hover:decoration-[#39C8A6]">
+                Open <ExternalLink size={11} />
+              </span>
+            )}
+            </>
+          );
+
+          const className =
+            "group flex items-center gap-2 text-[11px] font-semibold text-white/90 transition hover:text-white sm:text-xs";
+
+          return item.href ? (
+            <Link key={`${item.href}-${index}`} href={item.href} className={className}>
+              {content}
+            </Link>
+          ) : (
+            <div key={`${item.text}-${index}`} className={className}>
+              {content}
+            </div>
+          );
+        })}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setIsHidden(true)}
+        className="absolute right-1 top-1/2 z-20 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border border-white/10 bg-black/60 text-white/60 transition hover:border-[#39C8A6]/40 hover:text-white"
+        aria-label="Hide feature updates"
+      >
+        <X size={13} />
+      </button>
+
+      <style jsx>{`
+        .feature-update-marquee {
+          animation: feature-update-scroll 38s linear infinite;
+        }
+
+        .feature-update-marquee:hover {
+          animation-play-state: paused;
+        }
+
+        @keyframes feature-update-scroll {
+          from {
+            transform: translateX(0);
+          }
+          to {
+            transform: translateX(-50%);
+          }
+        }
+      `}</style>
+    </div>
+  );
 }
 /* ================================ Navbar ================================ */
 export default function Navbar() {
@@ -458,6 +642,7 @@ export default function Navbar() {
   /* ================================ Render ================================ */
   return (
     <header className="top-0 z-50 w-full">
+      <FeatureUpdateBanner />
       <div className="relative mx-auto w-full max-w-screen-6xl justify-between lg:justify-center px-6 lg:px-6 xl:px-8">
         {/* Single row as 3-column grid for perfect alignment */}
         <div className="flex justify-between items-center gap-4 sm:gap-3 lg:gap-4 py-3 sm:py-4 md:py-5 lg:py-6">
@@ -823,13 +1008,29 @@ function ExploreNavItem({ mobile }: { mobile?: boolean }) {
       subtitle: "Find the best trading opportunities",
       href: "/trades",
       locked: false,
-      isNew: true,
+      // isNew: true,
     },
     {
       icon: FaGem,
       title: "Find Gems",
       subtitle: "Discover hidden gems",
       href: "/findgems",
+      locked: false,
+      isNew: true,
+    },
+    {
+      icon: FaSearch,
+      title: "Forensics",
+      subtitle: "Investigate token histories and activities",
+      href: "/forensics",
+      locked: false,
+      isNew: true,
+    },
+    {
+      icon: FaPlusCircle,
+      title: "Multi Charts",
+      subtitle: "Access multiple charting tools, trades and tokens stats",
+      href: "/multicharts",
       locked: false,
       isNew: true,
     },
@@ -848,15 +1049,6 @@ function ExploreNavItem({ mobile }: { mobile?: boolean }) {
       href: "https://leaderboard.degenter.io",
       locked: false,
       external: true,
-      isNew: true,
-    },
-    {
-      icon: FaPlusCircle,
-      title: "Multi Charts",
-      subtitle: "Access multiple charting tools, trades and tokens stats",
-      href: "/multicharts",
-      locked: false,
-      isNew: true,
     },
     // {
     //   icon: FaChartLine,

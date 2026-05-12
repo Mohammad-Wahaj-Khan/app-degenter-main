@@ -178,7 +178,7 @@ type WsListener = (rows: ApiTrade[]) => void;
 type WsStatusListener = (connected: boolean) => void;
 type StatsListener = (payload: any) => void;
 
-const MAX_SLOTS = 15;
+const MAX_SLOTS = 20;
 const MAX_RECENT_TRADES = 20;
 const HIGHLIGHT_DURATION_MS = 4000;
 const API_BASE = API_BASE_URL;
@@ -250,11 +250,11 @@ const appWidgetOptions: Array<{
   label: string;
   description: string;
 }> = [
-  {
-    type: "findgems",
-    label: "FindGems",
-    description: "Open the full FindGems discovery board.",
-  },
+  // {
+  //   type: "findgems",
+  //   label: "FindGems",
+  //   description: "Open the full FindGems discovery board.",
+  // },
   {
     type: "portfolio",
     label: "Portfolio",
@@ -312,10 +312,16 @@ const CanvasFindGems = dynamic(() => import("@/app/findgems/components/findgems"
   loading: () => <CanvasWidgetLoading label="FindGems" />,
 });
 
-const CanvasWalletTrackerPage = dynamic(() => import("@/app/wallet-tracker/page"), {
-  ssr: false,
-  loading: () => <CanvasWidgetLoading label="Wallet Tracker" />,
-});
+const CanvasWalletTracker = dynamic(
+  () =>
+    import("@/app/wallet-tracker/components/WalletTrackerContent").then(
+      (mod) => mod.WalletTrackerContent
+    ),
+  {
+    ssr: false,
+    loading: () => <CanvasWidgetLoading label="Wallet Tracker" />,
+  }
+);
 
 const CanvasWalletAnalyzerSidebar = dynamic(
   () => import("@/app/portfolio/WalletAnalyzerPNL/components/WalletAnalyzesSideBar"),
@@ -1973,8 +1979,8 @@ function AppToolWidget({ type }: { type: AppWidgetType }) {
 
   if (type === "wallet-tracker") {
     return (
-      <div className="h-full overflow-y-auto bg-black scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-800">
-        <CanvasWalletTrackerPage />
+      <div className="h-full overflow-hidden bg-black scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-800">
+        <CanvasWalletTracker embedded />
       </div>
     );
   }

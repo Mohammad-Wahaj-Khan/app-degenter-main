@@ -16,6 +16,7 @@ const nextConfig = {
     webpackBuildWorker: true,
   },
   turbopack: {
+    root: __dirname,
     resolveAlias: {
       pino: "pino/browser",
     },
