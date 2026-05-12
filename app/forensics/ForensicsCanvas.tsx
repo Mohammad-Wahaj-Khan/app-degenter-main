@@ -25,7 +25,7 @@ import type { CounterpartyGroup } from "./types";
 
 import { Check, Copy, Lock, Unlock, Sparkles, Eye, Activity, TrendingUp, Zap } from "lucide-react";
 import { FaExternalLinkAlt } from "react-icons/fa";
-import { bech32 } from "bech32";
+import { fromBech32 } from "@cosmjs/encoding";
 import { getHotWalletInfo } from "../../lib/forensics/utils";
 
 // --- DEFINED TYPES ---
@@ -64,9 +64,8 @@ function decodeZigAddress(address: string) {
   const normalized = address.trim();
   if (!ZIG_REGEX.test(normalized)) return null;
   try {
-    const decoded = bech32.decode(normalized.toLowerCase());
-    const data = Uint8Array.from(bech32.fromWords(decoded.words));
-    return { prefix: decoded.prefix, dataLength: data.length };
+    const decoded = fromBech32(normalized.toLowerCase());
+    return { prefix: decoded.prefix, dataLength: decoded.data.length };
   } catch {
     return null;
   }

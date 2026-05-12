@@ -74,6 +74,9 @@ importers:
       '@xyflow/react':
         specifier: ^12.10.2
         version: 12.10.2(@types/react@19.2.14)(immer@10.2.0)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
+      bech32:
+        specifier: ^2.0.0
+        version: 2.0.0
       chain-registry:
         specifier: ^1.63.37
         version: 1.69.557
