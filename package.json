@@ -30,6 +30,7 @@
     "@react-three/postprocessing": "^3.0.4",
     "@types/three": "^0.182.0",
     "@web3modal/standalone": "^2.4.3",
+    "@xyflow/react": "^12.10.2",
     "chain-registry": "^1.63.37",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
