@@ -25,6 +25,7 @@ export default function Home() {
   const [isAnimationReady, setIsAnimationReady] = useState(false);
   const addressOverride = searchParams.get("address")?.trim() || "";
   const tabOverride = searchParams.get("tab") as AnalyzerTabId | null;
+  const analyzerInstanceKey = addressOverride || "connected-wallet";
 
   useEffect(() => {
     applyPageMetadata({
@@ -105,6 +106,7 @@ export default function Home() {
                 style={{ animationDelay: "0.18s" }}
               >
                 <WalletAnalyzerSidebar
+                  key={`sidebar-${analyzerInstanceKey}`}
                   addressOverride={addressOverride || undefined}
                 />
               </div>
@@ -113,6 +115,7 @@ export default function Home() {
                 style={{ animationDelay: "0.22s" }}
               >
                 <WalletAnalyzerBoxes
+                  key={`boxes-${analyzerInstanceKey}`}
                   activeTab={activeTab}
                   onTabChange={setActiveTab}
                   addressOverride={addressOverride || undefined}
@@ -121,11 +124,13 @@ export default function Home() {
                 />
                 {!showTradingContent && activeTab === "portfolio" && (
                   <WalletAnalyzerPortfolio
+                    key={`portfolio-${analyzerInstanceKey}`}
                     addressOverride={addressOverride || undefined}
                   />
                 )}
                 {!showTradingContent && activeTab === "activities" && (
                   <WalletAnalyzerActivities
+                    key={`activities-${analyzerInstanceKey}`}
                     addressOverride={addressOverride || undefined}
                   />
                 )}
@@ -139,6 +144,7 @@ export default function Home() {
                 style={{ animationDelay: "0.26s" }}
               >
                 <WalletAnalyzerTable
+                  key={`table-${analyzerInstanceKey}`}
                   addressOverride={addressOverride || undefined}
                   timeframe={tradingTimeframe}
                 />

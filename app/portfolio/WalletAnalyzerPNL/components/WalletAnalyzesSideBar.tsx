@@ -51,6 +51,9 @@ const normalizeWalletApiBase = (value?: string) => {
 const HOLDINGS_API_ENDPOINTS = Array.from(
   new Set([normalizeWalletApiBase(process.env.NEXT_PUBLIC_WALLET_HOLDINGS_API)])
 );
+const WALLET_ANALYZER_REQUEST_TIMEOUT_MS = 30000;
+const WALLET_CHART_RETRY_COUNT = 10;
+const WALLET_CHART_RETRY_DELAY_MS = 1200;
 
 const safeNumber = (value: unknown): number => {
   if (typeof value === "number") return value;
@@ -67,6 +70,9 @@ const buildUrl = (base: string, path: string) => {
   return `${normalizedBase}/${normalizedPath}`;
 };
 
+const wait = (ms: number) =>
+  new Promise((resolve) => window.setTimeout(resolve, ms));
+
 const fetchFromEndpoints = async (
   endpoints: string[],
   path: string,
@@ -75,6 +81,15 @@ const fetchFromEndpoints = async (
 ) => {
   let lastError: string | null = null;
   for (const endpoint of endpoints) {
+    const timeoutController = new AbortController();
+    const timeoutId = window.setTimeout(
+      () => timeoutController.abort(),
+      WALLET_ANALYZER_REQUEST_TIMEOUT_MS
+    );
+    const sourceSignal = init.signal;
+    const abortFromSource = () => timeoutController.abort();
+    sourceSignal?.addEventListener("abort", abortFromSource, { once: true });
+
     try {
       const url = buildUrl(endpoint, path);
       const headers = new Headers(init.headers || undefined);
@@ -82,6 +97,7 @@ const fetchFromEndpoints = async (
       apiHeaders.forEach((value, key) => headers.set(key, value));
       const res = await fetch(url, {
         ...init,
+        signal: timeoutController.signal,
         headers,
       });
       if (res.ok) {
@@ -91,10 +107,13 @@ const fetchFromEndpoints = async (
     } catch (err) {
       lastError =
         err instanceof Error
-          ? err.message
-          : typeof err === "string"
-          ? err
-          : "request failed";
+            ? err.message
+            : typeof err === "string"
+            ? err
+            : "request failed";
+    } finally {
+      window.clearTimeout(timeoutId);
+      sourceSignal?.removeEventListener("abort", abortFromSource);
     }
   }
   throw new Error(
@@ -179,6 +198,7 @@ export default function WalletAnalyzerSidebar({
       setLoadingValue(false);
       setChartData([]);
       setChartError(null);
+      setLoadingChart(false);
       return;
     }
 
@@ -186,18 +206,65 @@ export default function WalletAnalyzerSidebar({
     let active = true;
 
     const loadWalletData = async () => {
-      // Load wallet value
       setLoadingValue(true);
       setValueError(null);
-
-      // Load chart data
       setLoadingChart(true);
       setChartError(null);
+      setChartData([]);
 
-      try {
-        // Fetch wallet holdings for total value
-        const [holdingsResponse, chartResponse] = await Promise.all([
-          fetchFromEndpoints(
+      const loadChartSeries = async () => {
+        for (let attempt = 1; attempt <= WALLET_CHART_RETRY_COUNT; attempt += 1) {
+          try {
+            const chartResponse = (await fetchFromEndpoints(
+              HOLDINGS_API_ENDPOINTS,
+              `wallets/${encodeURIComponent(
+                address
+              )}/portfolio/value-series?win=30d&tf=1h`,
+              {
+                cache: "no-store",
+                signal: controller.signal,
+                headers: { Accept: "application/json" },
+              },
+              "wallet value series"
+            )) as WalletValueResponse;
+
+            if (!active) return;
+            const points = Array.isArray(chartResponse?.points)
+              ? chartResponse.points
+              : [];
+
+            if (points.length > 0) {
+              const formattedData = points.map((point) => ({
+                time: formatDate(point.t),
+                value: safeNumber(point.value_usd),
+              }));
+              const lastPoint = formattedData[formattedData.length - 1];
+              setChartData(formattedData);
+              setWalletValue((current) =>
+                current > 0 ? current : safeNumber(lastPoint?.value)
+              );
+              setValueError(null);
+              setChartError(null);
+              setLoadingChart(false);
+              return;
+            }
+          } catch (err) {
+            if (!active || controller.signal.aborted) return;
+          }
+
+          if (attempt < WALLET_CHART_RETRY_COUNT) {
+            await wait(WALLET_CHART_RETRY_DELAY_MS);
+          }
+        }
+
+        if (!active) return;
+        setChartError(null);
+        setLoadingChart(false);
+      };
+
+      const loadHoldingsValue = async () => {
+        try {
+          const holdingsResponse = await fetchFromEndpoints(
             HOLDINGS_API_ENDPOINTS,
             `wallets/${encodeURIComponent(
               address
@@ -208,23 +275,9 @@ export default function WalletAnalyzerSidebar({
               headers: { Accept: "application/json" },
             },
             "wallet holdings"
-          ),
-          fetchFromEndpoints(
-            HOLDINGS_API_ENDPOINTS,
-            `wallets/${encodeURIComponent(
-              address
-            )}/portfolio/value-series?win=30d&tf=1h`,
-            {
-              cache: "no-store",
-              signal: controller.signal,
-              headers: { Accept: "application/json" },
-            },
-            "wallet value series"
-          ) as Promise<WalletValueResponse>,
-        ]);
+          );
 
-        // Process wallet value
-        if (active) {
+          if (!active) return;
           const items = Array.isArray(holdingsResponse?.items)
             ? holdingsResponse.items
             : [];
@@ -233,30 +286,19 @@ export default function WalletAnalyzerSidebar({
             return sum + valueUsd;
           }, 0);
           setWalletValue(total);
-        }
-
-        // Process chart data
-        if (active && chartResponse?.points?.length > 0) {
-          const formattedData = chartResponse.points.map((point) => ({
-            time: formatDate(point.t),
-            value: point.value_usd,
-          }));
-          setChartData(formattedData);
-        } else if (active) {
-          setChartError("No chart data available");
-        }
-      } catch (err) {
-        if (!active) return;
-        const message =
-          err instanceof Error ? err.message : "Failed to load wallet data";
-        setValueError(message);
-        setChartError(message);
-      } finally {
-        if (active) {
+          setValueError(null);
+        } catch (err) {
+          if (!active || controller.signal.aborted) return;
+          const message =
+            err instanceof Error ? err.message : "Failed to load wallet data";
+          setValueError(message);
+        } finally {
+          if (!active) return;
           setLoadingValue(false);
-          setLoadingChart(false);
         }
-      }
+      };
+
+      await Promise.allSettled([loadChartSeries(), loadHoldingsValue()]);
     };
 
     loadWalletData();

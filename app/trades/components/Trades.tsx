@@ -373,10 +373,7 @@ const Trades = ({
   };
 
   const determineEntityClass = (trade: Trade): Trade["class"] => {
-    const value = trade.valueNative ?? trade.valueUsd ?? 0;
-    if (value >= 10000) return "whale";
-    if (value >= 1000) return "shark";
-    return "shrimp";
+    return getTradeClass(trade.valueNative ?? 0);
   };
 
   const truncateAddress = (addr: string) =>
@@ -563,8 +560,9 @@ const Trades = ({
   };
 
   const getTradeClass = (zigAmount: number = 0): Trade["class"] => {
-    if (zigAmount >= 10000) return "whale";
-    if (zigAmount >= 1000) return "shark";
+    const size = Math.abs(zigAmount);
+    if (size >= 10000) return "whale";
+    if (size >= 1000) return "shark";
     return "shrimp";
   };
 
@@ -632,6 +630,14 @@ const Trades = ({
         offerAmount,
         returnAmount
       );
+      const valueNative = Number(
+        tradeData.valueNative ??
+          tradeData.value_native ??
+          tradeData.valueNativeAmount ??
+          tradeData.value_native_amount ??
+          0
+      );
+      const classAmount = zigAmount || valueNative;
 
       const priceUsd = Number(
         tradeData.price_in_usd ??
@@ -660,11 +666,11 @@ const Trades = ({
         askSymbol: tradeData.ask_symbol ?? tradeData.askSymbol ?? undefined,
         askImage: tradeData.ask_image ?? tradeData.askImage ?? undefined,
         returnAmount,
-        valueNative: zigAmount || undefined,
+        valueNative: classAmount || undefined,
         valueUsd,
         priceUsd,
         signer: tradeData.signer ?? "",
-        class: getTradeClass(zigAmount),
+        class: getTradeClass(classAmount),
       };
     } catch (error) {
       console.error("Error parsing trade from stream:", error);
@@ -707,6 +713,14 @@ const Trades = ({
       offerAmount,
       returnAmount
     );
+    const valueNative = Number(
+      trade.valueNative ??
+        trade.value_native ??
+        trade.valueNativeAmount ??
+        trade.value_native_amount ??
+        0
+    );
+    const classAmount = zigAmount || valueNative;
 
     return {
       time: trade.time ?? trade.created_at ?? "",
@@ -720,11 +734,11 @@ const Trades = ({
       askSymbol: trade.askSymbol ?? trade.ask_symbol ?? undefined,
       askImage: trade.askImage ?? trade.ask_image ?? undefined,
       returnAmount,
-      valueNative: Number(trade.valueNative ?? zigAmount ?? 0) || undefined,
+      valueNative: classAmount || undefined,
       valueUsd: Number(trade.valueUsd ?? trade.value_usd ?? 0),
       priceUsd: Number(trade.priceUsd ?? trade.price_usd ?? 0),
       signer: trade.signer ?? "",
-      class: getTradeClass(zigAmount),
+      class: getTradeClass(classAmount),
     };
   };
 
@@ -1002,7 +1016,7 @@ const Trades = ({
         return false;
       }
 
-      const value = trade.valueNative ?? trade.valueUsd ?? 0;
+      const value = Math.abs(trade.valueNative ?? 0);
       if (filters.valueRange === "< 1K ZIG" && value >= 1000) return false;
       if (
         filters.valueRange === "1K - 10K ZIG" &&

@@ -43,10 +43,34 @@ export const normalizeDashboardToken = (token: RawRecord) => ({
   ),
 });
 
+const normalizeDenomForZigCheck = (denom?: string) =>
+  (denom ?? "").replace(/^ibc\/\w+\//, "").toLowerCase();
+
+const isZigDenom = (denom?: string) =>
+  normalizeDenomForZigCheck(denom).includes("uzig");
+
+const getZigSideAmount = (trade: RawRecord) => {
+  const direction = trade.direction === "sell" ? "sell" : "buy";
+  const offerDenom = trade.offerDenom ?? trade.offer_denom ?? "";
+  const askDenom = trade.askDenom ?? trade.ask_denom ?? "";
+  const offerAmount = toFiniteNumber(trade.offerAmount ?? trade.offer_amount);
+  const returnAmount = toFiniteNumber(
+    trade.returnAmount ?? trade.return_amount ?? trade.askAmount ?? trade.ask_amount
+  );
+  const offeringZig = isZigDenom(offerDenom);
+  const askingZig = isZigDenom(askDenom);
+
+  if (direction === "buy" && offeringZig) return offerAmount;
+  if (direction === "sell" && askingZig) return returnAmount;
+  if (offeringZig) return offerAmount;
+  if (askingZig) return returnAmount;
+  return 0;
+};
+
 const inferTradeClass = (trade: RawRecord): Trade["class"] => {
-  const usdValue = toFiniteNumber(trade.valueUsd);
-  const nativeValue = toFiniteNumber(trade.valueNative);
-  const size = usdValue > 0 ? usdValue : nativeValue;
+  const zigAmount = getZigSideAmount(trade);
+  const nativeValue = toFiniteNumber(trade.valueNative ?? trade.value_native);
+  const size = Math.abs(zigAmount || nativeValue);
 
   if (size < 1000) return "shrimp";
   if (size < 10000) return "shark";
@@ -74,8 +98,5 @@ export const normalizeTrade = (trade: RawRecord): Trade => ({
   priceUsd: toFiniteNumber(trade.priceUsd),
   valueNative: toFiniteNumber(trade.valueNative),
   valueUsd: toFiniteNumber(trade.valueUsd),
-  class:
-    trade.class === "whale" || trade.class === "shark" || trade.class === "shrimp"
-      ? trade.class
-      : inferTradeClass(trade),
+  class: inferTradeClass(trade),
 });

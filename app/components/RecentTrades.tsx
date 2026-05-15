@@ -378,6 +378,13 @@ const mapApiTradeToLocal = (trade: any): Trade => {
     offerAmount,
     returnAmount
   );
+  const valueNative = numericField(
+    trade.valueNative,
+    trade.value_native,
+    trade.valueNativeAmount,
+    trade.value_native_amount
+  );
+  const zigClassAmount = zigAmount || valueNative;
 
   return {
     time: trade.time ?? new Date().toISOString(),
@@ -422,12 +429,7 @@ const mapApiTradeToLocal = (trade: any): Trade => {
       trade.ask?.image
     ),
     returnAmount,
-    valueNative: numericField(
-      trade.valueNative,
-      trade.value_native,
-      trade.valueNativeAmount,
-      trade.value_native_amount
-    ),
+    valueNative,
     valueUsd: numericField(
       trade.valueUsd,
       trade.value_usd,
@@ -449,7 +451,7 @@ const mapApiTradeToLocal = (trade: any): Trade => {
     ),
     signer: trade.signer ?? "",
     pairContract: trade.pairContract ?? trade.pair_contract ?? "",
-    class: trade.class || getTradeClass(zigAmount),
+    class: getTradeClass(Math.abs(zigClassAmount)),
   };
 };
 
@@ -897,6 +899,14 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
         zigAmountHuman = returnAmount;
         tokenAmountHuman = offerAmount;
       }
+      const derivedZigAmount =
+        getZigSideAmount(
+          offerDenom,
+          askDenom,
+          direction,
+          offerAmount,
+          returnAmount
+        ) || zigAmountHuman;
 
       const priceInZig = numericField(
         tradeData.priceNative,
@@ -1010,7 +1020,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           tradeData.pair_contract ??
           tradeData.pairContract ??
           "",
-        class: getTradeClass(zigAmountHuman),
+        class: getTradeClass(Math.abs(derivedZigAmount)),
       };
     } catch (error) {
       console.error("Error parsing trade from stream:", error);

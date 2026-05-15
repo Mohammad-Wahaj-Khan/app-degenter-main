@@ -532,13 +532,15 @@ export default function SearchBar({
                           <div className="border-t border-white/10 px-3 py-3 flex items-center justify-between gap-3">
                             <button
                               type="button"
-                              onClick={() =>
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                closeModal(event);
                                 router.push(
                                   `/portfolio?address=${encodeURIComponent(
                                     walletMatch
                                   )}`
-                                )
-                              }
+                                );
+                              }}
                               className="text-left text-sky-400 text-sm truncate hover:text-sky-300"
                               title={walletMatch}
                             >

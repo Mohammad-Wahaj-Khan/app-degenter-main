@@ -44,12 +44,18 @@ const timeframeToWin: Record<TradingTimeframe, string> = {
   "10d": "10d",
   "1M": "30d",
 };
+const WALLET_ANALYZER_REQUEST_TIMEOUT_MS = 30000;
+const WALLET_CHART_RETRY_COUNT = 10;
+const WALLET_CHART_RETRY_DELAY_MS = 1200;
 
 const normalizeWalletApiBase = (value?: string) => {
   const trimmed = (value ?? "").trim();
   if (!trimmed || /undefined|null/i.test(trimmed)) return API_BASE_URL;
   return trimmed;
 };
+
+const wait = (ms: number) =>
+  new Promise((resolve) => window.setTimeout(resolve, ms));
 
 type PnlTokenItem = {
   last_active?: string;
@@ -124,37 +130,45 @@ export default function WalletAnalyzer({
     let active = true;
 
     const loadPortfolioSeries = async () => {
-      setPortfolioSeries((prev) => ({ ...prev, loading: true, error: null }));
-      try {
-        const win = timeframeToWin[timeframe];
-        const response = await fetchFromEndpoints(
-          apiEndpoints,
-          `wallets/${encodeURIComponent(
-            address
-          )}/portfolio/value-series?win=${encodeURIComponent(win)}&tf=1h`,
-          {
-            signal: controller.signal,
-            headers: { Accept: "application/json" },
-            cache: "no-store",
-          },
-          "portfolio series"
-        );
+      setPortfolioSeries({ points: [], loading: true, error: null });
+      const win = timeframeToWin[timeframe];
 
-        if (active) {
-          setPortfolioSeries({
-            points: response.points || [],
-            loading: false,
-            error: null,
-          });
+      for (let attempt = 1; attempt <= WALLET_CHART_RETRY_COUNT; attempt += 1) {
+        try {
+          const response = await fetchFromEndpoints(
+            apiEndpoints,
+            `wallets/${encodeURIComponent(
+              address
+            )}/portfolio/value-series?win=${encodeURIComponent(win)}&tf=1h`,
+            {
+              signal: controller.signal,
+              headers: { Accept: "application/json" },
+              cache: "no-store",
+            },
+            "portfolio series"
+          );
+
+          if (!active) return;
+          const points = Array.isArray(response?.points) ? response.points : [];
+          if (points.length > 0) {
+            setPortfolioSeries({
+              points,
+              loading: false,
+              error: null,
+            });
+            return;
+          }
+        } catch (err) {
+          if (!active || controller.signal.aborted) return;
         }
-      } catch (err) {
-        if (!active) return;
-        setPortfolioSeries({
-          points: [],
-          loading: false,
-          error: err instanceof Error ? err.message : "Failed to load",
-        });
+
+        if (attempt < WALLET_CHART_RETRY_COUNT) {
+          await wait(WALLET_CHART_RETRY_DELAY_MS);
+        }
       }
+
+      if (!active) return;
+      setPortfolioSeries({ points: [], loading: false, error: null });
     };
 
     loadPortfolioSeries();
@@ -222,6 +236,15 @@ export default function WalletAnalyzer({
   ) => {
     let lastError: string | null = null;
     for (const endpoint of endpoints) {
+      const timeoutController = new AbortController();
+      const timeoutId = window.setTimeout(
+        () => timeoutController.abort(),
+        WALLET_ANALYZER_REQUEST_TIMEOUT_MS
+      );
+      const sourceSignal = init.signal;
+      const abortFromSource = () => timeoutController.abort();
+      sourceSignal?.addEventListener("abort", abortFromSource, { once: true });
+
       try {
         const url = buildUrl(endpoint, path);
         const headers = new Headers(init.headers || undefined);
@@ -229,6 +252,7 @@ export default function WalletAnalyzer({
         apiHeaders.forEach((value, key) => headers.set(key, value));
         const res = await fetch(url, {
           ...init,
+          signal: timeoutController.signal,
           headers,
         });
         if (res.ok) {
@@ -242,6 +266,9 @@ export default function WalletAnalyzer({
             : typeof err === "string"
             ? err
             : "request failed";
+      } finally {
+        window.clearTimeout(timeoutId);
+        sourceSignal?.removeEventListener("abort", abortFromSource);
       }
     }
     throw new Error(

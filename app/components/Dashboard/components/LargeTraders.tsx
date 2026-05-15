@@ -54,7 +54,7 @@ const LARGE_TRADES_UNIT = "usd";
 const itemsPerPage = 7;
 const POLLING_BASE_INTERVAL_MS = 15000;
 const POLLING_MAX_INTERVAL_MS = 120000;
-const LARGE_TRADES_CACHE_PREFIX = "degenter_dashboard_large_trades";
+const LARGE_TRADES_CACHE_PREFIX = "degenter_dashboard_large_trades_v2";
 const LARGE_TRADES_CACHE_DURATION = 2 * 60 * 1000;
 
 type TradeFilter = "all" | "whale" | "shark" | "shrimp";

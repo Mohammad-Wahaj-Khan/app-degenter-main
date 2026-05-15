@@ -114,8 +114,11 @@ const Dashboard: React.FC = () => {
   >({});
   const skipLoadingRef = useRef(false);
   const pollingRef = useRef<number | null>(null);
+  const retryTimeoutRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const currentPageRef = useRef(currentPage);
+  const tokensRef = useRef<Token[]>([]);
+  const newListingsRef = useRef<Token[]>([]);
 
   useEffect(() => {
     volumeChangesRef.current = volumeChanges;
@@ -125,10 +128,18 @@ const Dashboard: React.FC = () => {
     currentPageRef.current = currentPage;
   }, [currentPage]);
 
+  useEffect(() => {
+    tokensRef.current = tokens;
+  }, [tokens]);
+
+  useEffect(() => {
+    newListingsRef.current = newListings;
+  }, [newListings]);
+
   const TOP_TOKENS_FETCH_LIMIT = 500;
   const newListingsLimit = 100; // show all new listings (up to API limit)
   const POLL_INTERVAL = 30000; // 30s
-  const MAX_RETRY = 3;
+  const MAX_RETRY = 10;
 
   // Helper to parse total items from a variety of API shapes:
   function extractTotalCount(resp: any, fallbackCount: number) {
@@ -185,6 +196,8 @@ const Dashboard: React.FC = () => {
     const cached = readDashboardCache();
     if (cached && cached.page === currentPage && cached.tokens.length > 0) {
       prevTokensRef.current = cached.tokens;
+      tokensRef.current = cached.tokens;
+      newListingsRef.current = cached.newListings || [];
       const cachedVolumeChanges = cached.volumeChanges || {};
       volumeChangesRef.current = cachedVolumeChanges;
       setVolumeChanges(cachedVolumeChanges);
@@ -212,7 +225,7 @@ const Dashboard: React.FC = () => {
       if (!opts?.isPolling) {
         if (skipLoadingRef.current) {
           skipLoadingRef.current = false;
-        } else {
+        } else if (!tokensRef.current.length) {
           setLoading(true);
         }
       }
@@ -250,7 +263,7 @@ const Dashboard: React.FC = () => {
           const bTime = Date.parse(String(b.creationTime ?? 0)) || 0;
           return bTime - aTime;
         });
-        setNewListings(newListingsData.slice(0, 10));
+        const latestListings = newListingsData.slice(0, 10);
 
         const filteredTokens = rawTokens.filter((token: any) => token?.symbol);
         const tokensData: Token[] = filteredTokens.map((token: any) =>
@@ -258,7 +271,23 @@ const Dashboard: React.FC = () => {
         );
 
         if (!tokensData.length) {
+          if (tokensRef.current.length || newListingsRef.current.length) {
+            setError(null);
+            return;
+          }
+
+          if (tryNum < MAX_RETRY) {
+            const nextTry = tryNum + 1;
+            const backoffMs = Math.min(1500 * nextTry, 10000);
+            retryTimeoutRef.current = window.setTimeout(() => {
+              fetchTokens({ isPolling: true, tryNum: nextTry });
+            }, backoffMs);
+            return;
+          }
+
           prevTokensRef.current = [];
+          tokensRef.current = [];
+          newListingsRef.current = [];
           setTokens([]);
           setTrades([]);
           setTotalItems(0);
@@ -274,6 +303,9 @@ const Dashboard: React.FC = () => {
           });
           return;
         }
+
+        setNewListings(latestListings);
+        newListingsRef.current = latestListings;
 
         // Trades (don't block token rendering if this fails)
         let filteredTrades: Trade[] = [];
@@ -338,6 +370,7 @@ const Dashboard: React.FC = () => {
 
         const mergedTokens = mergeTokens(prevTokensRef.current, tokensData);
         prevTokensRef.current = mergedTokens;
+        tokensRef.current = mergedTokens;
         setTokens(mergedTokens);
 
         setError(null);
@@ -361,19 +394,23 @@ const Dashboard: React.FC = () => {
 
         setError(null);
 
-        // exponential backoff retry if transient and we haven't exceeded MAX_RETRY
-        if (opts?.tryNum === undefined || opts.tryNum < MAX_RETRY) {
+        // Keep the dashboard in a loading state until 10 attempts fail when
+        // there is no previous data to render. Background failures keep the
+        // last successful snapshot visible.
+        if (!tokensRef.current.length && tryNum < MAX_RETRY) {
           const nextTry = (opts?.tryNum ?? 0) + 1;
-          const backoffMs = Math.min(2000 * Math.pow(2, nextTry), 15000);
-          setTimeout(() => {
+          const backoffMs = Math.min(1500 * nextTry, 10000);
+          retryTimeoutRef.current = window.setTimeout(() => {
             fetchTokens({ isPolling: true, tryNum: nextTry });
           }, backoffMs);
         }
       } finally {
-        setLoading(false);
+        if (tokensRef.current.length || tryNum >= MAX_RETRY) {
+          setLoading(false);
+        }
       }
     },
-    [newListings.length, tokens.length]
+    []
   );
 
   // set up polling only once (when component mounts) and when currentPage changes we trigger immediate fetch
@@ -397,6 +434,10 @@ const Dashboard: React.FC = () => {
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
+      }
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
       }
       if (abortRef.current) {
         try {
