@@ -2,7 +2,6 @@
 import { tokenApiRef } from "@/lib/token-routing";
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "";
-console.log("API Base URL:", DEFAULT_BASE_URL);
 const normalizeBaseUrl = (value?: string) => {
   if (!value) return DEFAULT_BASE_URL;
   const trimmed = value.trim();
